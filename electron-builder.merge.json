@@ -1,0 +1,15 @@
+{
+  "appId": "local.plate.mission.preview.ui7relations",
+  "extraMetadata": { "productName": "Plate UI 候选", "version": "0.2.0-r9-ui.7-relations.1" },
+  "directories": { "output": "release/ui7-relations-r1" },
+  "files": ["out/**", "package.json"],
+  "win": { "signAndEditExecutable": false, "executableName": "Plate-UI7-Relations" },
+  "extraResources": [
+    { "from": "native/managed.node", "to": "managed.node" },
+    { "from": "native/firstrun-directory.node", "to": "firstrun-directory.node" },
+    { "from": "native/m45-terminal.node", "to": "m45-terminal.node" },
+    { "from": "native/CodexDesktopBroker.exe", "to": "m45-desktop/CodexDesktopBroker.exe" }
+  ],
+  "asarUnpack": ["out/main/native/**"],
+  "npmRebuild": false
+}

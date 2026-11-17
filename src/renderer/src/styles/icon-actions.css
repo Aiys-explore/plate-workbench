@@ -1,0 +1,28 @@
+.plate-ui .plate-tool-icon {
+  position: relative; display:inline-flex; align-items:center; justify-content:center;
+  width:30px; min-width:30px; height:30px; padding:0; vertical-align:middle; flex-shrink:0;
+}
+.plate-tool-icon svg { flex:none; pointer-events:none; }
+.plate-tool-hint {
+  position:absolute; z-index:30; top:calc(100% + 4px); right:0; width:max-content; max-width:180px;
+  padding:4px 8px; border-radius:6px; background:var(--color-text-primary); color:var(--color-surface-editor);
+  font:500 12px/17px "Segoe UI","Microsoft YaHei",sans-serif;
+  opacity:0; visibility:hidden; pointer-events:none;
+}
+.plate-tool-icon:is(:hover,:focus-visible) .plate-tool-hint { opacity:1; visibility:visible; }
+.relationship-camera-tools .plate-tool-hint { top:auto;bottom:calc(100% + 6px); }
+.plate-ui .note-create-panel { justify-content:flex-end; }
+.plate-ui .note-create-panel > .plate-tool-icon:first-child { width:32px;flex:0 0 32px; }
+.notes-filter-trigger > small { position:absolute; right:-2px;top:-4px;min-width:12px; font-size:9px; border-radius:8px;background:var(--accent-bg-surface); }
+.note-tag-bar {
+  display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;
+  width:100%;max-width:var(--plate-reading-width,780px);margin:0 auto;padding:0 0 6px;
+  color:var(--color-text-secondary);font-size:12px;
+}
+.note-tag-caption { font-size:11px; }
+.note-tag-chip { display:inline-flex;align-items:center;gap:4px;padding:2px 7px; max-width:100%; overflow-wrap:anywhere;
+  border-radius:10px;background:var(--accent-bg-surface);color:var(--color-accent-text); }
+.plate-ui .note-tag-chip button { min-width:18px;min-height:18px;width:18px;height:18px;padding:0; }
+.note-tag-form { display:flex;flex-wrap:wrap;align-items:center;width:100%;gap:5px; }
+.note-tag-form input { min-width:75px;max-width:min(100%,220px);padding:4px 7px;font:inherit; }
+.note-tag-form small { flex-basis:100%;font-size:11px; }

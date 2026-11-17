@@ -1,0 +1,48 @@
+dialog.p11-native {
+  border:0; padding:0; background:transparent; overflow:visible; margin:auto;
+  max-width:none; max-height:none; color:var(--color-text-primary);
+}
+dialog.p11-native::backdrop {background:var(--color-surface-overlay);}
+.p11-native .p11-modal {box-shadow:var(--shadow-level-4);}
+.p11-native [aria-disabled=true] {cursor:default; opacity:.62;}
+.p11-modal-body dl div {display:flex;justify-content:space-between;gap:12px;}
+.p11-modal-body dt, .p11-modal-body dd {margin:0;}
+.p11-modal-body .p11-candidate code, .p11-modal-body .p11-card code {display:block;}
+.p11-native .p11-literal {line-height:20px;}
+.p11-inline {display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;min-width:0;}
+.p11-inline details {max-width:100%;}
+.p11-inline details[open] button {display:block;margin:4px 0;}
+.p11-task-actions {display:grid;gap:5px;margin-block:8px;padding:8px;border-radius:6px;background:var(--color-surface-bar);}
+.p11-tasks h3 {font-size:13px;}
+.p11-agent-targets {display:flex;flex-wrap:wrap;gap:3px;padding:4px 8px;}
+.p11-agent-target {padding:5px 8px;border-radius:4px;background:var(--color-surface-bar);overflow-wrap:anywhere;}
+.p11-drag-source {touch-action:none;cursor:grab;}
+.p11-drag-ghost {position:fixed;top:0;left:0;z-index:499;pointer-events:none;max-width:240px;padding:6px 10px;
+  background:var(--color-surface-bar); color:var(--color-text-primary);outline:2px solid var(--color-accent-text);
+  border-radius:6px;overflow-wrap:anywhere;}
+[data-p11-drop=valid] {outline:2px solid var(--color-functional-success-text);}
+[data-p11-drop=invalid] {outline:2px solid var(--color-functional-danger-text);}
+.p11-drop-feedback {display:block;font-size:12px;line-height:16px;}
+.p11-drop-feedback:empty {display:none;}
+.p11-live {position:fixed;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
+
+
+.p11-btn.p11-btn--danger {
+  background: var(--functional-danger-text, #ab2842);
+  color: white;
+}
+.p11-recovery-state {
+  position: fixed;
+  z-index: 420;
+  inset: auto 12px 12px;
+  max-width: 720px;
+  padding: 12px;
+  border: 1px solid var(--functional-danger-text, #ab2842);
+  border-radius: 8px;
+  background: var(--surface-panel, Canvas);
+  color: var(--text-primary, CanvasText);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

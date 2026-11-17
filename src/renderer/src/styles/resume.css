@@ -1,0 +1,167 @@
+/* M4.1 样式子包 · P06 会话身份区 / P10 等待与手动恢复 · 静态片段
+ *
+ * 值来源（只落实定稿可查值）：
+ * - D1.V2：src/renderer/src/styles/tokens.css（geometry、spacing、focus、motion）
+ * - P06：design/pages/P06.md（正文身份可读、可选、可折行；停用键附原因）；
+ *   design/03-elements-p05-p06.csv P06.head.back（textButton 13/18、focus 2px）
+ * - P10：design/pages/P10.md（恢复卡 6px 圆角、8px/12px 内距、分隔边界；
+ *   按钮 32px / min 56px / 8px 间距、焦点 2px offset=0；pill 沿 D1 22px）
+ * - 现有控件基线：src/renderer/src/styles/workbench.css（button 基类）、
+ *   src/renderer/src/styles/agent-sessions.css（.session-badge / .session-disabled）
+ *
+ * 本文件只做静态样式。复制动作、剪贴板、状态判定与接线由 Sol 负责；
+ * 反馈文字是否成功/失败由 data-result 语义属性表达，不伪造能力。
+ */
+
+/* ── P06 · 会话身份区 ─────────────────────────────────────────────── */
+
+.session-identity-facts {
+  display: grid;
+  gap: var(--spacing-1);
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-ui-small);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.session-identity-facts > div { min-width: 0; }
+
+/* 全名 / 身份 / 目录 / 会话键：正文可读、可选、可折行（P06.md 进入退出节） */
+.session-identity-value {
+  margin: 0;
+  color: var(--color-text-primary);
+  user-select: text;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 会话键等长 ID：等宽字体便于核对；窄列断行不断布局 */
+.session-identity-value[data-kind='id'] {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-code);
+}
+
+/* 中文目录路径：任意点折行，不产生横滚 */
+.session-identity-value[data-kind='path'] {
+  overflow-wrap: anywhere;
+}
+
+/* 身份区动作行：沿用现有 25px 小按钮与 5px 间距（agent-sessions.css 同类） */
+.session-identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.session-identity-actions button {
+  height: 25px;
+  font-size: var(--font-size-ui-small);
+  transition:
+    background-color var(--motion-functional-duration) var(--transition-fast-easing),
+    border-color var(--motion-functional-duration) var(--transition-fast-easing);
+}
+
+/* 复制反馈：aria-live 区由 Sol 接线；本样式只区分成功/失败文案颜色。
+ * 缺项：P06 定稿未给出成功/失败专用颜色 ID，
+ * 暂用 D1 语义 done / error 前景色的同类现有取值，需定稿后回填。 */
+.session-copy-feedback {
+  min-width: 0;
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+.session-copy-feedback[data-result='success'] { color: var(--color-semantic-done-text); }
+.session-copy-feedback[data-result='failure'] { color: var(--color-semantic-error-text); }
+
+/* 停用「跳回客户端」：沿用现有 button:disabled 外观，旁边常显可读原因。
+ * 缺项：停用态的专用样式无独立 design ID，沿用全局 button:disabled。 */
+.session-jumpback-reason {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* ── P10 · 等待 / 手动恢复卡 ──────────────────────────────────────── */
+
+/* 恢复卡：圆角 6px、内距 8px/12px、1px 分隔边界（P10.md 定稿）；
+ * 底色沿 P03 编辑器实际底色 surface.editor 解析（P10.md 真实色值规则）。 */
+.task-resume-card {
+  min-width: 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-editor);
+  color: var(--color-text-primary);
+}
+
+.task-resume-card > * + * { margin-block-start: var(--spacing-1); }
+
+/* 恢复原因 / 身份说明：13/18 与 D1 UI 动作文字一致 */
+.task-resume-reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+  overflow-wrap: anywhere;
+}
+
+/* 等待原文 / 会话身份：可选择字面文本，保留行分隔、长串软折（P10.md PENDING 节） */
+.task-resume-raw {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-markdown-body);
+  line-height: var(--line-height-markdown-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* 动作行：按钮 32px、最小 56px、间距 8px，按 DOM 顺序换行（P10.md 定稿）。
+ * pill 复用现有 .session-badge（同为 D1 22px 状态标签），不新增样式。 */
+.task-resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.task-resume-actions button {
+  height: var(--component-button-height);
+  min-width: 56px;
+  max-width: 100%;
+  padding: 6px 8px;
+  transition:
+    background-color var(--motion-functional-duration) var(--transition-fast-easing),
+    border-color var(--motion-functional-duration) var(--transition-fast-easing);
+}
+
+/* P10 定稿：焦点线 2px、普通按钮内绘、offset=0（覆盖全局 offset 2px） */
+.task-resume-actions button:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+/* 减少动效：P10 定稿要求按钮过渡关闭。workbench.css 全局
+ * `* { transition-duration: var(--motion-functional-duration) !important }`
+ * 会压过普通局部声明；本包用更具体的选择器 + !important（同为 !important
+ * 时按特异性取胜）只覆盖恢复按钮，不影响其他控件状态。 */
+@media (prefers-reduced-motion: reduce) {
+  .task-resume-actions button {
+    transition-duration: var(--motion-reduced-decorative-duration) !important;
+  }
+}
+
+.resume-panel { min-width: 0; max-width: 100%; display: grid; gap: var(--spacing-1); }
+.resume-panel > p, .resume-reason { margin: 0; overflow-wrap: anywhere; }
+.resume-reason { font-size: var(--font-size-ui-small); color: var(--color-text-secondary); }
+.resume-panel button, .resume-open { max-width: 100%; }
+.resume-panel .task-resume-actions button { height: auto; min-height: var(--component-button-height); }
+.resume-panel .session-identity-actions button { height: auto; min-height: 25px; }
+.resume-panel button[aria-disabled='true'] { opacity: .65; }
+.session-card-panel .session-group { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.session-card-panel .session-card-slots { min-width: 0; }

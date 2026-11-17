@@ -1,0 +1,650 @@
+/* M4.2 · P11 项目与绑定管理 · 限定作用域静态样式
+ *
+ * 只写样式，不含任何业务后端、IPC、事务或数据判定。Sol 接入时按本文的
+ * 语义 class/属性接线；文字内容由 Sol 从已验证快照填入。
+ *
+ * 值来源（全部为已定稿可查值，未新增 token）：
+ * - D1.V2 token：tokens.css（仓库 src/renderer/src/styles 目录下）：几何、间距、圆角、
+ *   焦点宽度、过渡时长、模态圆角、按钮高度等）
+ * - D1 颜色：src/renderer/src/styles/light.css / dark.css（.theme-light /
+ *   .theme-dark 下的 --color-* 语义变量）
+ * - D1 按钮/输入状态表：design/01-design-system.md §5.1 / §5.2
+ * - P11 元素表：design/03-elements-p11.csv（44 字段，可直接解析值）
+ * - P11 规则：design/d2-p11-rules.json（dimensions / keyboard / boundaries）
+ * - P11 页面：design/pages/P11.md（= design/02-pages.md D2.P11）
+ * - 少边框要求：design/D5-runtime-grid-amendment.md「少边框」行
+ *
+ * 作用域：所有选择器以 .p11- 前缀限定；不覆盖任何既有 .theme-* / button /
+ * input 全局规则，只在 .p11- 命名空间内重述需要的几何与状态。
+ */
+
+/* ── 0. 壳层几何（P11 §1「宿主和几何」） ───────────────────────────── */
+
+/* 遮罩：覆盖工作台，背景 inert 由 Sol 负责；点击不关闭由行为层负责。 */
+.p11-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-overlay);
+}
+
+/* 尺寸容器：壳宽 = min(760px, 100vw − 2×g)；g 在视口 <600px 时为 8，否则 16。
+ * container-type 让「壳宽 <600px → 12px 内边距／单列」按壳宽而非视口判断。 */
+.p11-modal-frame {
+  --p11-gutter: 16px;
+  width: min(760px, 100vw - 2 * var(--p11-gutter));
+  height: min(736px, 100vh - 2 * var(--p11-gutter));
+  height: min(736px, 100dvh - 2 * var(--p11-gutter));
+  container-type: inline-size;
+  container-name: p11;
+}
+
+@media (max-width: 599px) {
+  .p11-modal-frame {
+    --p11-gutter: 8px;
+  }
+}
+
+/* 壳本体：D1 modal 圆角、level4 阴影、明暗遮罩复用；边线计入壳（1px）。 */
+.p11-modal {
+  display: grid;
+  grid-template-rows: var(--component-modal-header-height) minmax(0, 1fr) var(--component-modal-footer-height);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-modal-radius);
+  background: var(--color-surface-bar);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+}
+
+.p11-modal *,
+.p11-modal *::before,
+.p11-modal *::after {
+  box-sizing: border-box;
+}
+
+/* 首栏：固定 48px，只有下缘一条 1px 装饰线（少边框：不加外框）。 */
+.p11-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 0 var(--spacing-6);
+  border-bottom: var(--border-width-line) solid var(--color-border-decorative);
+  background: var(--color-surface-bar);
+}
+
+.p11-modal-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  overflow-wrap: anywhere;
+}
+
+/* 标题可被程序聚焦（静态标题 tabindex=-1），不画焦点环。 */
+.p11-modal-title:focus {
+  outline: none;
+}
+
+/* 正文：唯一纵向滚动区；min-height:0 保证内部可滚；无横滚。 */
+.p11-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-height: 0;
+  min-width: 0;
+  padding: var(--spacing-3) var(--spacing-6);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--color-surface-bar);
+  scrollbar-gutter: stable;
+}
+
+/* 正文自身聚焦为内绘 2px、offset 0（P11.modal.body focus-visible）。 */
+.p11-modal-body:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+/* 滚动到焦点时的 8px 滚动边距（scroll-margin），焦点不被正文裁切。 */
+.p11-modal-body :is(button, a, input, select, textarea, [tabindex]) {
+  scroll-margin-block: var(--spacing-2);
+}
+
+/* 尾栏：固定 64px，右对齐操作，8px 间距，上下 6px。 */
+.p11-modal-tail {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 6px var(--spacing-6);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+  background: var(--color-surface-bar);
+}
+
+.p11-tail-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.p11-tail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+/* 壳宽 <600px：左右内边距 12px，身份卡单列（容器查询按壳宽判断）。 */
+@container p11 (max-width: 599px) {
+  .p11-modal-head,
+  .p11-modal-body,
+  .p11-modal-tail {
+    padding-inline: var(--spacing-3);
+  }
+}
+
+/* ── 1. 排版基元（元素表 p11Literal / title / workNote / workError） ─── */
+
+/* 正文文字 13/18：可选取、自然断行，完整身份可读（长中文路径与长 ID）。 */
+.p11-literal {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
+}
+
+.p11-literal[data-tone='secondary'] {
+  color: var(--color-text-secondary);
+}
+
+.p11-literal[data-tone='warning'] {
+  color: var(--color-functional-warning-text);
+}
+
+.p11-literal[data-tone='danger'] {
+  color: var(--color-functional-danger-text);
+}
+
+.p11-literal[data-tone='success'] {
+  color: var(--color-functional-success-text);
+}
+
+/* 标题 15/20（语义标题、候选名、影响分组标题）。 */
+.p11-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  overflow-wrap: anywhere;
+}
+
+/* 说明 12/16（workNote：帮助、空候选、尾栏提示、已读齐）。 */
+.p11-note {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* 错误 12/16（workError：字段错误、过期、结果未确认）。 */
+.p11-error {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-functional-danger-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* ── 2. 项目身份点（p11Dot：8px 圆点，与项目名同排、相隔 8px） ─────── */
+
+.p11-project-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p11-project-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+}
+
+/* 颜色只识别项目，不映射运行/警告含义；文字始终使用 D1 正常色。 */
+.p11-project-dot[data-color='default'] {
+  background: var(--color-text-secondary);
+}
+
+.p11-project-dot[data-color='blue'] {
+  background: var(--color-accent-text);
+}
+
+.p11-project-dot[data-color='green'] {
+  background: var(--color-functional-success-text);
+}
+
+.p11-project-dot[data-color='amber'] {
+  background: var(--color-functional-warning-text);
+}
+
+.p11-project-dot[data-color='red'] {
+  background: var(--color-functional-danger-text);
+}
+
+/* ── 3. 卡（p11Card：12px 内距、8px 组内距、9px 圆角、单条 1px 边） ─ */
+
+/* 少边框：卡只保留这一条功能性边；卡内不再加框，靠 8px 组内距分层。 */
+.p11-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: var(--component-card-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-card-radius);
+  background: var(--color-surface-side);
+  color: var(--color-text-primary);
+}
+
+/* 身份核对：原身份在前、目标在后；壳宽 ≥600px 两卡等宽同一行、间隔 12px。 */
+.p11-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+@container p11 (max-width: 599px) {
+  .p11-identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── 4. 项目列表 / 归属候选（P11 §3「cwd 归属、键盘等价和绑定」） ───── */
+
+.p11-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.p11-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: var(--component-card-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-card-radius);
+  background: var(--color-surface-side);
+}
+
+/* 已选中的候选用焦点色边表示（p11Choice selected），不另加色块。 */
+.p11-candidate[data-selected='true'] {
+  border-color: var(--color-border-focus);
+}
+
+.p11-candidate-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p11-candidate-name {
+  min-width: 0;
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  overflow-wrap: anywhere;
+}
+
+.p11-candidate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+/* 观测 cwd 与当前归属/继承说明：同一条字面文本样式，语义由文案承担。 */
+.p11-place {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
+}
+
+.p11-place-source {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* ── 5. 表单（项目名称 / 根目录 / 颜色；标签在上、组间 12px） ───────── */
+
+.p11-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.p11-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.p11-label {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-body);
+  overflow-wrap: anywhere;
+}
+
+/* 输入 32px / 6px 12px / 6px 圆角 / 1px 边界；editor 底色。 */
+.p11-input,
+.p11-select {
+  width: 100%;
+  min-width: 0;
+  height: var(--component-input-height);
+  padding: var(--component-input-padding);
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-input-radius);
+  background: var(--color-surface-editor);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-input-font-size);
+}
+
+.p11-input:focus-visible,
+.p11-select:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+.p11-input[aria-invalid='true'],
+.p11-select[aria-invalid='true'] {
+  border-width: var(--border-width-focus);
+  border-color: var(--color-functional-danger-text);
+}
+
+.p11-input:disabled,
+.p11-select:disabled {
+  background: var(--color-surface-control);
+  color: var(--color-text-disabled);
+}
+
+/* 根目录行的浏览键（次按钮，32px）。 */
+.p11-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+/* 颜色预览：圆点与项目名同排显示，并写出色名（文字始终为正常色）。 */
+.p11-color-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+  overflow-wrap: anywhere;
+}
+
+/* ── 6. 影响区（移动/解绑核对；删除只留接缝） ───────────────────────── */
+
+.p11-impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.p11-impact-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+/* 少边框：分组之间只留一条 1px 细线，不再给每组套框。 */
+.p11-impact-group + .p11-impact-group {
+  padding-top: var(--spacing-3);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+}
+
+.p11-impact-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+/* 状态标签：D1 statusPill（22px、4px 8px、11px 圆角、12px 图标 14px）。
+ * 不复用 .session-badge：它的 REVIEW 色调被 .session-card 限定。 */
+.p11-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--component-pill-icon-gap);
+  height: var(--component-pill-height);
+  padding: var(--component-pill-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-pill-radius);
+  background: var(--color-surface-control);
+  color: var(--color-text-secondary);
+  font-size: var(--component-pill-font-size);
+  font-weight: var(--component-pill-font-weight);
+  line-height: var(--line-height-ui-small);
+  white-space: nowrap;
+}
+
+.p11-pill[data-status='REVIEW'] {
+  color: var(--color-semantic-review-text);
+  background: var(--color-semantic-review-bg);
+  border-color: var(--color-semantic-review-border);
+}
+
+.p11-pill-icon {
+  flex: none;
+  width: var(--component-pill-icon-size);
+  height: var(--component-pill-icon-size);
+}
+
+/* ── 7. 按钮（D1 §5.1；P11 键 32px、次键 ≥64px、提交键 ≥96px） ─────── */
+
+.p11-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-1);
+  height: var(--component-button-height);
+  min-width: var(--component-button-min-width);
+  max-width: 100%;
+  padding: 6px var(--spacing-2);
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-button-radius);
+  background: var(--color-surface-control);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-button-font-size);
+  font-weight: var(--component-button-font-weight);
+  line-height: var(--line-height-ui-body);
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-fast-duration) var(--transition-fast-easing),
+    border-color var(--transition-fast-duration) var(--transition-fast-easing);
+  transition-delay: 0ms;
+}
+
+.p11-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-focus);
+}
+
+.p11-btn:active:not(:disabled) {
+  background: var(--color-surface-pressed);
+  border-color: var(--color-border-focus);
+  /* D1 pressed 的 top-inner-edge 2px 状态内线 */
+  box-shadow: inset 0 2px 0 0 var(--color-border-focus);
+}
+
+/* 次按钮焦点内绘 2px、offset 0（P11 元素表 focus_style）。 */
+.p11-btn:focus-visible,
+.p11-focus-sample {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+.p11-btn:disabled {
+  background: var(--color-surface-control);
+  border-color: var(--color-border-control);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+/* 已选候选/已选目标：焦点色边（p11Choice selected）。 */
+.p11-btn[aria-pressed='true'] {
+  border-color: var(--color-border-focus);
+}
+
+/* 主按钮（提交/归档/核对/确认归属/确认绑定/解除绑定）：≥96px，最右。 */
+.p11-btn--primary {
+  min-width: 96px;
+  padding: 6px var(--spacing-2);
+  border-color: transparent;
+  background: var(--color-accent-primary);
+  color: var(--color-text-inverse);
+}
+
+.p11-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: transparent;
+}
+
+.p11-btn--primary:active:not(:disabled) {
+  background: var(--color-accent-pressed);
+  border-color: transparent;
+  box-shadow: inset 0 2px 0 0 var(--color-text-inverse);
+}
+
+/* 主/危险按钮焦点为外偏移 2px（D1 §5.1）。 */
+.p11-btn--primary:focus-visible,
+.p11-btn--danger:focus-visible,
+.p11-focus-sample--outer {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.p11-btn--primary:disabled {
+  background: var(--color-surface-control);
+  border-color: transparent;
+  color: var(--color-text-disabled);
+}
+
+/* 危险按钮：删除确认用（本次仅保留样式接缝，不做删除流程）。 */
+.p11-btn--danger {
+  min-width: 96px;
+  padding: 6px var(--spacing-4);
+  border-color: transparent;
+  background: var(--color-functional-danger-text);
+  color: var(--color-text-inverse);
+}
+
+.p11-btn--danger:hover:not(:disabled) {
+  background: var(--color-functional-danger-hover);
+  border-color: transparent;
+}
+
+.p11-btn--danger:active:not(:disabled) {
+  background: var(--color-functional-danger-pressed);
+  border-color: transparent;
+  box-shadow: inset 0 2px 0 0 var(--color-functional-danger-active-on-deep-fill);
+}
+
+.p11-btn--danger:disabled {
+  background: var(--color-surface-control);
+  border-color: transparent;
+  color: var(--color-text-disabled);
+}
+
+/* 动作行：DOM 顺序换行，宽屏与窄屏都保留全部动作。 */
+.p11-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+/* 减动效：去掉 hover 过渡（0ms），保留功能态 100ms。
+ * workbench.css 在减动效下用 `* { transition-duration: 100ms !important }`
+ * 全局强制，本包以更具体的 hover 选择器 + !important 只覆盖 hover 过渡。 */
+@media (prefers-reduced-motion: reduce) {
+  .p11-btn:hover:not(:disabled) {
+    transition-duration: var(--motion-reduced-decorative-duration) !important;
+  }
+}
+
+/* ── 8. 删除接缝（仅样式占位，不实现删除流程） ─────────────────────── */
+
+/* M4.3 的删除预览不在本任务范围：这里只留下样式接口与可见的占位说明，
+ * 便于 Sol 后续接入时保持同一视觉语言；不提供任何删除数据或流程。 */
+.p11-delete-seam {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: var(--spacing-3);
+  border: var(--border-width-line) dashed var(--color-border-decorative);
+  border-radius: var(--component-card-radius);
+}

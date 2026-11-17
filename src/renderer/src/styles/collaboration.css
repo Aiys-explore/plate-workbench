@@ -1,0 +1,185 @@
+:root { --nav-rail-width: 228px; }
+
+.workbench-frame {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.nav-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: var(--nav-rail-width);
+  padding: 12px 14px;
+  border-right: 1px solid var(--color-border-decorative);
+  background: var(--color-surface-side);
+  color: var(--color-text-primary);
+}
+
+.nav-rail h1 { margin: 0; }
+
+.nav-rail-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-rail-entries button {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  /* The rail and its labels must switch themes in the same frame. */
+  transition: none;
+}
+
+.nav-rail-entries button:hover { background: var(--color-surface-hover); }
+.nav-rail-entries button[aria-current="page"] {
+  background: var(--color-surface-hover);
+  font-weight: 600;
+  color: var(--color-accent-text);
+}
+.nav-rail-entries button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
+
+.workbench-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workbench-main > .layout,
+.workbench-main > .collaboration,
+.workbench-main > .board-placeholder { height: 100%; }
+
+.board-placeholder {
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+}
+
+.board-placeholder p { margin: 0; color: var(--color-text-secondary); }
+
+.collaboration {
+  display: flex;
+  min-height: 0;
+}
+
+.collab-workspace,
+.collab-workspace__screen { height: 100%; min-height: 0; min-width: 0; }
+.workbench-frame:has(.collab-workspace:not([hidden])) { min-width: 0; }
+.collab-workspace__screen:not([hidden]) { display: flex; flex-direction: column; }
+.collab-workspace__screen > .collaboration,
+.collab-workspace__terminal { flex: 1; min-height: 0; }
+.collab-workspace__screen > .collaboration,
+.collab-workspace__terminal { overflow: hidden; }
+.collab-workspace__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  gap: 8px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--color-border-decorative);
+}
+.collab-workspace__bar h2 { margin: 0; font-size: 16px; }
+
+.collab-tasks {
+  flex: none;
+  width: 240px;
+  border-right: 1px solid var(--border, #d9dee7);
+  display: flex;
+  flex-direction: column;
+}
+
+.collab-task-list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+.collab-task-list > button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-align: left;
+}
+.collab-task-list > button:hover { background: var(--color-surface-hover); }
+.collab-task-list > button[aria-pressed="true"] { background: var(--state-selected); }
+.collab-task-list small { color: var(--color-text-secondary); }
+
+.collab-form { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-top: 1px solid var(--border, #d9dee7); }
+.collab-form input, .collab-form textarea, .collab-dialog input, .collab-dialog textarea, .collab-dialog select {
+  font: inherit; padding: 4px 8px; border: 1px solid var(--color-border-control); border-radius: 6px; background: var(--color-surface-editor); color: inherit;
+}
+.collab-form textarea, .collab-dialog textarea { min-height: 64px; resize: vertical; }
+.collab-rename div { display: flex; align-items: center; gap: 8px; }
+.collab-rename small { color: var(--color-text-secondary); }
+.collab-add-slot-row { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.collab-add-slot-row label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+
+.collab-detail { flex: 1; min-width: 0; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.collab-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.collab-detail-head h2 { margin: 0; font-size: 18px; }
+.collab-actions { display: flex; gap: 8px; }
+
+.collab-slot-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.collab-slot-tabs [role=tab] {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px; border: 1px solid var(--color-border-decorative); border-radius: 6px;
+  background: var(--color-surface-editor); color: inherit; font: inherit;
+}
+.collab-slot-tabs [role=tab][aria-selected="true"] { border-color: var(--accent, #2857bd); box-shadow: inset 0 0 0 1px var(--accent, #2857bd); font-weight: 600; }
+.collab-slot-tabs [role=tab]:focus-visible { outline: 2px solid var(--accent, #2857bd); outline-offset: 1px; }
+.collab-slot-state { color: var(--color-text-secondary); font-size: 12px; }
+
+.collab-slot-detail { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--color-border-decorative); border-radius: 8px; }
+.collab-slot-status { margin: 0; color: var(--color-text-secondary); }
+.collab-slot-detail .collab-form { padding: 0; border: 0; }
+
+.collab-requests, .collab-activity { display: flex; flex-direction: column; gap: 8px; }
+.collab-requests h3, .collab-activity h3 { margin: 0; font-size: 13px; }
+.collab-request { border: 1px solid var(--color-border-decorative); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.collab-request header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.collab-request header time { color: var(--color-text-secondary); font-size: 12px; }
+.collab-request-message { margin: 0; }
+.collab-materials { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.collab-materials li { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--color-surface-control); border-radius: 6px; }
+.collab-materials code { font-size: 12px; white-space: pre-wrap; }
+.collab-artifact { margin: 0; font-size: 13px; }
+.collab-request footer { display: flex; gap: 8px; align-items: center; }
+.collab-request footer small { color: var(--color-text-secondary); }
+.collab-request[data-status="received"] { border-color: var(--accent, #2857bd); }
+.collab-request[data-status="failed"], .collab-request[data-status="uncertain"] { border-style: dashed; }
+
+.collab-activity ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.collab-activity li { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 6px; }
+.collab-activity li[data-event] { background: var(--color-surface-control); }
+.collab-activity small { color: var(--color-text-secondary); }
+
+.collab-task-list .collab-empty, .collab-detail > .collab-empty {
+  margin: 0; padding: 24px 16px; border: 1px dashed var(--color-border-decorative); border-radius: 8px;
+  text-align: center; color: var(--color-text-secondary);
+}
+.collab-empty { color: var(--color-text-secondary); }
+.collab-error { border: 1px solid #b3261e; color: #b3261e; border-radius: 8px; padding: 8px 12px; }
+.collab-status { color: var(--color-text-secondary); }
+
+.collab-dialog { border: 1px solid var(--color-border-decorative); border-radius: 10px; padding: 0; background: var(--color-surface-bar); color: inherit; min-width: 480px; max-width: 640px; }
+.collab-dialog form { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.collab-dialog h2 { margin: 0; font-size: 16px; }
+.collab-hint { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
+.collab-dialog label { display: flex; flex-direction: column; gap: 4px; }
+.collab-dialog fieldset { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--color-border-decorative); border-radius: 8px; }
+.collab-dialog fieldset ul { margin: 0; padding-left: 18px; }
+.collab-dialog-actions { display: flex; gap: 8px; }
+.collab-dialog-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+@media (max-width: 719px) {
+  :root { --nav-rail-width: 56px; }
+  .nav-rail { padding: 8px; align-items: center; }
+  .nav-rail-entries { width: 100%; }
+  .nav-rail-entries button { padding: 0; text-align: center; }
+  .collab-tasks { width: 180px; }
+}

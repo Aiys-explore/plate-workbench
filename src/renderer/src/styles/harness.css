@@ -1,0 +1,85 @@
+.harness-shell { grid-template-rows: 40px minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
+.harness-shell .topbar { height: 40px; padding-inline: 12px; }
+.harness-shell .topbar button { height: 27px; }
+.harness-shell .workbench-frame { min-width: 0; }
+.harness-shell .nav-rail { width: 52px; padding: 8px 7px; align-items: stretch; gap: 8px; }
+.harness-shell .nav-rail h1 { margin: 0 0 3px; height: 26px; display: grid; place-items: center; }
+.harness-shell .nav-rail .plate-wordmark { --plate-logo-ink: 36px; }
+.harness-shell .nav-rail-entries,
+.harness-rail-tools { width: 100%; display: grid; gap: 3px; }
+.harness-rail-tools { padding-top: 7px; border-top: 1px solid var(--color-border-decorative); }
+.harness-shell .nav-rail-entries button,
+.harness-rail-tools button {
+  position: relative; display: grid; justify-items: center; align-items: center; height: 30px; min-width: 0;
+  width: 100%; padding: 0; border-radius: 5px;
+}
+.harness-shell .nav-rail-entries button,
+.harness-rail-tools button[aria-pressed] { align-content: center; gap: 1px; font-size: 10px; line-height: 11px; }
+.harness-shell .nav-rail-entries svg,
+.harness-rail-tools button[aria-pressed] svg { width: 14px; height: 14px; }
+.harness-rail-tools button[aria-pressed=true] {
+  background: var(--state-selected); box-shadow: inset 2px 0 var(--color-border-focus);
+}
+.harness-rail-tools button[aria-pressed=true]:hover { background: var(--state-selected-hover); }
+.harness-rail-live { position: absolute; right: 6px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-functional-success-text); }
+.harness-shell .layout[data-harness-side]:not([data-band='compact']) {
+  grid-template-columns: var(--left-workbench-width) var(--harness-separator, 3px) minmax(0, 1fr);
+}
+.harness-shell .layout[data-harness-side='agent'] > .notes-sidebar { display: none; }
+.harness-shell .layout[data-harness-side] > .agent { grid-column: 1; border-inline-end: 0; border-inline-start: 0; }
+.harness-shell .layout:is([data-harness-side='notes'][data-sidebar-collapsed='true'],[data-harness-side='agent'][data-agent-collapsed='true']) {
+  --harness-separator: 0px;
+}
+.harness-shell .layout[data-sidebar-collapsed='true'] > .notes-sidebar,
+.harness-shell .layout[data-agent-collapsed='true'] > .agent,
+.harness-shell .layout > .notes-sidebar > .pane-toggle,
+.harness-shell .layout > .agent [aria-controls='agent-content'] { display: none; }
+.harness-shell .layout[data-band][data-harness-side] { transition: none; }
+.harness-shell :is(.notes-sidebar,.agent) .pane-heading { min-height: 34px; height: auto; padding-inline: 9px; }
+.harness-shell :is(.notes-sidebar,.agent,.collab-workspace__bar,.plate-terminal-panel) button:not(.session-row-open):not([data-chat-control]) {
+  height: 26px; min-width: 0; padding-block: 2px; font-size: 12px;
+}
+.harness-shell .notes-search-box { height: 28px; }
+.harness-shell .notes-search { padding-inline: 8px; }
+.harness-shell .notes-views { gap: 2px; }
+.harness-shell .note-create-panel { display: flex; flex: none; padding: 2px 8px; }
+.harness-shell .note-create-panel button { flex: 1; }
+.harness-shell .notes-editor .notes-heading {
+  height: auto; min-height: 36px; flex: 0 0 auto; gap: 4px; padding: 4px 8px 4px 38px;
+}
+.harness-shell .notes-editor > .pane-toggle { top: 5px; height: 26px; }
+.harness-shell .notes-editor .notes-heading h2 { flex: none; font-size: 13px; }
+.harness-shell .note-actions { min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+.harness-shell .note-actions button {
+  min-width: 0; height: 26px; white-space: nowrap; padding: 2px 6px; font-size: 12px;
+}
+.harness-partitions {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) 26px; gap: 4px;
+  align-items: center; padding: 5px 8px; font-size: 12px;
+}
+.harness-partitions label { color: var(--color-text-secondary); }
+.harness-partitions select {
+  width: 100%; min-width: 0; height: 26px; padding-inline: 5px; border-radius: 5px;
+  background: var(--color-surface-control); color: var(--color-text-primary);
+  border: 1px solid var(--color-border-decorative); font: inherit;
+}
+.harness-partitions select:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
+.harness-shell .session-row-open { height: 42px; gap: 5px; }
+.harness-shell .session-row-label { gap: 0; }
+.harness-terminal-activity { padding: 4px 8px 2px; }
+.harness-terminal-activity ul { margin: 4px 0 0; padding: 0; list-style: none; }
+.harness-terminal-activity li { display: flex; gap: 8px; padding: 3px 2px; }
+.harness-terminal-activity li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.harness-terminal-activity small { flex: none; color: var(--color-text-secondary); }
+.harness-shell .collab-workspace__bar { min-height: 35px; }
+.harness-shell .plate-terminal-panel { padding: 10px; gap: 10px; }
+.harness-shell .plate-terminal-panel h2 { font-size: 13px; }
+.p13-startup { width: min(580px, calc(100% - 24px)); height: min(470px, calc(100% - 24px)); }
+.p13-startup .p13-body section { display: flex; flex-wrap: wrap; gap: 4px; }
+.p13-startup-actions { max-width: none; }
+.startup-rebuild { padding: 10px 12px; border-inline-start: 2px solid var(--color-border-focus); background: var(--color-surface-side); }
+.startup-rebuild p { margin-block: 4px 0; }
+@media (max-width: 719px) {
+  .harness-shell .nav-rail { width: 44px; padding-inline: 5px; }
+  .harness-shell .workbench-drawer.agent-drawer { inset: 40px auto 32px 44px; width: min(300px, calc(100% - 44px)); height: auto; }
+}

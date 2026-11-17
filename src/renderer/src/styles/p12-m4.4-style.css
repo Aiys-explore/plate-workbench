@@ -1,0 +1,550 @@
+/* M4.4 · P12 导出、草稿恢复与诊断 · 静态导出对话框定值样式
+ *
+ * 只写样式，不含导出业务、IPC、事务或文件写出。Sol 接入时按语义
+ * class/属性接线；文字内容由 Sol 从已验证快照填入。
+ *
+ * 值来源（全部为已定稿可查值，未新增 token）：
+ * - D1.V2 token：tokens.css（仓库 src/renderer/src/ 目录下的 styles 子目录：几何、间距、圆角、
+ *   焦点宽度、过渡时长、模态圆角、按钮高度等）
+ * - D1 颜色：src/renderer/src/styles/light.css / dark.css（.theme-light /
+ *   .theme-dark 下的 --color-* 语义变量），不复制色值
+ * - D1 按钮/输入状态表：design/01-design-system.md §5.1 / §5.2
+ * - P12/P13 规则：design/d2-p12-p13-rules.json（dimensions：760/736/600/
+ *   48/64/24/12/8/96/4，与 P13 共用）
+ * - P12 元素表：design/page-elements-p12.json 与 design/03-elements-p12-p13.csv
+ * - P12 页面：design/pages/P12.md（= design/02-pages.md D2.P12）
+ * - 少边框要求：design/D5-runtime-grid-amendment.md「少边框」行
+ *
+ * 作用域：所有选择器以 .p12- 前缀限定；不覆盖任何既有 .theme-* / button /
+ * input 全局规则，只在 .p12- 命名空间内重述需要的几何与状态。
+ */
+
+/* ── 0. 壳层几何（P12「布局与键盘」，与 P13 共用 dimensions） ──────── */
+
+/* 遮罩：覆盖工作台，背景 inert 由 Sol 负责；遮罩不处理点击。 */
+.p12-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-overlay);
+}
+
+/* 尺寸容器：壳宽 = min(760px, 100vw − 2×g)；g 在视口 <600px 时为 8，否则 16。
+ * container-type 让「壳宽 <600px → 12px 内边距」按壳宽而非视口判断。 */
+.p12-modal-frame {
+  --p12-gutter: 16px;
+  width: min(760px, 100vw - 2 * var(--p12-gutter));
+  height: min(736px, 100dvh - 2 * var(--p12-gutter));
+  container-type: inline-size;
+  container-name: p12;
+}
+
+@media (max-width: 599px) {
+  .p12-modal-frame {
+    --p12-gutter: 8px;
+  }
+}
+
+/* 壳本体：D1 modal 圆角、level4 阴影、明暗遮罩复用；边线计入壳（1px）。 */
+.p12-modal {
+  display: grid;
+  grid-template-rows: var(--component-modal-header-height) minmax(0, 1fr) var(--component-modal-footer-height);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-modal-radius);
+  background: var(--color-surface-bar);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+}
+
+.p12-modal *,
+.p12-modal *::before,
+.p12-modal *::after {
+  box-sizing: border-box;
+}
+
+/* 首栏：固定 48px，只有下缘一条 1px 装饰线（少边框）。 */
+.p12-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 0 var(--spacing-6);
+  border-bottom: var(--border-width-line) solid var(--color-border-decorative);
+  background: var(--color-surface-bar);
+}
+
+.p12-modal-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  overflow-wrap: anywhere;
+}
+
+/* 标题可被程序聚焦（tabindex=-1），静态标题聚焦不画环。 */
+.p12-modal-title:focus {
+  outline: none;
+}
+
+/* 正文：唯一纵向滚动区；min-height:0 保证内部可滚；无横滚。 */
+.p12-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-height: 0;
+  min-width: 0;
+  padding: var(--spacing-3) var(--spacing-6);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--color-surface-bar);
+  scrollbar-gutter: stable;
+}
+
+/* 正文自身聚焦为内绘 2px、offset 0（P12.modal.body）。 */
+.p12-modal-body:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+/* 滚动到焦点时的 8px 滚动边距（scroll-margin），焦点不被正文裁切。 */
+.p12-modal-body :is(button, a, input, select, textarea, [tabindex]) {
+  scroll-margin-block: var(--spacing-2);
+}
+
+/* 尾栏：固定 64px，右对齐操作，8px 间距；取消在最左、结果动作在其右。 */
+.p12-modal-tail {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 6px var(--spacing-6);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+  background: var(--color-surface-bar);
+}
+
+.p12-tail-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.p12-tail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+/* 壳宽 <600px：左右内边距 12px（容器查询按壳宽判断）。 */
+@container p12 (max-width: 599px) {
+  .p12-modal-head,
+  .p12-modal-body,
+  .p12-modal-tail {
+    padding-inline: var(--spacing-3);
+  }
+}
+
+/* ── 1. 排版基元（长中文路径与长 ID） ─────────────────────────────── */
+
+/* 正文文字 13/18：可选取、自然断行。 */
+.p12-literal {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
+}
+
+.p12-literal[data-tone='secondary'] {
+  color: var(--color-text-secondary);
+}
+
+.p12-literal[data-tone='warning'] {
+  color: var(--color-functional-warning-text);
+}
+
+.p12-literal[data-tone='danger'] {
+  color: var(--color-functional-danger-text);
+}
+
+.p12-literal[data-tone='success'] {
+  color: var(--color-functional-success-text);
+}
+
+/* 标题 15/20（组标题、卡片标题）。 */
+.p12-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  overflow-wrap: anywhere;
+}
+
+/* 说明 12/16（workNote）。 */
+.p12-note {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* 错误 12/16（workError：阻塞原因、读取失败）。 */
+.p12-error {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-functional-danger-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+
+/* ── 2. 卡与分组（12px 内距、9px 圆角、单条 1px 边；组间单条细线） ── */
+
+.p12-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: var(--component-card-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-card-radius);
+  background: var(--color-surface-side);
+  color: var(--color-text-primary);
+}
+
+/* 范围清单：源 → 目标 → 命名/跳过原因，逐行排列；分组间只有一条 1px 细线。 */
+.p12-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p12-group + .p12-group {
+  padding-top: var(--spacing-3);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+}
+
+/* ── 3. 草稿状态与选项（未保存稿 / 已保存版本确认） ──────────────── */
+
+/* 提示条：warning 语义底色 + 文字，单条 1px 边；不给内部文字加框。 */
+.p12-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+  padding: var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-semantic-no-progress-border);
+  border-radius: var(--component-card-radius);
+  background: var(--color-functional-warning-bg);
+  color: var(--color-text-primary);
+}
+
+.p12-notice .p12-note {
+  color: var(--color-functional-warning-text);
+}
+
+/* 选项行：radio 语义由 Sol 提供；选中用焦点色边（p12Choice selected）。 */
+.p12-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p12-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+  padding: var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-card-radius);
+  background: var(--color-surface-side);
+}
+
+.p12-choice[data-selected='true'] {
+  border-color: var(--color-border-focus);
+}
+
+.p12-choice-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-ui-body);
+  overflow-wrap: anywhere;
+}
+
+/* ── 4. 目录与命名（浏览键、映射行） ──────────────────────────────── */
+
+.p12-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+/* 映射行：源 → 目标 → 命名/跳过原因；行内文字各自断行，不横滚。 */
+.p12-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p12-map-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.p12-map-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.p12-map-arrow {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+}
+
+/* ── 5. 进度与结果状态 ────────────────────────────────────────────── */
+
+/* 进度条：静态填充（宽度由 Sol 按已核实数填入）；无循环动画。
+ * 总数未知时由 Sol 不渲染进度条、只显示「正在核对文件」文案。 */
+.p12-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.p12-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-surface-control);
+  overflow: hidden;
+}
+
+.p12-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--color-accent-primary);
+}
+
+.p12-progress-label {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 计数行：五类结果各用 D1 语义色文字；数字用 tabular-nums。 */
+.p12-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-1) var(--spacing-3);
+  min-width: 0;
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* 状态标签：D1 statusPill（22px、4px 8px、11px 圆角、图标 14px）。 */
+.p12-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--component-pill-icon-gap);
+  height: var(--component-pill-height);
+  padding: var(--component-pill-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-pill-radius);
+  background: var(--color-surface-control);
+  color: var(--color-text-secondary);
+  font-size: var(--component-pill-font-size);
+  font-weight: var(--component-pill-font-weight);
+  line-height: var(--line-height-ui-small);
+  white-space: nowrap;
+}
+
+.p12-pill[data-status='DOING'] {
+  color: var(--color-semantic-doing-text);
+  background: var(--color-semantic-doing-bg);
+  border-color: var(--color-semantic-doing-border);
+}
+
+.p12-pill[data-status='DONE'] {
+  color: var(--color-semantic-done-text);
+  background: var(--color-semantic-done-bg);
+  border-color: var(--color-semantic-done-border);
+}
+
+.p12-pill[data-status='ERROR'] {
+  color: var(--color-semantic-error-text);
+  background: var(--color-semantic-error-bg);
+  border-color: var(--color-semantic-error-border);
+}
+
+.p12-pill[data-status='UNKNOWN'] {
+  color: var(--color-semantic-unknown-text);
+  background: var(--color-semantic-unknown-bg);
+  border-color: var(--color-semantic-unknown-border);
+}
+
+.p12-pill[data-status='NO-PROGRESS'] {
+  color: var(--color-semantic-no-progress-text);
+  background: var(--color-semantic-no-progress-bg);
+  border-color: var(--color-semantic-no-progress-border);
+}
+
+.p12-pill-icon {
+  flex: none;
+  width: var(--component-pill-icon-size);
+  height: var(--component-pill-icon-size);
+}
+
+/* 结果明细行：pill + 路径 + 原因；行内无边框，靠间距分层。 */
+.p12-result-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+/* ── 6. 按钮（D1 §5.1；32px、次键 ≥64px、提交键 ≥96px） ──────────── */
+
+.p12-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-1);
+  height: var(--component-button-height);
+  min-width: var(--component-button-min-width);
+  max-width: 100%;
+  padding: 6px var(--spacing-2);
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-button-radius);
+  background: var(--color-surface-control);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-button-font-size);
+  font-weight: var(--component-button-font-weight);
+  line-height: var(--line-height-ui-body);
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-fast-duration) var(--transition-fast-easing),
+    border-color var(--transition-fast-duration) var(--transition-fast-easing);
+  transition-delay: 0ms;
+}
+
+.p12-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-focus);
+}
+
+.p12-btn:active:not(:disabled) {
+  background: var(--color-surface-pressed);
+  border-color: var(--color-border-focus);
+  box-shadow: inset 0 2px 0 0 var(--color-border-focus);
+}
+
+/* 次按钮焦点内绘 2px、offset 0（P12 元素表 focus_style）。 */
+.p12-btn:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+}
+
+.p12-btn:disabled {
+  background: var(--color-surface-control);
+  border-color: var(--color-border-control);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+/* 主按钮（只导出已保存版本 / 开始导出 / 预览剩余项等提交键）：≥96px。 */
+.p12-btn--primary {
+  min-width: 96px;
+  padding: 6px var(--spacing-2);
+  border-color: transparent;
+  background: var(--color-accent-primary);
+  color: var(--color-text-inverse);
+}
+
+.p12-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: transparent;
+}
+
+.p12-btn--primary:active:not(:disabled) {
+  background: var(--color-accent-pressed);
+  border-color: transparent;
+  box-shadow: inset 0 2px 0 0 var(--color-text-inverse);
+}
+
+/* 主按钮焦点为外偏移 2px（D1 §5.1）。 */
+.p12-btn--primary:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.p12-btn--primary:disabled {
+  background: var(--color-surface-control);
+  border-color: transparent;
+  color: var(--color-text-disabled);
+}
+
+/* 减动效：去掉 hover 过渡（0ms），保留功能态 100ms。 */
+@media (prefers-reduced-motion: reduce) {
+  .p12-btn:hover:not(:disabled) {
+    transition-duration: var(--motion-reduced-decorative-duration) !important;
+  }
+}
+.p12-native-dialog { padding:0; border:0; margin:auto; color:var(--color-text-primary); background:transparent; max-width:none;max-height:none;overflow:visible }
+.p12-native-dialog::backdrop { background:var(--color-surface-overlay) }
+.p12-tail-actions { margin-inline-start:auto; flex-wrap:wrap; justify-content:flex-end }
+.p12-choices label { display:block }
+.p12-native-dialog progress { width:100%; accent-color:var(--color-accent-primary) }

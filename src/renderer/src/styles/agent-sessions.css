@@ -1,0 +1,319 @@
+/* D3.b · P05 Agent 监控 / P06 会话展开 / P01 底栏 · 静态样式
+ *
+ * 值来源：D1.V2 tokens.json、design/01-design-system.md §5.5 Pill / §5.6 卡片 /
+ * §5.7 弹窗 / §5.8 菜单与 Tooltip、design/02-pages.md P01/P05/P06、
+ * design/d2-p05-p06-profiles.json（sessionCard / sessionSecondary / status* / sessionNotice…）。
+ *
+ * .shell 的行定义在 workbench.css（P01 顶栏 56 / 中区 1fr / 底栏 auto），
+ * 本文件不再重复覆盖，避免加载顺序串样。
+ */
+
+.pane.agent { min-height: 0; display: flex; flex-direction: column; }
+.agent-heading { flex: 0 0 var(--layout-pane-heading-height); }
+
+.session-panel { padding: var(--spacing-3); overflow: auto; flex: 1; }
+.session-panel[hidden] { display: none; }
+
+.session-group { margin: 0 0 var(--spacing-4); display: grid; gap: var(--spacing-2); }
+.session-card-panel { min-height: 0; overflow-anchor: none; }
+.session-card-slots > [data-card-slot] { padding-bottom: var(--spacing-2); }
+.session-full-list { margin-bottom: var(--spacing-2); }
+.session-group-toggle { width: 100%; text-align: start; }
+.session-group h3 {
+  margin: 0;
+  padding: 2px 3px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-small);
+  letter-spacing: var(--letter-spacing-label);
+}
+.session-group h3 span {
+  margin-inline-start: 3px;
+  font-variant-numeric: var(--font-variant-numeric-numbers);
+}
+
+.session-empty {
+  margin: 5px;
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-ui-body);
+  font-size: var(--font-size-ui-small);
+}
+
+/* D1 §5.6 Agent 会话卡片 */
+.session-card {
+  min-width: 0;
+  padding: var(--component-card-padding);
+  border: var(--border-width-line) solid transparent;
+  border-radius: var(--component-card-radius);
+  background: var(--color-surface-bar);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+  overflow-wrap: anywhere;
+}
+.session-card:hover {
+  background: var(--color-surface-hover);
+}
+.session-card:focus-within {
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-level-2);
+}
+
+.session-top { display: flex; gap: var(--spacing-2); align-items: center; margin-bottom: var(--spacing-1); }
+.agent-bot-anchor {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-control);
+  overflow: visible;
+}
+.agent-bot { width: 38px; height: 38px; overflow: visible; --bot-ink: #5265dc; }
+.agent-bot[data-brand='deepseek'] { --bot-ink: #4d6bfe; }
+.agent-bot[data-brand='zcode'] { --bot-ink: #008477; }
+.bot-body { fill: var(--bot-ink); }
+.bot-eyes { fill: #fff; }
+.bot-smile, .bot-mark { stroke: #fff; }
+
+.session-identity { min-width: 0; flex: 1; }
+.session-brand { display: flex; align-items: center; gap: 4px 6px; flex-wrap: wrap; line-height: 1.35; }
+.session-brand strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-body);
+}
+
+/* D1 §5.5 状态标签（Pill） */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--component-pill-icon-gap);
+  height: var(--component-pill-height);
+  padding: var(--component-pill-padding);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-pill-radius);
+  background: var(--color-surface-control);
+  color: var(--color-text-secondary);
+  font-size: var(--component-pill-font-size);
+  font-weight: var(--component-pill-font-weight);
+  line-height: var(--line-height-ui-small);
+  white-space: nowrap;
+}
+.session-card[data-status='STARTING'] .session-badge {
+  color: var(--color-semantic-starting-text);
+  background: var(--color-semantic-starting-bg);
+  border-color: var(--color-semantic-starting-border);
+}
+.session-card[data-status='DOING'] .session-badge {
+  color: var(--color-semantic-doing-text);
+  background: var(--color-semantic-doing-bg);
+  border-color: var(--color-semantic-doing-border);
+}
+.session-card[data-status='PENDING'] .session-badge {
+  color: var(--color-semantic-pending-text);
+  background: var(--color-semantic-pending-bg);
+  border-color: var(--color-semantic-pending-border);
+}
+.session-card[data-status='REVIEW'] .session-badge {
+  color: var(--color-semantic-review-text);
+  background: var(--color-semantic-review-bg);
+  border-color: var(--color-semantic-review-border);
+}
+.session-card[data-status='DONE'] .session-badge {
+  color: var(--color-semantic-done-text);
+  background: var(--color-semantic-done-bg);
+  border-color: var(--color-semantic-done-border);
+}
+.session-card[data-status='ERROR'] .session-badge {
+  color: var(--color-semantic-error-text);
+  background: var(--color-semantic-error-bg);
+  border-color: var(--color-semantic-error-border);
+}
+.session-card[data-status='PAUSED'] .session-badge {
+  color: var(--color-semantic-paused-text);
+  background: var(--color-semantic-paused-bg);
+  border-color: var(--color-semantic-paused-border);
+}
+.session-card[data-status='UNKNOWN'] .session-badge {
+  color: var(--color-semantic-unknown-text);
+  background: var(--color-semantic-unknown-bg);
+  border-color: var(--color-semantic-unknown-border);
+}
+
+.session-model, .session-cwd, .session-card small {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: 1.45;
+}
+.session-model, .session-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-project { display: flex; gap: 5px; align-items: baseline; }
+.session-project small { white-space: nowrap; }
+.session-step { margin: 6px 0; color: var(--color-text-primary); font-weight: var(--font-weight-semibold); }
+
+/* P05 · 无进展警示 */
+.session-stall {
+  margin-block: 4px;
+  padding: 4px 6px;
+  border: var(--border-width-line) solid var(--color-semantic-no-progress-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-semantic-no-progress-bg);
+  color: var(--color-semantic-no-progress-text);
+  font-size: var(--font-size-ui-small);
+}
+
+.session-facts {
+  display: flex;
+  gap: 5px 9px;
+  flex-wrap: wrap;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+}
+.session-facts strong, .session-context strong {
+  color: var(--color-text-primary);
+  font-variant-numeric: var(--font-variant-numeric-numbers);
+}
+.session-context {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  font-size: var(--font-size-ui-small);
+  color: var(--color-text-secondary);
+}
+.session-context meter {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--color-accent-primary);
+}
+
+.session-expand {
+  width: 100%;
+  justify-content: space-between;
+  height: 27px;
+}
+
+.session-chat { padding-block: var(--spacing-2); }
+.session-chat-head, .session-disabled, .session-footer, .session-sidebar-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.session-chat-head strong { margin-inline-end: auto; color: var(--color-text-primary); }
+.session-chat button, .session-disabled button, .session-sidebar-counts button {
+  height: 25px;
+  font-size: var(--font-size-ui-small);
+}
+
+.session-messages { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 6px; }
+.session-messages li {
+  background: var(--color-surface-side);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+.session-messages time { color: var(--color-text-secondary); font-size: var(--font-size-ui-small); }
+.session-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  margin-block-start: 4px;
+  user-select: text;
+  color: var(--color-text-primary);
+}
+
+.session-disabled {
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+  padding-top: 5px;
+}
+.session-disabled span { display: flex; align-items: center; gap: 4px; }
+
+.session-sidebar-counts { padding: 7px 8px 0; }
+.session-sidebar-counts button, .session-footer button { background: transparent; }
+.session-sidebar-counts .metric-chip, .session-footer .metric-chip,
+.session-footer .session-today > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.metric-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+}
+.metric-chip-working .metric-status-dot { background: var(--color-semantic-doing-text); }
+.metric-chip-waiting .metric-status-dot { background: var(--color-semantic-pending-text); }
+.metric-status-today { background: var(--color-accent-text); }
+.metric-status-dot[data-unknown='true'] { background: var(--color-text-tertiary); }
+
+/* P01 底栏：32px 高、surface.bar、顶部装饰线 */
+.session-footer {
+  min-height: var(--layout-footer-height);
+  padding: 5px 9px;
+  background: var(--color-surface-bar);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+  gap: 3px 5px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+.session-footer-track {
+  display: flex; align-items: center; flex: 1; min-width: 0; gap: var(--spacing-2);
+  overflow: auto hidden; scrollbar-width: none; white-space: nowrap;
+}
+.session-footer-track > * { flex: 0 0 auto; }
+.session-footer button { height: 25px; font-size: var(--font-size-ui-small); border-color: transparent; }
+.session-footer button:hover, .session-sidebar-counts button:hover { background: var(--color-surface-hover); }
+.session-footer strong {
+  color: var(--color-text-primary);
+  font-variant-numeric: var(--font-variant-numeric-numbers);
+}
+.session-footer strong[data-unknown], .session-sidebar-counts strong[data-unknown] {
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+}
+.session-footer small, .session-scope {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+}
+.session-scope { margin-inline-end: 5px; }
+
+/* P06 · 会话明细弹窗：D1 §5.7 */
+.session-detail {
+  width: min(var(--component-modal-width-detail), calc(100% - 32px));
+  max-height: 76vh;
+  overflow: auto;
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-modal-radius);
+  padding: var(--spacing-4);
+  color: var(--color-text-primary);
+  background: var(--color-surface-bar);
+  box-shadow: var(--shadow-level-4);
+}
+.session-detail::backdrop { background: var(--color-surface-overlay); }
+.session-detail header, .session-detail li button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+.session-detail p { color: var(--color-text-secondary); line-height: 1.65; }
+.session-detail ul { display: grid; gap: 5px; padding: 0; list-style: none; }
+.session-detail li button {
+  width: 100%;
+  height: auto;
+  min-height: var(--component-button-height);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.session-conversation { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.session-conversation-heading { gap: 6px; }
+.session-conversation-heading h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-conversation .session-panel { flex: 1; min-height: 0; overflow-anchor: none; }
+
+.session-code-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding-inline: 6px;
+  border-inline-start: 2px solid var(--color-border-decorative); }

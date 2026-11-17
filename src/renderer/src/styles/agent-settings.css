@@ -1,0 +1,242 @@
+/* D3.b · P08 Agent 设置与能力矩阵 · 静态样式
+ *
+ * 值来源：design/02-pages.md P08（外框 1000x840 / 视口低于 600 边距 8px /
+ * 头 48 / 正文 24 / rail clamp(168px,22%,220px) / >=820 双列 / 矩阵最小宽 616px）、
+ * design/01-design-system.md 5.1-5.7、design/d2-p08-profiles.json。
+ *
+ * 容器查询按 dialog 自身宽度判定，不依赖视口断点；折叠式档案列表、错误聚焦、
+ * 证据展开等行为归 Sol（D4.b）。
+ */
+
+.agent-settings {
+  container-type: inline-size;
+  container-name: agent-settings;
+  width: min(1320px, calc(100% - 32px));
+  max-width: 1320px;
+  height: min(840px, calc(100% - 32px));
+  max-height: min(840px, calc(100% - 32px));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text-primary);
+  background: var(--color-surface-bar);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-modal-radius);
+  box-shadow: var(--shadow-level-4);
+}
+.agent-settings::backdrop { background: var(--color-surface-overlay); }
+
+.agent-settings > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-3);
+  height: var(--component-modal-header-height);
+  flex: 0 0 var(--component-modal-header-height);
+  padding-inline: var(--spacing-6);
+  border-bottom: var(--border-width-line) solid var(--color-border-decorative);
+}
+.agent-settings h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+}
+
+.agent-settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-settings-scroll { flex:1; min-width:0; overflow:auto; padding: var(--spacing-6); scrollbar-gutter:stable; }
+.agent-settings [hidden] { display:none; }
+.agent-settings > header h2 { font-size:20px; line-height:28px; font-weight:600; }
+.runtime-overview { container: runtime / inline-size; min-width:0; }
+.runtime-intro { color:var(--color-text-secondary); font-size:14px; line-height:21px; margin:0 0 12px; }
+.runtime-grid {
+  --runtime-surface:#efece5; --runtime-rule:#ded9cf;
+  /* These surfaces differ from the base control palette, including on hover. */
+  --runtime-track-edge:#6e7f97;
+  --runtime-success-text:#236530;
+  display:grid; grid-template-columns:minmax(0,1fr); gap:1px;
+  margin:12px 0; padding:0; list-style:none; overflow:hidden;
+  background:var(--runtime-rule); border:1px solid var(--runtime-rule); border-radius:12px;
+}
+.theme-dark .runtime-grid {
+  --runtime-surface:#252421; --runtime-rule:#3a3732;
+  --runtime-track-edge:var(--color-border-control);
+  --runtime-success-text:var(--color-functional-success-text);
+}
+@container runtime (min-width:640px) { .runtime-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@container runtime (min-width:960px) { .runtime-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+.runtime-cell { min-width:0; min-height:68px; display:flex; align-items:center; gap:2px; padding:6px 8px; background:var(--runtime-surface); }
+.runtime-cell .agent-profile-row { flex:1; min-width:0; height:auto; min-height:44px; justify-content:flex-start; border-color:transparent; background:transparent; white-space:normal; }
+.runtime-cell .agent-profile-row:hover,.runtime-cell .agent-profile-row[aria-current='true'] { background:var(--accent-bg-surface); }
+.runtime-cell button:focus-visible,.runtime-group summary:focus-visible,.agent-matrix-scroll:focus-visible {
+  outline:var(--border-width-focus) solid var(--color-border-focus);outline-offset:-2px;
+}
+.runtime-icon { display:grid;place-items:center; width:36px; height:36px; border-radius:8px; flex:0 0 auto; background:var(--color-surface-bar); }
+.runtime-label { flex:1; min-width:0; display:grid; grid-template-columns:minmax(0,1fr); overflow-wrap:anywhere; }
+.runtime-label > strong,.runtime-label > small { min-width:0; }
+.runtime-label strong { font-size:16px; line-height:22px; font-weight:600; }
+.runtime-label small { font-size:13px; line-height:19px; }
+.runtime-label [data-probe]::before { content:''; display:inline-block; width:7px; height:7px; border-radius:50%; margin-inline-end:6px; background:currentColor; }
+.runtime-label [data-probe='ok'] { color:var(--runtime-success-text); }
+.runtime-label [data-probe='failed'] { color:var(--color-functional-danger-text); }
+.runtime-label [data-probe] span { color:var(--color-text-secondary); }
+.runtime-cell .runtime-menu,.runtime-cell .runtime-switch { border-color:transparent; background:transparent; padding:0; display:grid; place-items:center; flex:0 0 auto; min-height:44px; }
+.runtime-menu { min-width:32px; }
+.runtime-switch { min-width:44px; }
+.runtime-switch > span { width:36px; height:20px; position:relative; border-radius:10px; background:var(--color-surface-control); border:1px solid var(--runtime-track-edge); }
+.runtime-switch > span::before { content:''; position:absolute; top:2px; left:2px; width:14px;height:14px;border-radius:50%;background:var(--color-text-secondary); }
+.runtime-switch[aria-checked=true] > span { background:var(--color-accent-text); border-color:var(--color-accent-text); }
+.runtime-switch[aria-checked=true] > span::before { left:auto;right:2px;background:var(--color-surface-bar); }
+.runtime-switch[aria-disabled=true] { cursor:wait; }
+.runtime-group { margin-block:12px; }
+.runtime-group summary { min-height:32px; padding:5px 2px; cursor:pointer; }
+.agent-matrix-scroll { max-width:100%; overflow:auto; }
+@media(forced-colors:active) {
+  .runtime-grid { forced-color-adjust:none; --runtime-surface:Canvas; --runtime-rule:ButtonText; }
+  .runtime-cell { forced-color-adjust:auto; }
+  .runtime-cell button:focus-visible,.runtime-group summary:focus-visible,.agent-matrix-scroll:focus-visible { outline-color:CanvasText; }
+  .runtime-switch > span { forced-color-adjust:none; background:Canvas;border-color:ButtonText; }
+  .runtime-switch > span::before { background:ButtonText; }
+  .runtime-switch[aria-checked=true] > span { background:Highlight;border-color:Highlight; }
+  .runtime-switch[aria-checked=true] > span::before { background:HighlightText; }
+}
+.agent-profile-row { display: flex; align-items: center; gap: var(--spacing-2); text-align: start; }
+.agent-profile-row[aria-current='true'] {
+  background: var(--accent-bg-surface);
+  border-color: var(--color-border-focus);
+  color: var(--color-text-primary);
+}
+.agent-profile-row small { display: block; color: var(--color-text-secondary); }
+
+.agent-settings-detail { min-width:0; }
+
+.agent-settings fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-2) var(--spacing-3);
+  margin: 0;
+  border:0;
+  padding: var(--spacing-3) 0;
+}
+.agent-settings legend { font-weight: var(--font-weight-semibold); }
+.agent-settings label { display: grid; gap: 3px; min-width: 0; }
+.agent-settings label > span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-ui-small);
+  line-height: var(--line-height-ui-small);
+}
+
+/* D1 5.2 输入框 */
+.agent-settings input,
+.agent-settings select,
+.agent-settings textarea {
+  min-width: 0;
+  max-width: 100%;
+  height: var(--component-input-height);
+  padding: var(--component-input-padding);
+  background: var(--color-surface-editor);
+  color: var(--color-text-primary);
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-input-radius);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-input-font-size);
+}
+.agent-settings textarea {
+  height: auto;
+  min-height: 64px;
+  max-height: 50vh;
+  resize: vertical;
+  overflow: auto;
+}
+.agent-settings input:focus-visible,
+.agent-settings select:focus-visible,
+.agent-settings textarea:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+  border-color: var(--color-border-focus);
+}
+.agent-settings input[type='color'] { width: 48px; height: 29px; padding: 0; }
+.agent-settings .agent-enabled { display: flex; align-items: center; gap: var(--spacing-2); }
+
+.agent-settings-hint, .agent-effective-log {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}
+.agent-settings fieldset > :is(p, div) { grid-column: 1 / -1; }
+.agent-settings fieldset > .agent-field:not(.agent-argv-field) { grid-column: auto; }
+.agent-field { display: grid; align-content: start; gap: 3px; min-width: 0; }
+.agent-settings [id^=agent-error-] { display: block; color: var(--color-text-primary); overflow-wrap: anywhere; }
+.agent-settings-fields, .agent-settings-actions {
+  display: flex;
+  align-items: end;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+.agent-settings-actions select { flex: 1; }
+.agent-settings-message {
+  min-height: 18px;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+}
+.agent-settings-message:empty { display:none; }
+.agent-settings h3 {
+  margin: 10px 0 4px;
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-body);
+}
+
+.agent-probe-summary {
+  padding: var(--spacing-2);
+  margin: 6px 0;
+  background: var(--color-surface-control);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+.agent-probe-summary ul { margin: 4px 0; }
+
+/* P08 能力矩阵：专用横滚、最小宽 616px、首列粘靠左 */
+.agent-matrix {
+  margin-top: var(--spacing-2);
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 616px;
+  text-align: start;
+  font-size: var(--font-size-ui-small);
+}
+.agent-matrix :is(th, td) {
+  border-bottom: var(--border-width-line) solid var(--color-border-decorative);
+  padding: 5px 6px;
+  overflow-wrap: anywhere;
+}
+.agent-matrix th { color: var(--color-text-secondary); font-weight: var(--font-weight-semibold); }
+.agent-matrix th:first-child,
+.agent-matrix td:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  background: var(--color-surface-bar);
+}
+.agent-matrix td[data-state='supported'] { color: var(--color-functional-success-text); font-weight: var(--font-weight-semibold); }
+.agent-matrix td[data-state='unsupported'] { color: var(--color-functional-danger-text); }
+.agent-matrix td[data-state='unknown'] { color: var(--color-text-secondary); }
+
+/* P08 宽版（外框 >=820px）：档案 rail 在左，详情在右；表单双列 */
+@container agent-settings (min-width: 820px) {
+  .agent-settings fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* P08 窄版（外框 <600px）：正文左右内边距 12px */
+@container agent-settings (max-width: 599px) {
+  .agent-settings > header { padding-inline: var(--spacing-3); }
+  .agent-settings-scroll { padding: var(--spacing-3); }
+}
+
+.agent-row-menu { position: fixed; z-index: 2; width: min(160px, calc(100vw - 32px)); display: grid; gap: 4px;
+  padding: 6px; background: var(--color-surface-control); border: 1px solid var(--color-border-decorative); border-radius: var(--radius-md); }

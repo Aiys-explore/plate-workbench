@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0-r9-ui.7-relations.1",
+  "status": "PASS",
+  "fixture": "demo-notes.json",
+  "candidate": {
+    "exe": "81d62aab4676ea6b536b97a1f42275f165633fda6f37b35d97d0929ae72a37b5",
+    "asar": "3f624cfa3260f240280c750c8f1da25e245fee24ea08a7615579853ac8b6b635"
+  },
+  "checks": [
+    "ui7StatusAndRelationTerminology",
+    "portZonesAndOverflowMenu",
+    "splitBusBothDirectionsAndPulseContinuity",
+    "focusViewAndCameraRestored",
+    "fourPresetTypography",
+    "oneNoteThreeViews",
+    "crossNoteBoardRespectsDraftDecision",
+    "defaultMotionReducedMotionAndExplicitStillAfterRestart"
+  ],
+  "views": [
+    "1360x860 light",
+    "1360x860 dark",
+    "828x740 dark"
+  ],
+  "testScope": "Packaged Electron with isolated profile and synthetic notes"
+}

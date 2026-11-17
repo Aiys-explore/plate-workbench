@@ -1,0 +1,94 @@
+.theme-light {
+  color-scheme: light;
+
+  /* Alma 语义色 — light（本文件是浅色主题的唯一真相源）
+     plate-ui.css 只引用这里的 token，不再自带色值。 */
+  --color-surface-window: #ffffff;
+  --color-surface-bar: #f7f8fa;
+  --color-surface-side: #f7f8fa;
+  --color-surface-editor: #ffffff;
+  --color-surface-control: #f1f3f5;
+  --color-surface-hover: #eef0f2;
+  --color-surface-pressed: #e2e5e9;
+  --color-surface-overlay: rgba(0, 0, 0, 0.25);
+  --color-text-primary: #202329;
+  --color-text-secondary: #59616d;
+  --color-text-tertiary: #697380;
+  --color-text-inverse: #ffffff;
+  --color-text-disabled: #697380;
+  --color-accent-primary: #244f72;
+  --color-accent-text: #244f72;
+  --color-accent-hover: #32638b;
+  --color-accent-bg-light: #e3edf6;
+  --color-accent-pressed: #173b58;
+  --color-border-focus: #286292;
+  --color-border-decorative: #e7e9ed;
+  --color-border-control: #8a919c;
+  --state-selected: #e3edf6;
+  --state-selected-hover: #d8e7f3;
+  --plate-editor-focus: #b5cce0;
+  --color-semantic-starting-text: #825a00;
+  --color-semantic-starting-bg: #fff4d6;
+  --color-semantic-starting-border: #e6c84d;
+  --color-semantic-doing-text: #1e5a99;
+  --color-semantic-doing-bg: #d6ecff;
+  --color-semantic-doing-border: #5ba3e0;
+  --color-semantic-pending-text: #7a4d99;
+  --color-semantic-pending-bg: #f0e6ff;
+  --color-semantic-pending-border: #a680cc;
+  --color-semantic-review-text: #995c1e;
+  --color-semantic-review-bg: #ffe8d6;
+  --color-semantic-review-border: #e08633;
+  --color-semantic-done-text: #2d7a3d;
+  --color-semantic-done-bg: #e1f5e6;
+  --color-semantic-done-border: #5cb370;
+  --color-semantic-error-text: #b91c1c;
+  --color-semantic-error-bg: #ffe6e6;
+  --color-semantic-error-border: #ef4444;
+  --color-semantic-paused-text: #5a6b7a;
+  --color-semantic-paused-bg: #e8ecf0;
+  --color-semantic-paused-border: #8897a8;
+  --color-semantic-unknown-text: #5a6b7a;
+  --color-semantic-unknown-bg: #e8ecf0;
+  --color-semantic-unknown-border: #8897a8;
+  --color-semantic-no-progress-text: #6b5a00;
+  --color-semantic-no-progress-bg: #f9f5e6;
+  --color-semantic-no-progress-border: #c9b84d;
+  --color-functional-success-text: #2d7a3d;
+  --color-functional-success-bg: #e1f5e6;
+  --color-functional-warning-text: #995c1e;
+  --color-functional-warning-bg: #fff4d6;
+  --color-functional-danger-text: #b91c1c;
+  --color-functional-danger-bg: #ffe6e6;
+  --color-functional-danger-hover: #991b1b;
+  --color-functional-danger-pressed: #7f1d1d;
+  --color-functional-danger-active-on-deep-fill: var(--color-text-inverse);
+  --color-code-bg: #f5f7fb;
+  --color-code-text: #1f2937;
+  --color-code-keyword: #9333ea;
+  --color-code-string: #065f46;
+  --color-code-comment: #6b7280;
+  --color-highlight-search: #fde68a;
+  --color-highlight-selection: rgba(179, 215, 255, 0.5);
+  --color-placeholder: var(--color-text-secondary);
+
+  /* D1.V2 shadows — light */
+  --shadow-level-0: none;
+  --shadow-level-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-level-2: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --shadow-level-3: 0 4px 16px rgba(0, 0, 0, 0.15);
+  --shadow-level-4: 0 8px 32px rgba(0, 0, 0, 0.15);
+
+  /* legacy aliases — identical values; --accent equals accent.primary here */
+  --surface-bar: var(--color-surface-bar);
+  --surface-side: var(--color-surface-side);
+  --surface-editor: var(--color-surface-editor);
+  --surface-control: var(--color-surface-control);
+  --surface-hover: var(--color-surface-hover);
+  --border: var(--color-border-decorative);
+  --text: var(--color-text-primary);
+  --text-muted: var(--color-text-secondary);
+  --accent-bg: var(--color-accent-bg-light);
+  --accent: var(--color-accent-primary);
+  --focus: var(--color-border-focus);
+}
