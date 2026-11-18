@@ -3,45 +3,45 @@
 
   /* Alma 语义色 — dark（本文件是深色主题的唯一真相源）
      plate-ui.css 只引用这里的 token，不再自带色值。 */
-  --color-surface-window: #191b1f;
-  --color-surface-bar: #202227;
-  --color-surface-side: #202227;
-  --color-surface-editor: #191b1f;
-  --color-surface-control: #23262c;
-  --color-surface-hover: #2a2d32;
-  --color-surface-pressed: #3a3e45;
+  --color-surface-window: #09090b;
+  --color-surface-bar: #121215;
+  --color-surface-side: #121215;
+  --color-surface-editor: #121215;
+  --color-surface-control: #18181b;
+  --color-surface-hover: #27272a;
+  --color-surface-pressed: #303034;
   --color-surface-overlay: rgba(0, 0, 0, 0.6);
-  --color-text-primary: #e8eaed;
-  --color-text-secondary: #b0b7c2;
-  --color-text-tertiary: #949eac;
-  --color-text-inverse: #151c24;
-  --color-text-disabled: #949eac;
-  --color-accent-primary: #93c4eb;
-  --color-accent-text: #a5cdee;
-  --color-accent-hover: #aad3f4;
-  --color-accent-bg-dark: #233847;
-  --color-accent-pressed: #80b3db;
-  --color-border-focus: #8fc6ef;
-  --color-border-decorative: #343840;
-  --color-border-control: #6d747f;
-  --state-selected: #233847;
-  --state-selected-hover: #2c4557;
-  --plate-editor-focus: #536e86;
-  --color-semantic-starting-text: #ffc757;
-  --color-semantic-starting-bg: #3d2f0a;
-  --color-semantic-starting-border: #997521;
-  --color-semantic-doing-text: #70aeff;
-  --color-semantic-doing-bg: #0f2847;
-  --color-semantic-doing-border: #3b6ba8;
-  --color-semantic-pending-text: #c799ff;
-  --color-semantic-pending-bg: #2b1a47;
-  --color-semantic-pending-border: #7a4db8;
-  --color-semantic-review-text: #ffb570;
-  --color-semantic-review-bg: #3d2410;
-  --color-semantic-review-border: #b87333;
-  --color-semantic-done-text: #70e68a;
-  --color-semantic-done-bg: #0f3d1f;
-  --color-semantic-done-border: #3d9959;
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  --color-text-inverse: #09090b;
+  --color-text-disabled: #71717a;
+  --color-accent-primary: #6366f1;
+  --color-accent-text: #c7d2fe;
+  --color-accent-hover: #818cf8;
+  --color-accent-bg-dark: rgba(99, 102, 241, 0.14);
+  --color-accent-pressed: #4f46e5;
+  --color-border-focus: #6366f1;
+  --color-border-decorative: rgba(255, 255, 255, 0.08);
+  --color-border-control: #3f3f46;
+  --state-selected: rgba(99, 102, 241, 0.14);
+  --state-selected-hover: rgba(99, 102, 241, 0.2);
+  --plate-editor-focus: rgba(99, 102, 241, 0.55);
+  --color-semantic-starting-text: #a5b4fc;
+  --color-semantic-starting-bg: rgba(99, 102, 241, 0.12);
+  --color-semantic-starting-border: #6366f1;
+  --color-semantic-doing-text: #38bdf8;
+  --color-semantic-doing-bg: rgba(14, 165, 233, 0.15);
+  --color-semantic-doing-border: #38bdf8;
+  --color-semantic-pending-text: #f59e0b;
+  --color-semantic-pending-bg: rgba(245, 158, 11, 0.16);
+  --color-semantic-pending-border: #f59e0b;
+  --color-semantic-review-text: #f59e0b;
+  --color-semantic-review-bg: rgba(245, 158, 11, 0.16);
+  --color-semantic-review-border: #f59e0b;
+  --color-semantic-done-text: #10b981;
+  --color-semantic-done-bg: rgba(16, 185, 129, 0.12);
+  --color-semantic-done-border: #10b981;
   --color-semantic-error-text: #ff6b6b;
   --color-semantic-error-bg: #3d0f0f;
   --color-semantic-error-border: #cc3333;
@@ -63,8 +63,8 @@
   --color-functional-danger-hover: #dc2626;
   --color-functional-danger-pressed: #b91c1c;
   --color-functional-danger-active-on-deep-fill: #ffffff;
-  --color-code-bg: #1a2332;
-  --color-code-text: #e5e7eb;
+  --color-code-bg: #18181b;
+  --color-code-text: #e4e4e7;
   --color-code-keyword: #c084fc;
   --color-code-string: #4ade80;
   --color-code-comment: #9ca3af;
@@ -74,13 +74,25 @@
 
   /* D1.V2 shadows — dark */
   --shadow-level-0: none;
-  --shadow-level-1: 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-level-2: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-level-3: 0 6px 24px rgba(0, 0, 0, 0.4);
-  --shadow-level-4: 0 12px 48px rgba(0, 0, 0, 0.5);
+  --shadow-level-1: 0 4px 12px rgba(0, 0, 0, 0.22);
+  --shadow-level-2: 0 8px 20px rgba(0, 0, 0, 0.28);
+  --shadow-level-3: 0 12px 32px -4px rgba(0, 0, 0, 0.36);
+  --shadow-level-4: 0 18px 48px -8px rgba(0, 0, 0, 0.44);
 
-  /* legacy aliases — --accent keeps its historical value (#bfd1ff =
-     accent.text), not accent.primary (#7a9fe8); consumers depend on it */
+  --agent-codex-text: #60a5fa;
+  --agent-codex-bg: rgba(59, 130, 246, 0.14);
+  --agent-codex-border: rgba(59, 130, 246, 0.35);
+  --agent-claude-text: #fb923c;
+  --agent-claude-bg: rgba(249, 115, 22, 0.14);
+  --agent-claude-border: rgba(249, 115, 22, 0.35);
+  --agent-dsh-text: #818cf8;
+  --agent-dsh-bg: rgba(99, 102, 241, 0.14);
+  --agent-dsh-border: rgba(99, 102, 241, 0.35);
+  --agent-opencode-text: #34d399;
+  --agent-opencode-bg: rgba(16, 185, 129, 0.14);
+  --agent-opencode-border: rgba(16, 185, 129, 0.35);
+
+  /* legacy aliases — --accent follows accent.text for markdown/link syntax */
   --surface-bar: var(--color-surface-bar);
   --surface-side: var(--color-surface-side);
   --surface-editor: var(--color-surface-editor);
@@ -90,6 +102,6 @@
   --text: var(--color-text-primary);
   --text-muted: var(--color-text-secondary);
   --accent-bg: var(--color-accent-bg-dark);
-  --accent: #bfd1ff;
+  --accent: var(--color-accent-text);
   --focus: var(--color-border-focus);
 }

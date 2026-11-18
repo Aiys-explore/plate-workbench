@@ -1,11 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { DEFAULT_PROJECT, type DraftRecovery, type DraftSummary, type LinkIndex, type Note, type NoteSummary, type NoteTemplate, type ProjectSummary } from '../../shared/ipc'
 import { linkCatalog, resolveLink } from '../../shared/link-resolution'
 import { EditorDialog, NoteEditor } from './note-editor'
 import { EditorSession } from './editor/session'
 import type { EditorSurface } from './editor/surface'
 import { commandLayer, focus, target, usePaletteOwner, type Source } from './palette-registry'
-import { NotesTree } from './notes-tree'
+import { QuickNodePopover } from './quick-node-popover'
+import { PlateWordmark } from './plate-wordmark'
 import { RelationshipGraph } from './relationship-graph'
 import { noteRelations } from './relation-directions'
 import { NOTE_DRAWER_WIDTH_MAX, NOTE_DRAWER_WIDTH_MIN, useWorkbench } from './store'
@@ -16,15 +17,7 @@ const DRAFT_DELAY_MS = 700
 const fileName = (path: string) => path.split(/[\\/]/).at(-1)
 
 
-export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sidebarSplitter, searchNotes }: {
-  searchNotes: (source?: Source) => void
-  agentCounts?: React.ReactNode
-  sidebarBottom?: React.ReactNode
-  sidebarSplitter?: React.ReactNode
-  notesDrawer?: { open: boolean; dialog: RefObject<HTMLDialogElement | null>; close: (restoreFocus?: boolean) => void }
-}) {
-  const sidebarCollapsed = useWorkbench((state) => state.sidebarCollapsed)
-  const toggleSidebar = useWorkbench((state) => state.toggleSidebar)
+export function NotesWorkspace({ hudRight }: { hudRight: ReactNode }) {
   const drawerWidth = useWorkbench((state) => state.noteDrawerWidth)
   const setDrawerWidthStored = useWorkbench((state) => state.setNoteDrawerWidth)
   const api = window.workbench.notes
@@ -36,9 +29,12 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   const workspaceReady = useRef(false)
   const refreshWorkspace = useRef<() => Promise<void>>(async () => {})
   const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [query, setQuery] = useState('')
   const [project, setProject] = useState('')
-  const [tags, setTags] = useState<string[]>([])
+  const [tag, setTag] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [focusId, setFocusId] = useState<string>()
+  const searchOrigin = useRef<Source>(undefined)
+  const searchButton = useRef<HTMLButtonElement>(null)
   const [note, setNote] = useState<Note | null>(null)
   const [draft, setDraft] = useState('')
   const [recoveries, setRecoveries] = useState<DraftSummary[]>([])
@@ -63,18 +59,6 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   const [externalPath, setExternalPath] = useState('')
   const [conflict, setConflict] = useState<{ copy: Note; originalExists: boolean }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [searchReturn,setSearchReturn]=useState(false)
-  const [returnToSearch, setReturnToSearch] = useState(false)
-  useEffect(() => {
-    if (!returnToSearch || (notesDrawer && !notesDrawer.open) || (!notesDrawer && sidebarCollapsed)) return
-    window.dispatchEvent(new Event('return-notes-search'))
-    setReturnToSearch(false)
-  }, [returnToSearch, notesDrawer?.open, sidebarCollapsed])
-  useEffect(()=>{
-    const clear=()=>setSearchReturn(false)
-    window.addEventListener('clear-search-return',clear)
-    return()=>window.removeEventListener('clear-search-return',clear)
-  },[])
   const [linkPrompt, setLinkPrompt] = useState<string>()
   const linkAnchor = useRef<Element | null>(null)
   const promptFocus = useRef<HTMLDivElement>(null)
@@ -92,6 +76,15 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   const catalog = useMemo(() => linkCatalog(items), [items])
   const projectNames = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
   const activeId = note?.id
+  const tags = useMemo(() => [...new Set(items.flatMap(item => item.tags ?? []))].sort((a, b) => a.localeCompare(b, 'zh-CN')), [items])
+  const visible = useMemo(() => items.filter(item => (!project || item.projectId === project) &&
+    (!tag || item.tags?.includes(tag))), [items, project, tag])
+  const visibleEdges = useMemo(() => {
+    const ids = new Set(visible.map(item => item.id))
+    return index.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target))
+  }, [visible, index.edges])
+  const searchFilters = useMemo(() => ({ projectId: project || undefined, tags: tag ? [tag] : undefined }), [project, tag])
+  const writableProject = projects.find(item => item.id === project && item.archivedAt === null)?.id ?? DEFAULT_PROJECT
   const { upstream, downstream, self, bindings } = useMemo(() => {
     return { ...noteRelations(index.edges,catalog.byId,activeId), bindings: new Map(index.bindings.filter((b) => b.source === activeId)
       .map((b) => [b.ref, b.target])) }
@@ -392,24 +385,22 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     else if (dirty || cleanDiscard.current?.identity!==editorIdentity.current) await discardCurrent()
   }
 
-  function select(id: string, result=false, origin?:HTMLElement) {
+  function select(id: string, origin?: HTMLElement) {
     const trigger=origin??document.activeElement
     const focusSource=()=>{
       if (trigger instanceof HTMLElement && trigger.isConnected && trigger.getClientRects().length) trigger.focus({preventScroll:true})
-      else document.querySelector<HTMLElement>('.relations-list summary, .notes-tree')?.focus({preventScroll:true})
+      else document.querySelector<HTMLElement>('.relations-canvas')?.focus({preventScroll:true})
     }
     if (inFlight.current) return
     if (id === note?.id) {
-      if (result) setSearchReturn(true)
       closeLinkPrompt()
       setDrawerOpen(true)
-      if (notesDrawer?.open) notesDrawer.close(false)
       return
     }
     void run(async () => {
       const choice = await chooseLeave()
       if (choice === 'stay') {
-        if (result || linkPrompt!==undefined) focusAfterOperation.current = focusSource
+        if (linkPrompt!==undefined) focusAfterOperation.current = focusSource
         return
       }
       const next = await api.read(id)
@@ -417,11 +408,32 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       await finishLeave(choice)
       show(next, undefined, undefined, prepared)
       setDrawerOpen(true)
-      setSearchReturn(result)
       setConflict(undefined)
-      if (notesDrawer?.open) notesDrawer.close(false)
       focusAfterOperation.current = () => document.querySelector<HTMLElement>('[data-editor-meta-title]')?.focus()
     },focusSource)
+  }
+
+  function openSearch(source?: Source) {
+    const origin = document.activeElement
+    searchOrigin.current = source ?? {
+      element: origin instanceof HTMLElement ? origin : null,
+      restore: () => {
+        if (origin instanceof SVGElement && origin.isConnected) origin.focus({ preventScroll: true })
+        else if (!(origin instanceof HTMLElement && focus(origin))) focus(searchButton.current)
+      },
+    }
+    setSearchOpen(true)
+  }
+
+  function closeSearch(restore = true) {
+    setSearchOpen(false)
+    if (restore) requestAnimationFrame(() => searchOrigin.current?.restore())
+  }
+
+  function locateNode(id: string) {
+    closeSearch(false)
+    setFocusId(undefined)
+    requestAnimationFrame(() => setFocusId(id))
   }
 
   function closeNoteDrawer() {
@@ -449,7 +461,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   }
   useEffect(() => { if (linkPrompt !== undefined) promptFocus.current?.focus() }, [linkPrompt])
 
-  function newNote(template: NoteTemplate, _source?: Source, partition = DEFAULT_PROJECT) {
+  function newNote(template: NoteTemplate, _source?: Source, partition = writableProject) {
     if (inFlight.current || session?.composing) return
     void run(async () => {
       const choice = await chooseLeave()
@@ -462,7 +474,6 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       setDrawerOpen(true)
       setConflict(undefined)
       setMessage('笔记已新建')
-      if (notesDrawer?.open) notesDrawer.close(false)
       focusAfterOperation.current = () => document.querySelector<HTMLInputElement>('[data-editor-meta-title]')?.focus()
     })
   }
@@ -528,6 +539,8 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     actions: {
       'm51.note.new': { reason: unavailable, basis: objectVersion, allowed: mayAct,
         run: source => { newNote('blank', source); return target('[data-editor-meta-title]') } },
+      'm51.note.search': { allowed: () => workspaceReady.current, run: source => { openSearch(source); return target('.plate-node-search input') } },
+      'm51.note.graph': { allowed: () => workspaceReady.current, run: () => { closeNoteDrawer(); return target('.relations-canvas') } },
       'm51.project.new': { reason: projectUnavailable, basis: objectVersion, allowed: mayAct,
         run: source => { newProject(source); return target('dialog[data-kind=project-create][open] input') } }
     }
@@ -537,14 +550,15 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     function key(event: globalThis.KeyboardEvent) {
       if (document.querySelector('.home-document-host[hidden]')) return
       if (event.defaultPrevented || event.repeat || event.isComposing || event.key === 'Process' || event.keyCode===229 ||
-          !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'n') return
+          !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || !['k','n'].includes(event.key.toLowerCase())) return
       if (commandLayer() || document.querySelector('dialog[open]:not(.notes-drawer),[role=menu]') || inFlight.current || session?.composing) return
       event.preventDefault()
-      newNote('blank')
+      if (event.key.toLowerCase() === 'k') openSearch()
+      else newNote('blank')
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [session])
+  }, [session, writableProject])
 
   function save() {
     if (!note || !session || !dirty || pendingRecovery || session.locked || inFlight.current) return
@@ -695,34 +709,29 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     }
   }
 
-  const sidebar = (
-    <aside className="pane sidebar notes-sidebar" aria-label="笔记栏">
-      {notesDrawer ? <button type="button" className="icon-button pane-toggle" aria-label="关闭笔记栏" onClick={() => notesDrawer.close()}>×</button> :
-        <button type="button" className="icon-button pane-toggle" aria-label={sidebarCollapsed ? '展开笔记栏' : '折叠笔记栏'}
-        title={sidebarCollapsed ? '展开笔记栏' : '折叠笔记栏'} aria-expanded={!sidebarCollapsed}
-        aria-controls="sidebar-content" onClick={toggleSidebar}>{sidebarCollapsed ? '›' : '‹'}</button>}
-      <div id="sidebar-content" className="pane-content" hidden={!notesDrawer && sidebarCollapsed}>
-      <div className="pane-heading notes-heading">
-        <h2 id="sidebar-title">笔记</h2>
-      </div>
-      <div className="sidebar-scroll">
-      <NotesTree items={items} projects={projects} selected={note?.id} busy={busy} filters={{query,setQuery,project,setProject,tags,setTags}}
-        open={select} newNote={(template, partition) => newNote(template, undefined, partition)} newProject={newProject} remove={askDelete}
-        searchNotes={searchNotes} paletteMayAct={mayAct} /></div>
-      {agentCounts}
-      {sidebarBottom}
-      </div>
-    </aside>
-  )
+  const hudLeft = <>
+    <PlateWordmark />
+    <button type="button" ref={searchButton} className="plate-map-search-entry" aria-haspopup="dialog"
+      title="搜索或跳转 (Ctrl+K)" onClick={() => openSearch()}>⌕ 搜索 <kbd>Ctrl+K</kbd></button>
+    <select aria-label="导图分区" value={project} onChange={event => setProject(event.target.value)}>
+      <option value="">全部导图</option>
+      {projects.filter(item => item.archivedAt === null).map(item =>
+        <option key={item.id} value={item.id}>{item.id === DEFAULT_PROJECT ? '未归属' : item.name}</option>)}
+    </select>
+    {tags.length > 0 && <select aria-label="筛选标签" value={tag} onChange={event => setTag(event.target.value)}>
+      <option value="">全部标签</option>
+      {tags.map(label => <option key={label}>{label}</option>)}
+    </select>}
+    <button type="button" aria-label="新建分区" title="新建分区" onClick={() => newProject()}>＋</button>
+    {recoveries.length > 0 && <button type="button" onClick={() => setDrawerOpen(true)}>草稿 {recoveries.length}</button>}
+  </>
   return <>
-    {notesDrawer ? <dialog ref={notesDrawer.open ? notesDrawer.dialog : undefined} className="workbench-drawer notes-drawer" aria-label="笔记栏"
-      onCancel={event => { event.preventDefault(); notesDrawer.close() }}
-      onClick={event => { if (event.target === event.currentTarget) notesDrawer.close() }}>{sidebar}</dialog> : sidebar}
-    {sidebarSplitter}
+    {searchOpen && <QuickNodePopover visible={visible} filters={searchFilters} label={label}
+      locate={locateNode} close={() => closeSearch()} searchAll={() => { setProject(''); setTag('') }}/>}
     <main className="pane editor notes-editor notes-stage" aria-label="编辑区" onKeyDown={saveShortcut}>
-      <RelationshipGraph nodes={items} edges={index.edges} selected={activeId}
-        activeProject={projects.find(item => item.id === project && item.archivedAt === null)?.id ?? DEFAULT_PROJECT}
-        label={label} open={(id,origin)=>select(id,false,origin)}
+      <RelationshipGraph nodes={visible} edges={visibleEdges} selected={activeId} focusId={focusId} hudLeft={hudLeft} hudRight={hudRight}
+        revealOutside={id => { setProject(''); setTag(''); locateNode(id) }}
+        activeProject={writableProject} label={label} open={(id, origin) => select(id, origin)}
         close={closeNoteDrawer} editorOpen={drawerOpen} rightInset={drawerOpen ? drawerWidth + 16 : 0}
         canChange={id => !inFlight.current && !recoveries.some(draft => draft.id === id) &&
           (id !== note?.id || !dirty && !session?.composing && !external)}
@@ -765,11 +774,6 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
         <div className="note-drawer-heading">
           <h2 id="editor-title">笔记</h2>
           <div className="note-actions">
-            {searchReturn && <button type="button" onClick={()=>{
-              if (notesDrawer && !notesDrawer.open) window.dispatchEvent(new Event('open-notes-drawer'))
-              else if (!notesDrawer && sidebarCollapsed) toggleSidebar()
-              setReturnToSearch(true)
-            }}>返回搜索结果</button>}
             <button type="button" className="icon-button" aria-label="关闭编辑抽屉" onClick={closeNoteDrawer}>×</button>
           </div>
         </div>

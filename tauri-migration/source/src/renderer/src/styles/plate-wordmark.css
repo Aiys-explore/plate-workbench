@@ -1,23 +1,24 @@
 .plate-wordmark {
-  --plate-logo-ink: 112px;
+  --plate-logo-ink: 86px;
   position: relative;
   display: block;
   overflow: hidden;
-  width: calc(var(--plate-logo-ink) * 1.006);
-  height: calc(var(--plate-logo-ink) * .3504);
+  width: calc(var(--plate-logo-ink) * 1.01);
+  height: calc(var(--plate-logo-ink) * .255);
   line-height: 1;
 }
 
-/* Crop only the transparent margins for the sidebar; keep the PNG unmodified. */
+/* Crop the transparent ImageGen padding in the HUD. */
 .plate-wordmark img {
   position: absolute;
   display: block;
   max-width: none;
-  width: calc(var(--plate-logo-ink) * 1.589);
+  width: calc(var(--plate-logo-ink) * 1.066);
   height: auto;
-  left: calc(var(--plate-logo-ink) * -.2948);
-  top: calc(var(--plate-logo-ink) * -.1039);
+  left: calc(var(--plate-logo-ink) * -.032);
+  top: calc(var(--plate-logo-ink) * -.061);
 }
+.theme-dark .plate-wordmark img { filter: brightness(1.55); }
 
 @media (max-width: 719px) {
   .plate-wordmark { --plate-logo-ink: 84px; }

@@ -377,6 +377,11 @@ export class EditorSession {
   private one(e: Edit, selection: Selection, options?: Parameters<EditorSession['apply']>[2]) {
     return this.apply([e], selection, options)
   }
+  completeTask(edit: Edit, caret: number) {
+    if (this.mode !== 'render' || /[\r\n]/.test(edit.insert)) return false
+    this.guarded(edit)
+    return this.one(edit, this.selection, { after: { anchor: caret, head: caret } })
+  }
   private structureKey(unit: Unit, selection: Selection) {
     const point = selection.head
     if (selection.anchor !== point) return deny('结构键需要单一光标')

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
 import { noteRelations } from './relation-directions'
@@ -61,19 +61,25 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
   return { ordered,points,height:Math.max(320,y) }
 }
 
-export function RelationshipGraph({ nodes, edges, selected, label, open, close, state, reload, editorOpen, rightInset, canChange, noteUpdated, activeProject }: {
+export function RelationshipGraph({
+  nodes, edges, selected, focusId, label, open, close, state, reload, editorOpen, rightInset,
+  canChange, noteUpdated, activeProject, hudLeft, hudRight, revealOutside,
+}: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
+  focusId?: string
   open: (id: string, origin?:HTMLElement) => void; close: () => void
   editorOpen?: boolean; rightInset?: number
   state: { busy: boolean; error?: string }; reload: () => void
   canChange: (id: string) => boolean
   noteUpdated: (note: Note) => void
   activeProject: string
+  hudLeft?: ReactNode
+  hudRight?: ReactNode
+  revealOutside?: (id: string) => void
 }) {
   const [scope, setScope] = useState<'nearby' | 'all'>(() => selected ? 'nearby' : 'all')
   const [anchor, setAnchor] = useState(selected)
   const [style, setStyle] = useState<Style>(initialStyle)
-  const [wideCanvas, setWideCanvas] = useState(true)
   const [sceneWidth, setSceneWidth] = useState(width)
   const [fontsReady,setFontsReady] = useState(false)
   useLayoutEffect(()=>{
@@ -87,10 +93,48 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const center = anchor && byId.has(anchor) ? anchor : selected && byId.has(selected) ? selected : undefined
   const local = scope === 'nearby' && !!center
   const cards=useMemo(()=>measureCards(nodes),[nodes,fontsReady])
+  const graph = useMemo(() => {
+    const parents = new Map<string,string[]>()
+    for (const {source: child, target: parent} of edges) {
+      if (!byId.has(child) || !byId.has(parent) || child === parent) continue
+      const upstream = parents.get(child) ?? []
+      if (!upstream.includes(parent)) parents.set(child, [...upstream, parent])
+    }
+    const cycleNodes = new Set<string>()
+    const visited = new Set<string>()
+    const visit = (id:string,path:Set<string>) => {
+      if (visited.has(id)) return
+      if (path.has(id)) {
+        for (const item of path) cycleNodes.add(item)
+        cycleNodes.add(id)
+        return
+      }
+      path.add(id)
+      for (const parent of parents.get(id) ?? []) visit(parent,path)
+      path.delete(id)
+      visited.add(id)
+    }
+    for (const {id} of nodes) visit(id,new Set())
+
+    const children = new Map<string,string[]>()
+    for (const [child, upstream] of parents) {
+      const parent = upstream.length === 1 ? upstream[0] : undefined
+      if (!parent || cycleNodes.has(parent) || cycleNodes.has(child)) continue
+      if (!children.has(parent)) children.set(parent,[])
+      children.get(parent)!.push(child)
+    }
+
+    return { parents, children, cycleNodes }
+  }, [byId,edges])
+  const parentOf = (id: string) => {
+    const parents = graph.parents.get(id)
+    const parent = parents?.length === 1 ? parents[0] : undefined
+    return parent && !graph.cycleNodes.has(parent) && !graph.cycleNodes.has(id) ? parent : undefined
+  }
   const diagramWidth = local ? Math.max(760,Math.min(width,sceneWidth-38)) : width
   const laneXs=[diagramWidth*.2,diagramWidth*.5,diagramWidth*.8]
   const vicinity = useMemo(() => noteRelations(edges, byId, center), [edges, byId, center])
-  const { ordered, points, height } = useMemo(() => {
+  const { ordered: layoutOrder, points, height } = useMemo(() => {
     if (!local || !center) return layout(nodes, edges,cards)
     const upstream = [...vicinity.upstream].sort((a,b)=>a.title.localeCompare(b.title,'zh-CN') || a.id.localeCompare(b.id))
     const seen = new Set(upstream.map(n=>n.id))
@@ -110,13 +154,35 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const [moved, setMoved] = useState<Map<string, Point>>(() => new Map())
   const movedRef = useRef(moved)
   movedRef.current = moved
-  const resolvedLayout = useRef(new Set<string>())
   const [actionError, setActionError] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const collapsedRef = useRef(collapsed)
+  collapsedRef.current = collapsed
+  const hidden = useMemo(() => {
+    const result = new Set<string>()
+    const stack = [...collapsed].flatMap(id => graph.children.get(id) ?? [])
+    while (stack.length) {
+      const node = stack.pop()!
+      if (result.has(node)) continue
+      result.add(node)
+      stack.push(...(graph.children.get(node) ?? []))
+    }
+    return result
+  }, [collapsed, graph.children])
+  const ordered = layoutOrder.filter(note => !hidden.has(note.id))
   const deriving = useRef(false)
   const [nextFocus, setNextFocus] = useState<string>()
   const [taskSummary, setTaskSummary] = useState<Record<string, {
     todo: number; doing: number; pending: number; done: number; error: number
   }>>({})
+  const activity = useMemo(() => {
+    let doing = 0, pending = 0
+    for (const summary of Object.values(taskSummary)) {
+      doing += summary.doing
+      pending += summary.pending
+    }
+    return { doing, pending }
+  }, [taskSummary])
   useEffect(() => {
     let alive = true
     const load = () => {
@@ -150,15 +216,11 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const [nodeAction, setNodeAction] = useState<'menu' | 'info' | 'move' | 'delete'>()
   const [moveTo,setMoveTo] = useState<Point>()
   const [undoMove,setUndoMove] = useState<{id:string; before:Point | undefined}>()
-  const [more,setMore] = useState(false)
   const section = useRef<HTMLElement>(null)
-  const moreButton = useRef<HTMLButtonElement>(null)
   const [position,setPosition] = useState<Point>()
   const menuRef = useRef<HTMLDivElement>(null)
-  const [row, setRow] = useState<string>()
   const first = useRef<HTMLButtonElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
-  const listToggle = useRef<HTMLElement>(null)
   const dialogOrigin = useRef<Element | null>(null)
   const world = useRef<SVGGElement>(null)
   const camera = useRef<Camera>({x:0,y:0,scale:1})
@@ -169,8 +231,9 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const [listOpen, setListOpen] = useState(() => innerWidth < 960)
   const activeNote = ordered.find(note => note.id === active)
   const detailNote = details ? byId.get(details) : undefined
+  const rovingId = active ?? center ?? ordered[0]?.id
   const detailLinks = useMemo(() => noteRelations(edges, byId, details), [edges, byId, details])
-  useLayoutEffect(() => { first.current?.focus() }, [])
+  useLayoutEffect(() => { viewport.current?.focus({ preventScroll: true }) }, [])
   useLayoutEffect(() => {
     const query = matchMedia('(prefers-reduced-motion: reduce)')
     const change = () => setReduced(query.matches)
@@ -185,8 +248,9 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     before: Point | undefined; moved: boolean } | null>(null)
   const links = useMemo(() => {
     return [...new Map(edges.filter(e=>points.has(e.source) && points.has(e.target) &&
-      (!local || e.source===center || e.target===center)).map(e=>[JSON.stringify([e.source,e.target]),e])).values()]
-  },[points,edges,local,center])
+      (!local || e.source===center || e.target===center) &&
+      !hidden.has(e.source) && !hidden.has(e.target)).map(e=>[JSON.stringify([e.source,e.target]),e])).values()]
+  },[points,edges,local,center,hidden])
   const highlighted = details ?? hovered ?? active ?? center
   const neighborhood = new Set(highlighted ? [highlighted] : [])
   for (const {source,target} of links) {
@@ -201,6 +265,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const geometry = useMemo(()=>{
     const placed=new Map<string,CardBox>()
     for (const [id,point] of points) {
+      if (hidden.has(id)) continue
       const size=cards.get(id)!.height
       const p=(nodeAction==='move' && active===id ? moveTo : undefined) ?? moved.get(id) ?? point
       placed.set(id,{x:Math.max(cardWidth/2+8,p.x), y:Math.max(size/2+8,p.y),width:cardWidth,height:size})
@@ -211,7 +276,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       extentY = Math.max(extentY, card.y + card.height / 2 + 24)
     }
     return {placed, extentX, extentY, wires:connectCards(links,placed,local)}
-  },[points,links,cards,nodeAction,active,moveTo,moved,diagramWidth,height,local])
+  },[points,links,cards,nodeAction,active,moveTo,moved,diagramWidth,height,local,hidden])
   const clamp = ({x,y}:Point,id=active)=> {
     const half=((id && cards.get(id)?.height)||36)/2+8
     return {x:Math.max(cardWidth/2+8,x), y:Math.max(half,y)}
@@ -264,22 +329,21 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   }
   const lastDrag = useRef(-Infinity)
   useLayoutEffect(() => { cancelDrag() },[nodes,edges])
-  // 节点坐标持久化：加载 graph_layout 中尚未解析过的节点坐标（S4）。
   useLayoutEffect(() => {
+    let current = true
     void window.workbench.graphLayout.getAll().then(all => {
-      setMoved(prev => {
-        const next = new Map(prev)
-        let changed = false
-        for (const [id, entry] of Object.entries(all)) {
-          if (resolvedLayout.current.has(id) || !points.has(id)) continue
-          resolvedLayout.current.add(id)
-          next.set(id, { x: entry.x, y: entry.y })
-          changed = true
-        }
-        return changed ? next : prev
-      })
-    }).catch(() => { /* 布局读取失败时保持默认布局 */ })
-  }, [points])
+      if (!current) return
+      setMoved(previous => new Map([
+        ...Object.entries(all).flatMap(([id, entry]): [string, Point][] =>
+          entry.pinned ? [[id, { x: entry.x, y: entry.y }]] : []),
+        ...previous,
+      ]))
+      const initial = new Set(Object.keys(all).filter(id => all[id]!.collapsed))
+      collapsedRef.current = initial
+      setCollapsed(initial)
+    }).catch(error => { if (current) setActionError(String(error)) })
+    return () => { current = false }
+  }, [])
   function paint(next:Camera) {
     camera.current=next
     world.current?.setAttribute('transform',`translate(${next.x} ${next.y}) scale(${next.scale})`)
@@ -313,6 +377,31 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     const { extentX, extentY } = geometry
     const scale=Math.min(1.12,Math.max(.08,Math.min((w-24)/extentX,(h-48)/extentY)))
     flyTo({scale,x:Math.max(12,(w-extentX*scale)/2),y:Math.max(8,(h-extentY*scale)/2-12)},false)
+  }
+  function setBranch(id: string, value: boolean) {
+    const next = new Set(collapsedRef.current)
+    if (value) next.add(id); else next.delete(id)
+    collapsedRef.current = next
+    setCollapsed(next)
+    void window.workbench.graphLayout.setCollapsed(id,value).catch(error => {
+      if (collapsedRef.current.has(id) !== value) return
+      const reverted = new Set(collapsedRef.current)
+      if (value) reverted.delete(id); else reverted.add(id)
+      collapsedRef.current = reverted
+      setCollapsed(reverted)
+      setActionError(String(error))
+    })
+  }
+  const expandNode = (id: string) => setBranch(id, false)
+  const toggleCollapse = (id: string) => setBranch(id, !collapsedRef.current.has(id))
+  function revealNode(id: string) {
+    if (!byId.has(id)) return
+    for (let parent = parentOf(id); parent; parent = parentOf(parent)) {
+      if (collapsedRef.current.has(parent)) expandNode(parent)
+    }
+    setScope("all")
+    setAnchor(undefined)
+    setNextFocus(id)
   }
   function frameDetail(id:string,animate=live) {
     const target=viewport.current
@@ -455,7 +544,8 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   }
   const resetLayout = () => {
     setMoved(new Map()); setUndoMove(undefined)
-    resolvedLayout.current = new Set()
+    collapsedRef.current = new Set()
+    setCollapsed(collapsedRef.current)
     void window.workbench.graphLayout.resetAll().catch(() => {})
   }
   const closeInfo = () => {
@@ -465,7 +555,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       const origin = dialogOrigin.current
       if (origin instanceof HTMLElement && origin.isConnected && origin.getClientRects().length) origin.focus({preventScroll:true})
       else if (origin instanceof SVGElement) viewport.current?.focus({preventScroll:true})
-      else (listToggle.current ?? first.current)?.focus({preventScroll:true})
+      else first.current?.focus({preventScroll:true})
     })
   }
   function commit() {
@@ -478,18 +568,6 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   const activate = (id:string, origin?:Element|null) => {
     if (!state.error && !state.busy) open(id,origin instanceof HTMLElement ? origin : viewport.current??undefined)
   }
-  const rowOrigin=useRef<string>(undefined)
-  const previousRows=useRef<string[]>([])
-  useLayoutEffect(()=>{
-    const ids=ordered.map(n=>n.id)
-    if (rowOrigin.current && !ids.includes(rowOrigin.current) && document.activeElement===document.body) {
-      const at=previousRows.current.indexOf(rowOrigin.current)
-      const next=[...previousRows.current.slice(at+1),...previousRows.current.slice(0,at).reverse()].find(id=>ids.includes(id))
-      const target=next && section.current?.querySelector<HTMLElement>(`[data-graph-open="${CSS.escape(next)}"]`)
-      ;(target || listToggle.current)?.focus()
-    }
-    previousRows.current=ids
-  },[ordered])
   useLayoutEffect(()=>{if (nodeAction==='menu' && (!activeNote || state.error)) closeInfo()},[activeNote,nodeAction,state.error])
   useLayoutEffect(() => {
     if (!nextFocus || !geometry.placed.has(nextFocus) || state.busy || !viewport.current) return
@@ -503,22 +581,33 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     node.focus({ preventScroll: true })
     setNextFocus(undefined)
   }, [nextFocus, geometry, state.busy, rightInset])
-  async function createNoteAt(event: React.MouseEvent<SVGSVGElement>) {
-    if (state.busy || state.error || !world.current) return
+  useEffect(() => {
+    if (focusId && !state.busy) revealNode(focusId)
+  }, [focusId, state.busy])
+  async function createNoteAt(clientX?: number, clientY?: number) {
+    if (state.busy || state.error || deriving.current || !world.current || !viewport.current) return
+    const region = viewport.current.getBoundingClientRect()
+    const matrix = world.current.getScreenCTM()
+    if (!matrix) return
+    deriving.current = true
     try {
-      const pt = new DOMPoint(event.clientX, event.clientY).matrixTransform(world.current.getScreenCTM()!.inverse())
+      const pt = new DOMPoint(clientX ?? region.left + region.width / 2,
+        clientY ?? region.top + region.height / 2).matrixTransform(matrix.inverse())
       const titles = new Set(nodes.map(n => n.title))
       let title = '新笔记'
       let seq = 2
       while (titles.has(title)) { title = `新笔记 ${seq++}` }
       const created = await window.workbench.notes.create(title, activeProject, 'blank')
       const { x, y } = clamp(pt)
-      resolvedLayout.current.add(created.id)
+
       await window.workbench.graphLayout.saveBatch([{ noteId: created.id, x, y, pinned: true }])
       setMoved(previous => new Map(previous).set(created.id, { x, y }))
       setActionError('')
-      if (scope === 'nearby') chooseScope('all', center)
+      setScope('all')
+      setNextFocus(created.id)
+      reload()
     } catch (e) { setActionError(String(e)) }
+    finally { deriving.current = false }
   }
 
   async function deriveChild(id: string) {
@@ -542,12 +631,51 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       const child = await window.workbench.notes.create(title, parent.projectId, 'blank')
       const savedParent = await window.workbench.graphLayout.connectNodes(id, child.id, true)
       noteUpdated(savedParent)
-      resolvedLayout.current.add(child.id)
-      await window.workbench.graphLayout.saveBatch([{ noteId: child.id, x, y: pos.y, pinned: true }])
+      if (collapsedRef.current.has(id)) expandNode(id)
+
+      await window.workbench.graphLayout.saveBatch([{ noteId: child.id, x, y: pos.y, pinned: true, parentNoteId: id }])
       setMoved(previous => new Map(previous).set(child.id, { x, y: pos.y }))
       setActionError('')
       setScope('all')
       setNextFocus(child.id)
+      reload()
+    } catch (e) { setActionError(String(e)) }
+    finally { deriving.current = false }
+  }
+
+  async function deriveSibling(id: string) {
+    if (state.busy || state.error || deriving.current) return
+    const parent = parentOf(id)
+    if (!parent) {
+      activate(id)
+      return
+    }
+    if (!canChange(parent)) { setActionError('请先保存或处理父笔记的草稿'); return }
+    deriving.current = true
+    try {
+      const siblingBase = byId.get(id)!
+      const titles = nodes.map(n => n.title)
+      let title = `${siblingBase.title} · 同级`
+      let seq = 2
+      while (titles.includes(title)) { title = `${siblingBase.title} · 同级 ${seq++}` }
+      const pos = at(id)
+      const x = pos.x
+      let y = pos.y + pos.height + 28
+      for (const [key, card] of [...geometry.placed].sort((a, b) => a[1].y - b[1].y)) {
+        if (key !== id && Math.abs(card.x - x) < cardWidth + 12 && Math.abs(card.y - y) < card.height + 28) {
+          y = card.y + card.height + 28
+        }
+      }
+      const sibling = await window.workbench.notes.create(title, siblingBase.projectId, 'blank')
+      const savedParent = await window.workbench.graphLayout.connectNodes(parent, sibling.id, true)
+      noteUpdated(savedParent)
+      if (collapsedRef.current.has(parent)) expandNode(parent)
+
+      await window.workbench.graphLayout.saveBatch([{ noteId: sibling.id, x, y, pinned: true, parentNoteId: parent }])
+      setMoved(previous => new Map(previous).set(sibling.id, { x, y }))
+      setActionError('')
+      setScope('all')
+      setNextFocus(sibling.id)
       reload()
     } catch (e) { setActionError(String(e)) }
     finally { deriving.current = false }
@@ -586,8 +714,14 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   }}>适合画布</button>
     <button type="button" onClick={resetLayout}>重置布局</button>
     <button type="button" aria-disabled={!undoMove} onClick={()=>{if (undoMove) { restoreMovement(undoMove); setUndoMove(undefined) }}}>撤销移动</button></>
-  return <section ref={section} className="relations relationship-flow" data-flow-style={style} data-wide={wideCanvas}
+  return <section ref={section} className="relations relationship-flow" data-flow-style={style} data-wide="true"
     data-motion={live?'live':'still'} aria-label="笔记关系图" onKeyDown={event => {
+    if (event.key.toLowerCase() === 'n' && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.repeat &&
+        !nodeAction && !event.ctrlKey && !event.altKey && !event.metaKey &&
+        !(event.target instanceof HTMLElement && event.target.closest('select,input,textarea,[contenteditable]'))) {
+      event.preventDefault()
+      void createNoteAt()
+    }
     if (event.key.toLowerCase()==='s' && !event.nativeEvent.isComposing && !event.repeat &&
         !nodeAction && !event.ctrlKey && !event.altKey && !event.metaKey &&
         !(event.target instanceof HTMLElement && event.target.closest('select,input,textarea,[contenteditable]'))) {
@@ -599,26 +733,24 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       event.stopPropagation()
       clearTimeout(clickTimer.current)
       if (styleOpen) {setStyleOpen(false);styleButton.current?.focus()}
-      else if (more) { setMore(false);moreButton.current?.focus() }
+      else if (legend) setLegend(false)
       else if (drag.current) cancelDrag()
       else if (details) closeDetails()
       else close()
     }
   }}>
-    <div className="relations-toolbar">
-      <strong tabIndex={-1} data-m51-graph-focus aria-label="关系图">笔记关系图</strong>
-      <button type="button" onClick={() => chooseScope('nearby')} aria-pressed={local && center===selected} disabled={!selected || !byId.has(selected)}>当前笔记周边</button>
-      <button type="button" onClick={() => chooseScope('all', center)} aria-pressed={!local}>全部笔记</button>
-      <IconAction ref={first} icon="focus" label="聚焦" onClick={event => { const id = active && points.has(active) ? active : center && points.has(center) ? center : ordered[0]?.id
-        if (id) inspect(id,event.currentTarget) }} disabled={!ordered.length || state.busy || !!state.error}/>
-      <button ref={moreButton} type="button" aria-expanded={more} onClick={()=>setMore(!more)}>更多</button>
-      <button type="button" aria-expanded={legend} onClick={() => setLegend(!legend)}>图例</button>
-      <button type="button" className="relationship-wide-toggle" aria-label="宽画布" aria-pressed={wideCanvas}
-        onClick={()=>setWideCanvas(!wideCanvas)}>{wideCanvas?'显示侧栏':'展开画布'}</button>
+    <div className="plate-map-hud plate-map-hud--left">
+      {hudLeft}
+      <button type="button" onClick={() => {
+        const ids = Object.keys(taskSummary)
+        const id = ids.find(id => taskSummary[id]?.doing) ?? ids.find(id => taskSummary[id]?.pending)
+        if (id && byId.has(id)) revealNode(id)
+        else if (id) revealOutside?.(id)
+      }} disabled={!activity.doing && !activity.pending}>
+        ⚡ {activity.doing} 进行中 · ● {activity.pending} 待审阅
+      </button>
     </div>
-    <div className="relationship-meta">
-      <span>{local ? '来源 › 当前主题 › 后续使用' : '全库 · 按资料流向查看'} <span aria-hidden="true">／</span> {ordered.length} 篇 · {links.length} 条关系</span>
-      <div className="relationship-view-controls">
+    <div className="plate-map-hud plate-map-hud--right">
       <button type="button" aria-label="关系图动效" aria-pressed={live} onClick={toggleMotion} disabled={reduced}
         title={reduced?'系统已开启减少动态效果':'切换静态与动效'}>{live?'◉ 动效':'○ 静态'}</button>
       <div className="relationship-style" onBlur={event=>{if(event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setStyleOpen(false)}}>
@@ -632,20 +764,35 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
             <span aria-hidden="true">{style===id?'✓':''}</span></button>)}
         </div>}
       </div>
-      </div>
+      <button type="button" aria-expanded={legend} onClick={() => setLegend(!legend)}>图例</button>
+      {hudRight}
     </div>
-    {more && <div className="relations-toolbar relations-overflow">{resetControls}</div>}
-    {state.busy && <p role="status">正在读取关系索引…</p>}
-    {actionError && <p role="alert" className="relations-help">{actionError}</p>}
-    {state.error && <p role="alert">关系索引读取失败：{state.error}</p>}
+    <div className="plate-map-hud plate-map-hud--dock">
+      <button type="button" onClick={() => void createNoteAt()} disabled={state.busy || !!state.error}>＋ 新建主节点 <kbd>N</kbd></button>
+      <button type="button" onClick={() => { if (active) void deriveChild(active) }} disabled={!active || state.busy || !!state.error}>子节点 <kbd>Tab</kbd></button>
+      <button type="button" onClick={() => { if (active) void deriveSibling(active) }} disabled={!active || !parentOf(active) || state.busy || !!state.error}>同级 <kbd>Enter</kbd></button>
+      <button type="button" onClick={() => chooseScope(local ? 'all' : 'nearby', local ? center : active)}
+        disabled={local ? !center : !active}>{local ? '全部导图' : '聚焦周边'}</button>
+      <IconAction ref={first} icon="focus" label="聚焦节点详情" onClick={event => {
+        const id = active && geometry.placed.has(active) ? active : ordered[0]?.id
+        if (id) inspect(id,event.currentTarget)
+      }} disabled={!ordered.length || state.busy || !!state.error}/>
+      {resetControls}
+      <IconAction icon="minus" label="缩小" onClick={() => changeZoom(Math.max(.42, zoom - .2))} disabled={zoom<=.42}/>
+      <span role="status">{Math.round(zoom * 100)}%</span>
+      <IconAction icon="plus" label="放大" onClick={() => changeZoom(Math.min(2.25, zoom + .2))} disabled={zoom>=2.25}/>
+    </div>
+    {state.busy && <p role="status" className="relationship-action-status">正在读取关系索引…</p>}
+    {actionError && <p role="alert" className="relationship-action-status">{actionError}</p>}
+    {state.error && <p role="alert" className="relationship-action-status">关系索引读取失败：{state.error}</p>}
     {(state.error || edges.some(edge=>!byId.has(edge.source)||!byId.has(edge.target))) &&
       <button type="button" aria-disabled={state.busy} onClick={()=>{if (!state.busy) {first.current?.focus();reload()}}}>重试关系图</button>}
-    {!state.busy && !state.error && !nodes.length && <p role="status">暂无可显示的笔记</p>}
-    {legend && <p className="relations-help">箭头从被引用的资料指向使用它的笔记。单击聚焦并看详情，双击打开，拖动可调整位置。互相引用的笔记保留两支箭头。</p>}
+    {!state.busy && !state.error && !nodes.length && <p role="status" className="relationship-action-status">点击「新建主节点」，或双击空白画布开始。</p>}
+    {legend && <p className="relationship-action-status">箭头从资料指向使用它的笔记。双击或 Shift+Enter 打开笔记，C 折叠或展开子节点。</p>}
     {edges.some(edge=>!byId.has(edge.source)||!byId.has(edge.target)) && <p role="status">部分关联笔记已不可用</p>}
     {active && !activeNote && <p role="status">选中的节点已从索引移除。</p>}
     <div className="relationship-stage" data-detail={!!detailNote && !state.error}>
-    <div className="relations-canvas" hidden={!!state.error || !nodes.length} ref={viewport} tabIndex={0} aria-label="关系图画布"
+    <div className="relations-canvas" hidden={!!state.error} ref={viewport} tabIndex={0} aria-label="关系图画布"
       onKeyDown={event=>{
         if(event.target!==event.currentTarget || event.nativeEvent.isComposing)return
         const d=directions.find(d=>d.key===event.key)
@@ -671,7 +818,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
           lastFrame.current=undefined
           paint({...g.start,x:g.start.x+event.clientX-g.x,y:g.start.y+event.clientY-g.y})
         }}
-        onDoubleClick={event => { if (event.target === event.currentTarget) void createNoteAt(event) }}
+        onDoubleClick={event => { if (event.target === event.currentTarget) void createNoteAt(event.clientX, event.clientY) }}
         onPointerUp={event=>{
           if (linkDrag.current?.pointer === event.pointerId) { event.stopPropagation(); finishLinkDrag(event.clientX, event.clientY); return }
           if(gesture.current?.id===event.pointerId)gesture.current=null;stop(event)
@@ -717,22 +864,25 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
           const card = cards.get(note.id)!
           const top = -card.height/2
           const role = note.id===center ? 'center' : local && vicinity.upstream.some(n=>n.id===note.id) ? 'up' : local?'down':'note'
+          const childCount = graph.children.get(note.id)?.length ?? 0
           return <g key={note.id} data-graph-node={note.id} transform={`translate(${p.x} ${p.y})`}
-            className="relations-node" role="button" aria-label={label(note)} aria-pressed={note.id===details}
-            tabIndex={note.id===(details ?? center ?? ordered[0]?.id)?0:-1}
+            className="relations-node" role="button" aria-label={label(note)} aria-pressed={note.id === (active ?? center)}
+            tabIndex={note.id===rovingId?0:-1}
             data-selected={note.id === (active ?? center)} data-center={local && note.id === center} data-kind={role}
             data-muted={!!details && !neighborhood.has(note.id)} data-hovered={hovered===note.id}
             onPointerEnter={event=>{if(event.pointerType==='mouse' && !drag.current)setHovered(note.id)}}
             onPointerLeave={()=>setHovered(current=>current===note.id?undefined:current)}
             onClick={event => {
               if (performance.now()-lastDrag.current<500 || event.detail>1)return
-              locate(note.id)
-              activate(note.id,event.currentTarget)
+              setActive(note.id)
             }}
+            onFocus={()=>setActive(current=>current===note.id ? current : note.id)}
             onKeyDown={event=>{
               if(event.nativeEvent.isComposing || event.repeat && ['Enter',' '].includes(event.key))return
-              if(event.key==='Enter'||event.key===' '){event.preventDefault();inspect(note.id,event.currentTarget)}
+              if(event.key==='Enter' && !event.shiftKey){event.preventDefault();void deriveSibling(note.id)}
+              else if(event.key==='Enter'){event.preventDefault();activate(note.id,event.currentTarget)}
               else if(event.key==='Tab'){event.preventDefault();void deriveChild(note.id)}
+              else if(event.key.toLowerCase()==='c' && childCount){event.preventDefault();toggleCollapse(note.id)}
               else if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();setActive(note.id);setNodeAction('delete')}
               else if(event.key==='F10'&&event.shiftKey){event.preventDefault();showMenu(note.id,event.currentTarget)}
               else if(['ArrowLeft','ArrowUp','ArrowRight','ArrowDown','Home','End'].includes(event.key)){
@@ -748,6 +898,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
               }
             }}
             onPointerDown={(event) => start(event, note.id)} onDoubleClick={event => {
+              event.stopPropagation()
               clearTimeout(clickTimer.current)
               if (performance.now()-lastDrag.current>500) activate(note.id,event.currentTarget)
             }}
@@ -769,6 +920,23 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
             <text className="relationship-card-preview">{card.preview.map((line,i)=><tspan key={i} x="-56" y={top+19+card.title.length*14+i*12}>{line}</tspan>)}</text>
             {card.tag.length>0 && <text className="relationship-card-tags" x="-56" y={top+19+card.title.length*14+card.preview.length*12}>{card.tag[0]}</text>}
             </g>
+            {childCount > 0 && (() => {
+              const collapsedNow = collapsed.has(note.id)
+              const shown = childCount
+              const label = collapsedNow ? `展开 ${childCount} 个子节点` : `折叠 ${shown} 个子节点`
+              return <g className="relationship-collapse" role="button" tabIndex={-1} aria-hidden="true"
+                data-collapsed={collapsedNow} data-count={collapsedNow ? childCount : shown}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => { event.stopPropagation(); toggleCollapse(note.id) }}
+                onKeyDown={event => {
+                  if (event.nativeEvent.isComposing || event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault(); event.stopPropagation(); toggleCollapse(note.id)
+                }}>
+                <rect x={cardWidth / 2 - 28} y={top - 9} width="30" height="18" rx="5"/>
+                <text x={cardWidth / 2 - 13} y={top + 4} textAnchor="middle">{collapsedNow ? `+${childCount}` : shown}</text>
+                <title>{label}</title>
+              </g>
+            })()}
             {(['left','right','top','bottom'] as const).map(side=>{
               const dot=port({x:0,y:0,width:cardWidth,height:card.height},side)
               return <g key={side} className="relationship-port-group" data-side={side}
@@ -788,11 +956,6 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
         </g>
       </svg>
     </div>
-    {!!ordered.length && !state.error && <div className="relationship-camera-tools" role="group" aria-label="画布缩放">
-      <IconAction icon="minus" label="缩小" onClick={() => changeZoom(Math.max(.42, zoom - .2))} disabled={zoom<=.42}/>
-      <span role="status">{Math.round(zoom * 100)}%</span>
-      <IconAction icon="plus" label="放大" onClick={() => changeZoom(Math.min(2.25, zoom + .2))} disabled={zoom>=2.25}/>
-    </div>}
     {detailNote && !state.error && !editorOpen && <aside ref={panel} className="relationship-detail" aria-labelledby="relationship-detail-title">
       <div className="relationship-detail-top">
         <small>笔记详情</small><button type="button" onClick={closeDetails} aria-label="关闭笔记详情">×</button>
@@ -820,29 +983,6 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       {detailLinks.self && <p>这篇笔记引用了自己。</p>}
     </aside>}
     </div>
-    <details hidden={!!state.error || !nodes.length} className="relations-list" open={listOpen} onToggle={event=>setListOpen(event.currentTarget.open)}>
-      <summary ref={listToggle}>关系图笔记列表（{ordered.length}）</summary>
-      <ul onKeyDown={event=>{
-        if (!(event.target instanceof HTMLElement) || !event.target.hasAttribute('data-graph-open')) return
-        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-graph-open]')]
-        const index = buttons.indexOf(event.target as HTMLButtonElement)
-        if (['ArrowUp','ArrowDown','Home','End'].includes(event.key)) {
-          event.preventDefault()
-          const next = event.key==='Home' ? 0 : event.key==='End' ? buttons.length-1
-            : Math.max(0,Math.min(buttons.length-1,index+(event.key==='ArrowUp' ? -1 : 1)))
-          buttons[next]?.focus()
-        } else if (event.key===' ' || event.key==='F10' && event.shiftKey) {
-          event.preventDefault()
-          const id = ordered[index]?.id
-          if (id) (event.key===' ' ? inspect(id,event.target) : showMenu(id,event.target))
-        }
-      }}>{ordered.map((note,index) => <li key={note.id}>
-        <button type="button" data-graph-open={note.id} aria-current={note.id === selected ? 'true' : undefined}
-          tabIndex={(ordered.some(n=>n.id===row) ? note.id===row : index===0) ? 0 : -1}
-          onFocus={()=>{rowOrigin.current=note.id;setRow(note.id)}} onBlur={event=>{if(event.relatedTarget) rowOrigin.current=undefined}} onClick={event => activate(note.id,event.currentTarget)}>{label(note)}{note.id===active?' · 已选':''}</button>
-        <button type="button" tabIndex={-1} aria-label={`查看节点 ${label(note)}`} onClick={event => inspect(note.id,event.currentTarget)}>详情</button>
-      </li>)}</ul>
-    </details>
     {activeNote && nodeAction==='menu' && !state.error && <div ref={menuRef} className="relations-node-menu"
       role="menu" aria-label="节点操作" style={{left:position?.x,top:position?.y,width:Math.min(320,(section.current?.clientWidth??336)-16)}}
       onBlur={event=>{if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setNodeAction(undefined)}}
@@ -861,6 +1001,8 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       <button role="menuitem" type="button" onClick={()=>setNodeAction('info')}>完整信息</button>
       <button role="menuitem" type="button" onClick={()=>setNodeAction('delete')}>删除笔记…</button>
       <button role="menuitem" type="button" onClick={moveNode}>移动节点</button>
+      <button role="menuitem" type="button" disabled={!graph.children.get(activeNote.id)?.length}
+        onClick={()=>{toggleCollapse(activeNote.id)}}>{collapsed.has(activeNote.id)?'展开子节点':'折叠子节点'}</button>
     </div>}
     {nodeAction && nodeAction!=='menu' && <EditorDialog key={nodeAction} title={nodeAction==='move'?'移动节点':nodeAction==='delete'?'删除笔记':'节点详情'} close={closeInfo}>
       {!activeNote || state.error ? <p role="status">节点已不可用，请返回关系图。</p> : nodeAction==='delete' ? <>

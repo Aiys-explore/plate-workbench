@@ -7,7 +7,7 @@
   --plate-control: 30px;
   --plate-icon-control: 28px;
   --plate-icon-size: 16px;
-  --plate-radius: 6px;
+  --plate-radius: var(--radius-sm);
   --plate-topbar-height: 48px;
   --plate-doc-width: 780px;
   --plate-gutter: clamp(24px, 4vw, 52px);
@@ -15,33 +15,22 @@
   --plate-sidebar-width: 244px;
 
   /* 排版：字号与行高成对给出，避免 14px 文字配 18px 行高的挤压 */
-  --font-family-ui: "Segoe UI", "Microsoft YaHei UI", sans-serif;
-  --font-family-markdown: var(--font-family-ui);
-  --font-size-ui-body: 14px;
-  --line-height-ui-body: 20px;
-  --font-size-ui-title: 20px;
-  --line-height-ui-title: 28px;
-  --font-size-ui-small: 12px;
-  --line-height-ui-small: 18px;
-  --font-size-markdown-body: 15px;
-  --line-height-markdown-body: 1.65;
-  --plate-list-font: 13px;
-  --plate-list-line: 20px;
-  --plate-caption-font: 12px;
-  --plate-caption-line: 18px;
+  --plate-list-font: var(--font-size-ui-body);
+  --plate-list-line: var(--line-height-ui-body);
+  --plate-caption-font: var(--font-size-ui-small);
+  --plate-caption-line: var(--line-height-ui-small);
 
   /* 控件几何：与旧 tokens 的 32px 组件按钮统一，消除 30/32 混用 */
   --component-button-height: 30px;
   --component-input-height: 32px;
 
   /* 面层与状态色引用主题 token */
-  --color-surface-window: var(--color-surface-editor);
   --accent-bg-surface: var(--state-selected);
 
   grid-template-rows: var(--plate-topbar-height) minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
-  background: var(--color-surface-editor);
+  background: var(--color-surface-window);
   font-family: var(--font-family-ui);
   font-size: var(--font-size-ui-body);
   line-height: var(--line-height-ui-body);
@@ -52,7 +41,7 @@
 }
 .plate-ui .topbar-actions { margin-inline-start: auto; }
 .plate-ui .topbar .version {
-  font-size: 11px; background: transparent; margin-inline-start: var(--space-1);
+  font-size: var(--font-size-xs); background: transparent; margin-inline-start: var(--space-1);
 }
 .plate-ui .topbar button { height: var(--plate-control); }
 /* 图标按钮统一为 28px 盒 / 16px 图标（特异度需高于上面的 .topbar button） */
@@ -71,10 +60,8 @@
 }
 .plate-ui .icon-button svg { width: var(--plate-icon-size); height: var(--plate-icon-size); }
 .plate-ui .plate-brand {
-  --plate-logo-ink: 64px;
   padding: 0 var(--space-2); min-width: 74px; border-color: transparent;
 }
-.plate-ui .plate-brand .plate-wordmark { --plate-logo-ink: 62px; }
 .plate-ui .plate-sidebar-toggle,
 .plate-ui .topbar button.plate-sidebar-toggle {
   width: var(--plate-icon-control); min-width: var(--plate-icon-control); height: var(--plate-icon-control);
@@ -103,7 +90,7 @@
   height: 46px; flex: none; border: 0; padding-inline: var(--space-3) 44px;
   background: transparent;
 }
-.plate-ui .notes-sidebar .notes-heading h2 { position: static; clip-path: none; font-size: 14px; }
+.plate-ui .notes-sidebar .notes-heading h2 { position: static; clip-path: none; font-size: var(--font-size-ui-body); }
 .plate-ui .sidebar-scroll { overflow: hidden; padding-block-end: var(--space-2); }
 .plate-ui .sidebar-scroll .notes-tree { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .plate-ui :is(.harness-partitions, .notes-search, .note-create-panel) { padding-inline: var(--space-3); flex-shrink: 0; }
@@ -157,9 +144,9 @@
 .plate-ui .plate-dock-label small { font-size: var(--plate-caption-font); line-height: var(--plate-caption-line); color: var(--color-text-secondary); }
 .plate-ui .plate-dock-label > small { display: flex; align-items: baseline; gap: var(--space-1); }
 .plate-ui .plate-dock-label > small > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plate-ui .plate-dock-label code { flex: none; font-size: 11px; font-family: var(--font-family-ui); font-variant-numeric: tabular-nums; }
+.plate-ui .plate-dock-label code { flex: none; font-size: var(--font-size-xs); font-family: var(--font-family-code); font-variant-numeric: tabular-nums; }
 .plate-ui .home-agent-dock .plate-log-row { cursor: pointer; }
-.plate-ui .home-agent-dock .plate-dock-state { font-size: 11px; }
+.plate-ui .home-agent-dock .plate-dock-state { font-size: var(--font-size-xs); }
 .plate-ui .plate-dock-state[data-live='true'] { color: var(--color-functional-success-text); }
 .plate-ui .plate-dock-empty { padding-inline: var(--space-1); color: var(--color-text-secondary); font-size: var(--plate-caption-font); }
 .plate-ui .plate-dock-empty p { margin: 0 0 var(--space-1); line-height: 1.6; }
@@ -191,7 +178,10 @@
   margin-inline: auto; padding-inline: 0;
 }
 .plate-ui [data-editor-meta] { height: 76px; flex-basis: 76px; align-items: center; border-bottom: 0; padding-block-start: 8px; }
-.plate-ui [data-editor-meta-title] { font: 600 28px/38px var(--font-family-ui); margin-inline-start: -5px; }
+.plate-ui [data-editor-meta-title] {
+  font: 600 var(--font-size-ui-title)/var(--line-height-ui-title) var(--font-family-ui);
+  letter-spacing: var(--letter-spacing-title); margin-inline-start: -5px;
+}
 .plate-ui [data-editor-meta-title]:focus { border-color: var(--plate-editor-focus); box-shadow: none; }
 .plate-ui [data-editor-toolbar] { height: 36px; flex-basis: 36px; gap: var(--space-1); padding: var(--space-1) 0; }
 .plate-ui [data-editor-toolbar] button { flex-shrink: 0; height: var(--plate-control); }

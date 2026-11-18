@@ -9,17 +9,19 @@ const sections = [
 // Windows bindings audited against Layout, NotesWorkspace and EditorSurface.
 // These are descriptions only; Help registers no workbench commands.
 const shortcuts: ReadonlyArray<readonly [string, string]> = [
-  ['Ctrl+F', '聚焦笔记搜索（工作台或笔记栏；在输入框或编辑区保持原有行为）'],
-  ['Ctrl+Shift+F', '聚焦同一个笔记搜索框（工作台或笔记栏；不在 Agent 抽屉或其他弹窗中执行）'],
-  ['Ctrl+N', '新建笔记（工作台或笔记栏；有未保存修改时先确认）'],
-  ['Ctrl+\\', '打开、关闭或折叠笔记栏（工作台或笔记栏）'],
-  ['Ctrl+Shift+\\', '打开、关闭或折叠 Agent 栏（工作台或 Agent 抽屉）'],
-  ['Ctrl+Shift+T', '切换主题（工作台，无抽屉或模态弹窗时）'],
+  ['Ctrl+K', '搜索标题或正文，然后定位导图节点'],
+  ['N', '在画布中创建主节点'],
+  ['Tab', '在所选节点下派生子节点'],
+  ['Enter', '在子节点下方创建同级节点。选中主节点时打开笔记'],
+  ['Shift+Enter', '打开所选节点的笔记'],
+  ['C', '折叠或展开所选节点的子分支'],
+  ['S', '在画布中切换四种视觉风格'],
+  ['Ctrl+N', '在当前分区新建并编辑笔记'],
   ['Ctrl+S', '保存当前笔记（在当前可保存的笔记编辑区）'],
   ['Ctrl+Z', '撤销（当前可编辑笔记，有撤销记录时）'],
   ['Ctrl+Y', '重做（当前可编辑笔记，有重做记录时）'],
   ['Ctrl+Enter', '打开当前笔记引用（引用链接有焦点时）'],
-  ['Ctrl+Shift+P', '打开委派确认或命令面板（当前可编辑笔记中有适用位置；不会发送）'],
+  ['↑ / ↓', '在 TODO 或 @ 补全菜单中选择，Enter 或 Tab 确认'],
   ['Tab / Shift+Tab', '前往下一个或上一个控件（帮助弹窗内循环）'],
   ['Esc', '关闭帮助，回到打开帮助的位置（输入法组合优先）']
 ]
@@ -127,11 +129,11 @@ export function HelpDialog({ restore, paletteBound, readAppInfo, notePath, onClo
       {sections.map(([section, label]) => <section key={section} data-element={prefix+section} aria-labelledby={`${id}-${section}`}>
         <h3 id={`${id}-${section}`} tabIndex={-1} data-element={prefix+section+'.title'}>{label}</h3>
         {section === 'offline' && <>
-          <p data-element={prefix+'offline.core'}>选好笔记位置后，可以断网新建、编辑、保存、搜索笔记，查看上游资料、下游去向和关系图，恢复本机草稿，也可导出到可写的本机目录。</p>
-          <p data-element={prefix+'offline.optional'}>离线可查看实际可读的本机日志。发送、续接和登录取决于所选 Agent 的客户端和连接。安装可选 CLI、在客户端登录、在工作台配置 Agent 是各自独立的操作。</p>
+          <p data-element={prefix+'offline.core'}>选好笔记位置后，可以断网新建、编辑、保存、搜索笔记，查看上游资料、下游去向和关系图，并恢复本机草稿。</p>
+          <p data-element={prefix+'offline.optional'}>已产生的任务日志保存在本机。Agent 连接和登录由客户端或右上角「Agent 设置」管理。</p>
         </>}
         {section === 'keys' && <ul className="p13-keys">
-          {(paletteBound ? [...shortcuts.slice(0, 10), ['Ctrl+P', '打开全局命令面板（当前窗口有焦点，且无菜单、弹窗或输入法组合时）'], ...shortcuts.slice(10)] : shortcuts).map(([combo, usage]) => <li key={combo}><kbd data-element={prefix+'keys.combo'}>{combo}</kbd>
+          {(paletteBound ? [['Ctrl+P', '打开全局命令面板'], ...shortcuts] : shortcuts).map(([combo, usage]) => <li key={combo}><kbd data-element={prefix+'keys.combo'}>{combo}</kbd>
             <span data-element={prefix+'keys.usage'}>{usage}</span></li>)}
         </ul>}
         {section === 'version' && <>

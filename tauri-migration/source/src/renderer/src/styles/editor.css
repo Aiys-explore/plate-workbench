@@ -255,19 +255,17 @@
 
 /* ── 正文元素（profile: md / h1..h6 / code / mark / inlineLink / node） ── */
 [data-editor-role='paragraph'] { margin: 0 0 var(--spacing-2); }
-[data-editor-role='heading'] { margin: 12px 0 var(--spacing-2); }
+[data-editor-role='heading'] { margin: 12px 0 var(--spacing-2); font-weight: var(--font-weight-semibold); }
 [data-editor-role='heading'][data-level='1'],
 [data-editor-role='h1'] {
   font-size: var(--font-size-markdown-h1);
   line-height: var(--line-height-markdown-h1);
-  font-weight: var(--font-weight-bold);
   letter-spacing: var(--letter-spacing-markdown-h1);
 }
 [data-editor-role='heading'][data-level='2'],
 [data-editor-role='h2'] {
   font-size: var(--font-size-markdown-h2);
   line-height: var(--line-height-markdown-h2);
-  font-weight: var(--font-weight-bold);
   letter-spacing: var(--letter-spacing-markdown-h2);
 }
 [data-editor-role='heading'][data-level='3'],
@@ -275,12 +273,14 @@
   font-size: var(--font-size-markdown-h3);
   line-height: var(--line-height-markdown-h3);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-markdown-h3);
 }
 [data-editor-role='heading'][data-level='4'],
 [data-editor-role='h4'] {
   font-size: var(--font-size-markdown-h4);
   line-height: var(--line-height-markdown-h4);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-markdown-h4);
 }
 [data-editor-role='heading'][data-level='5'],
 [data-editor-role='h5'] {

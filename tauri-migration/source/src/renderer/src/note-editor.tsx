@@ -20,6 +20,7 @@ type Menu = { anchor: HTMLElement; mark: Bookmark; detail?: string; choices: { l
 
 import { arrangeTaskCapsules, useTaskCards, type InlineTaskActions } from './task-capsules'
 import { openAgentSettings, TaskAgentDialog } from './agent-settings-dialog'
+import { handleTaskAutocompleteKey, TaskAutocomplete, TaskCaretHint, useDiscoveredAgents, useTaskAutocomplete } from './task-autocomplete'
 import { scanTaskLines, outputQuote, type TaskTodo } from '../../shared/task-markdown'
 import { TaskActions } from './p11'
 import type { TaskInfo } from '../../shared/p11'
@@ -44,7 +45,9 @@ export function NoteEditor(props: Props) {
   current.current = props
   const [epoch, redraw] = useReducer(n => n + 1, 0)
   const taskCards = useTaskCards(note.id)
-  const [choosingAgent, setChoosingAgent] = useState<TaskTodo>()
+  const agentProfiles = useDiscoveredAgents()
+  const autocomplete = useTaskAutocomplete(surface, agentProfiles, readOnly, session.version, session.selection.head, session.composing)
+  const [choosingAgent, setChoosingAgent] = useState<{ todo: TaskTodo; dispatch: boolean; version: number }>()
   const open = useRef(new Set<string>())
   const logOpen = useRef<string | null>(null)
   const followDrafts = useRef(new Map<string, string>())
@@ -63,14 +66,14 @@ export function NoteEditor(props: Props) {
     if (marker) await applyTaskEdit(marker.from, marker.to, agent ? 'TODO(@' + agent + ')' : 'TODO')
   }
   const taskAction = useMemo<InlineTaskActions>(() => ({
-    chooseAgent: setChoosingAgent,
+    chooseAgent: todo => setChoosingAgent({ todo, dispatch: false, version: session.version }),
     start: (todo: TaskTodo, selectedAgent?: string) => taskRun(async () => {
       const version = session.version
       const live = scanTaskLines(session.raw).todos.find(row => row.from === todo.from && row.to === todo.to &&
         row.content === todo.content && row.agent === todo.agent)
       if (!live?.content) throw new Error('请输入完整的任务内容')
-      const agent = selectedAgent || live.agent || (await window.workbench.agentSettings.get()).defaultAgent
-      if (!agent) { setChoosingAgent(live); return }
+      const agent = await window.workbench.agentPlugins.resolveTarget(selectedAgent || live.agent || undefined)
+      if (!agent) { setChoosingAgent({ todo: live, dispatch: true, version }); return }
       const taskId = 't-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12)
       if (!await current.current.commitTaskEdit(version, todo.from, todo.to, 'DOING #' + taskId)) return
       try {
@@ -127,9 +130,9 @@ export function NoteEditor(props: Props) {
   useLayoutEffect(() => {
     const e = surface.current
     if (!e) return
-    arrangeTaskCapsules(e, taskCards, taskAction, logOpen.current, followDrafts.current)
+    arrangeTaskCapsules(e, taskCards, taskAction, logOpen.current, followDrafts.current, agentProfiles)
   // The editor surface mounts below. Its render hook bumps epoch.
-  }, [taskCards, epoch, taskAction, surface])
+  }, [taskCards, epoch, taskAction, surface, agentProfiles])
   const [narrow, setNarrow] = useState(false)
   const [issue, setIssue] = useState('')
   const [menu, setMenu] = useState<Menu>()
@@ -376,6 +379,7 @@ export function NoteEditor(props: Props) {
   }
 
   return <section data-editor-surface onKeyDown={event => {
+    if (handleTaskAutocompleteKey(event, autocomplete)) return
     if (event.key === 'Escape' && tooltip) clearTooltip()
     const target = event.target as HTMLElement
     if (!event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey) && !event.shiftKey &&
@@ -451,7 +455,14 @@ export function NoteEditor(props: Props) {
         {issue && !form && <p role="alert" data-editor-notice data-tone="error">{issue}</p>}
         {choosingAgent && <TaskAgentDialog onClose={() => setChoosingAgent(undefined)} select={agent => {
           setChoosingAgent(undefined)
-          taskAction.start(choosingAgent, agent)
+          const { todo, dispatch, version } = choosingAgent
+          if (session.version !== version || readOnly || session.composing) return
+          if (dispatch) {
+            taskAction.start(todo, agent)
+            return
+          }
+          const insert = 'TODO(@' + agent + ')'
+          surface.current?.applyAutocomplete({ from: todo.from, to: todo.to, insert, caret: todo.from + insert.length })
         }}/>}
         {tableCell && <div data-editor-table-tools>
           {wideTable && <>
@@ -475,6 +486,8 @@ export function NoteEditor(props: Props) {
           <button type="button" disabled={readOnly} onClick={event => tableActions(event.currentTarget)}>表格操作</button>
         </div>}
         <div data-editor-surface-host ref={host} />
+        <TaskCaretHint state={autocomplete} />
+        <TaskAutocomplete state={autocomplete} surface={surface} />
         {session.mode === 'render' && session.projection.protected.some(node => node.role !== 'plate-title') && <>
           <button type="button" aria-expanded={rawList} onClick={() => setRawList(!rawList)}>原文保护</button>
           {rawList && <ul>{session.projection.protected.filter(node => node.role !== 'plate-title').map(node => <li key={node.from}>

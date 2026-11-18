@@ -651,7 +651,7 @@ impl NoteStore {
 
     pub fn search(&self, filters: NoteFilters) -> Result<Vec<SearchResult>, String> {
         let needle = filters.query.as_deref().unwrap_or_default().trim().to_lowercase();
-        let notes = self.list(filters)?;
+        let notes = self.list(NoteFilters { query: None, ..filters })?;
         if needle.is_empty() {
             return Ok(notes.into_iter().map(|note| SearchResult { note, r#match: None }).collect());
         }

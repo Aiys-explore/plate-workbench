@@ -182,22 +182,30 @@ fn prepare_follow(previous: &TaskCard, instruction: &str) -> Result<(String, Str
     Ok((prompt, serde_json::to_string(&context).map_err(|error| error.to_string())?))
 }
 
-fn build_command(agent_type: &str, executable: &str, prompt: &str) -> Result<(Command, bool), String> {
-    let mut command = Command::new(executable);
-    match agent_type {
+fn build_command(route: &crate::agent_plugins::Route, prompt: &str) -> Result<(Command, bool), String> {
+    let mut command = Command::new(&route.executable);
+    if let Some(args) = &route.args {
+        crate::agent_plugins::validate_args(&route.executable, args)?;
+        command.args(args);
+    } else { match route.id.as_str() {
         "dsh" => { command.args(["--profile", "headless"]); }
-        "codex" => { command.args(["exec", "--skip-git-repo-check", "-"]); }
+        "codex" => { command.args(["exec", "--skip-git-repo-check"]); }
         "claude" => { command.args(["-p", "--output-format", "text"]); }
         "opencode" => {
-            if !crate::agent_store::supports_entry(agent_type, Path::new(executable)) {
+            if !crate::agent_store::supports_entry(&route.id, Path::new(&route.executable)) {
                 return Err("OpenCode 后台执行需要原生 .exe 入口".into());
             }
-            command.args(["run", "--", prompt]);
-            return Ok((command, false));
+            command.arg("run");
         }
-        #[cfg(debug_assertions)]
-        "teststub" | "longstub" | "failstub" => {}
-        _ => return Err(format!("不支持的 Agent：{agent_type}")),
+        _ => return Err(format!("不支持的 Agent：{}", route.id)),
+    }}
+    if let Some(flag) = route.model_flag.as_deref().filter(|_| !route.selected_model.is_empty()) {
+        command.args([flag, &route.selected_model]);
+    }
+    match route.id.as_str() {
+        "codex" => { command.arg("-"); }
+        "opencode" => { command.args(["--", prompt]); return Ok((command, false)); }
+        _ => {}
     };
     Ok((command, true))
 }
@@ -223,7 +231,7 @@ impl TaskEngine {
         root: PathBuf,
         task_id: String,
         note_id: String,
-        agent_type: String,
+        agent_type: Option<String>,
         prompt: String,
     ) -> Result<TaskCard, String> {
         self.launch(app, root, task_id, note_id, agent_type, prompt, None)
@@ -231,15 +239,17 @@ impl TaskEngine {
 
     fn launch(
         &self, app: AppHandle, root: PathBuf, task_id: String, note_id: String,
-        agent_type: String, prompt: String, follow_context: Option<String>,
+        agent_type: Option<String>, prompt: String, follow_context: Option<String>,
     ) -> Result<TaskCard, String> {
-        let executable = crate::agent_store::resolve(&agent_type)
-            .ok_or_else(|| format!("本机未发现 {agent_type}，请安装后刷新 Agent 列表"))?;
-        let (mut command, piped) = build_command(&agent_type, &executable, &prompt)?;
+        let route = app.state::<crate::agent_plugins::AgentPlugins>().route(&app, agent_type.as_deref())?
+            .ok_or("请先在「使用 / Agent」中启用并配置至少一个 Agent 插件")?;
+        let (mut command, piped) = build_command(&route, &prompt)?;
+        let agent_type = route.id;
         let deepseek_key = if agent_type == "dsh" {
-            use crate::agent_settings::{AgentSettings, DSH_KEY_ENV};
+            use crate::agent_settings::{AgentSettings, DSH_KEY_ENV, DSH_URL_ENV};
             let stored = app.state::<AgentSettings>().deepseek_key(&app)?;
             if let Some(key) = &stored { command.env(DSH_KEY_ENV, key); }
+            if let Some(url) = route.base_url { command.env(DSH_URL_ENV, url); }
             stored.or_else(|| std::env::var(DSH_KEY_ENV).ok().filter(|key| !key.trim().is_empty()))
         } else {
             None
@@ -314,7 +324,7 @@ impl TaskEngine {
     pub fn follow_up(&self, app: AppHandle, root: &PathBuf, task_id: &str, instruction: &str) -> Result<TaskCard, String> {
         let previous = read_card(root, task_id)?;
         let (prompt, context) = prepare_follow(&previous, instruction)?;
-        self.launch(app, root.clone(), task_id.to_string(), previous.note_id, previous.agent_id, prompt, Some(context))
+        self.launch(app, root.clone(), task_id.to_string(), previous.note_id, Some(previous.agent_id), prompt, Some(context))
     }
 
     pub fn mark_done(&self, app: AppHandle, root: &PathBuf, task_id: &str) -> Result<TaskCard, String> {
@@ -511,6 +521,26 @@ async fn supervise(
     })
 }
 
+pub async fn probe_version(path: &str) -> Option<String> {
+    let mut command = Command::new(path);
+    command.arg("--version").env_remove(crate::agent_settings::DSH_KEY_ENV);
+    let (_send, cancel) = oneshot::channel();
+    let deadline = Duration::from_millis(1500);
+    let output = tokio::time::timeout(deadline, supervise(&std::env::temp_dir(),
+        command, None, cancel, deadline, |_| {})).await.ok()?.ok()?;
+    if !matches!(output.outcome, Outcome::Exit(Ok(status)) if status.success()) { return None; }
+    output.stdout.split_whitespace().chain(output.log.split_whitespace()).find_map(|word| {
+        let value = word.trim_matches(|ch| matches!(ch, '(' | ')' | ',' | 'v'));
+        let release = value.split(['-', '+']).next()?;
+        let mut segments = release.split('.');
+        if segments.clone().count() < 2 || !segments.all(|part| !part.is_empty() && part.bytes().all(|ch| ch.is_ascii_digit()))
+            || value.len() > 48 || !value.bytes().all(|ch| ch.is_ascii_alphanumeric() || b".-+".contains(&ch)) {
+            return None;
+        }
+        Some(value.to_owned())
+    })
+}
+
 async fn run_task(
     app: &AppHandle, root: &Path, task_id: &str, command: Command,
     prompt: Option<String>, cancel: oneshot::Receiver<()>, follow_context: Option<&str>,
@@ -587,7 +617,12 @@ mod tests {
         let input = "任务正文\r\n第二行 & | > < % \"\n\n补充指令：新的一行\n第二条追问 😀";
         for kind in ["codex", "claude", "dsh"] {
             let (_sender, signal) = oneshot::channel();
-            let (command, piped) = build_command(kind, &shim, input).unwrap();
+            let route = crate::agent_plugins::Route {
+                id: kind.into(), executable: shim.clone(), selected_model: "model-fixture".into(),
+                model_flag: Some(if kind == "codex" { "-m" } else { "--model" }.into()),
+                args: None, base_url: None,
+            };
+            let (command, piped) = build_command(&route, input).unwrap();
             assert!(piped);
             let result = supervise(&fixture.0, command, Some(input.into()), signal, Duration::from_secs(10), |_| {}).await.unwrap();
             assert!(matches!(result.outcome, Outcome::Exit(Ok(status)) if status.success()));

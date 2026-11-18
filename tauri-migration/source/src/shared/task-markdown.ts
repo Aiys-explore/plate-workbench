@@ -6,6 +6,7 @@ export interface TaskTodo {
   line: number
   from: number
   to: number
+  contextEnd: number
   agent: string
   content: string
 }
@@ -74,7 +75,7 @@ export function scanTaskLines(raw: string): { todos: TaskTodo[]; markers: TaskMa
     } else if (todo) {
       const content = todo.content.trimEnd()
       const extra = raw.slice(line.end, lines[tail].end)
-      todos.push({ line: i + 1, from, to, agent: todo.agent ?? '', content: (content + extra).trim() })
+      todos.push({ line: i + 1, from, to, contextEnd: lines[tail].end, agent: todo.agent ?? '', content: (content + extra).trim() })
     }
   }
   return { todos, markers }

@@ -1,5 +1,6 @@
 import type { StartupApi } from './startup'
 import type { AgentsApi } from './agents'
+import type { AgentPluginsApi } from './agent-plugins'
 import type { SessionsApi } from './sessions'
 import type { DelegationDiagnosticApi } from './delegation-diagnostic'
 import type { DelegationApi } from './delegation'
@@ -156,11 +157,13 @@ export interface GraphLayoutEntry {
   y: number
   pinned: boolean
   parentNoteId: string | null
+  collapsed?: boolean
 }
 
 export interface GraphLayoutApi {
   getAll(): Promise<Record<string, GraphLayoutEntry>>
   saveBatch(items: { noteId: string; x: number; y: number; pinned: boolean; parentNoteId?: string | null }[]): Promise<void>
+  setCollapsed(noteId: string, collapsed: boolean): Promise<void>
   resetAll(): Promise<void>
   connectNodes(sourceId: string, targetId: string, downstream?: boolean): Promise<Note>
 }
@@ -234,6 +237,7 @@ export interface AgentSettings {
 export interface WorkbenchApi {
   startup: StartupApi
   agents: AgentsApi
+  agentPlugins: AgentPluginsApi
   agentSettings: {
     get(): Promise<AgentSettings>
     save(input: { defaultAgent: string | null; deepseekKey?: string; clearDeepseekKey?: boolean }): Promise<AgentSettings>

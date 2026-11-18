@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod agent_runner;
+mod agent_plugins;
 mod agent_settings;
 mod agent_store;
 mod db;
@@ -77,13 +78,8 @@ fn tasks_summary(state: State<'_, AppState>) -> Result<serde_json::Value, String
 #[tauri::command]
 fn tasks_start(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: AppHandle,
     task_id: String, note_id: String, prompt_text: String, agent_selector: Option<String>) -> Result<TaskCard, String> {
-    let agent = match agent_selector {
-        Some(agent) => agent,
-        None => app.state::<agent_settings::AgentSettings>().default_agent(&app)?
-            .ok_or("请先选择本次使用的 Agent，或在 Agent 设置中设为默认")?,
-    };
     with_engine(&engine, &state, |engine, root| {
-        engine.start(app, root.clone(), task_id, note_id, agent, prompt_text)
+        engine.start(app, root.clone(), task_id, note_id, agent_selector, prompt_text)
     })
 }
 
@@ -306,6 +302,14 @@ fn graph_layout_save_batch(state: State<'_, AppState>, items: Vec<graph_layout::
 }
 
 #[tauri::command]
+fn graph_layout_set_collapsed(state: State<'_, AppState>, note_id: String, collapsed: bool) -> Result<(), String> {
+    with_store(&state, |s| {
+        let conn = s.conn.lock().unwrap();
+        graph_layout::set_collapsed(&conn, &note_id, collapsed)
+    })
+}
+
+#[tauri::command]
 fn graph_layout_reset(state: State<'_, AppState>) -> Result<(), String> {
     with_store(&state, |s| {
         let conn = s.conn.lock().unwrap();
@@ -375,6 +379,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState { workspace: Mutex::new(None) })
         .manage(agent_settings::AgentSettings::default())
+        .manage(agent_plugins::AgentPlugins::default())
         .invoke_handler(tauri::generate_handler![
             startup_state, startup_browse, startup_submit, startup_rebuild, startup_exit,
             app_info, db_tables,
@@ -382,8 +387,13 @@ fn main() {
             notes_links, notes_search, notes_tags, notes_open_link,
             projects_list, projects_create,
             drafts_list, drafts_write, drafts_discard, drafts_restore, drafts_save_copy,
-            graph_layout_get_all, graph_layout_save_batch, graph_layout_reset, graph_layout_connect_nodes,
+            graph_layout_get_all, graph_layout_save_batch, graph_layout_set_collapsed, graph_layout_reset, graph_layout_connect_nodes,
             agents_discover,
+            agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
+            agent_plugins::agent_plugins_resolve, agent_plugins::agent_plugin_install,
+            agent_plugins::agent_plugin_uninstall, agent_plugins::agent_plugin_update,
+            agent_plugins::agent_plugins_reorder, agent_plugins::agent_plugins_reset_order,
+            agent_plugins::agent_plugin_import, agent_plugins::agent_plugin_browse,
             agent_settings::agent_settings_get, agent_settings::agent_settings_save,
             tasks_list_by_note, tasks_summary, tasks_start, tasks_stop, tasks_follow_up,
             tasks_mark_done, tasks_reject

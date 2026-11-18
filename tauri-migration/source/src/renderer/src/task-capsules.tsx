@@ -2,6 +2,7 @@
 // 终态（采纳）才由编辑器事务改写 Markdown。
 import { useEffect, useState } from 'react'
 import type { TaskRunCard } from '../../shared/ipc'
+import type { AgentProfile } from '../../shared/agents'
 import { scanTaskLines, type TaskTodo } from '../../shared/task-markdown'
 import type { EditorSurface } from './editor/surface'
 import './styles/task-capsules.css'
@@ -114,6 +115,43 @@ function makePanel(doc: Document, current: () => TaskRunCard, actions: InlineTas
 const panelCards = new WeakMap<HTMLElement, { card: TaskRunCard }>()
 const missingDeepSeekKey = (card: TaskRunCard) => card.agentId === 'dsh' &&
   (card.logTail.includes('MISSING_CREDENTIAL') || card.errorMsg?.includes('DeepSeek Harness 缺少 API Key'))
+const knownAgents = new Set(['codex', 'claude', 'dsh', 'opencode'])
+const agentData = (agent: string) => knownAgents.has(agent) ? agent : ''
+const agentLabels: Record<string, string> = {
+  codex: '● Codex', claude: '✦ Claude', dsh: '◈ DeepSeek', opencode: '⌘ OpenCode', '': '▷ Agent'
+}
+
+function markTaskContext(
+  boxes: HTMLElement[],
+  line: number,
+  contextEnd: number,
+  raw: string,
+  agent: string,
+  state: string,
+  seen: Set<HTMLElement>,
+) {
+  const normalized = agentData(agent)
+  const starts: number[] = [0]
+  for (let at = raw.indexOf('\n'); at >= 0; at = raw.indexOf('\n', at + 1)) starts.push(at + 1)
+  for (let current = line; current <= starts.length; current++) {
+    const start = starts[current - 1]
+    if (start > contextEnd) break
+    const end = Math.min(starts[current] ?? raw.length + (raw.endsWith('\n') ? 1 : 0), contextEnd + 1)
+    const box = boxes.find(element => Number(element.dataset.p10From) >= start &&
+      Number(element.dataset.p10From) < end)
+    if (!box) continue
+    seen.add(box)
+    if (current === line) {
+      delete box.dataset.taskContextOf
+      box.dataset.taskAgent = normalized
+      box.dataset.taskLineState = state.toLowerCase()
+    } else {
+      delete box.dataset.taskAgent
+      delete box.dataset.taskLineState
+      box.dataset.taskContextOf = normalized
+    }
+  }
+}
 
 export function arrangeTaskCapsules(
   editor: EditorSurface,
@@ -121,6 +159,7 @@ export function arrangeTaskCapsules(
   actions: InlineTaskActions,
   logOpen: string | null,
   followDrafts: Map<string, string>,
+  agents: AgentProfile[] = [],
 ) {
   if (editor.session.composing) return
   const doc = editor.host.ownerDocument
@@ -131,6 +170,7 @@ export function arrangeTaskCapsules(
   const { raw, projection } = editor.session
   const scan = scanTaskLines(raw)
   const boxes = [...root.querySelectorAll<HTMLElement>('[data-editor-role=task], [data-editor-role=paragraph]')]
+  const seen = new Set<HTMLElement>()
   const boxForLine = (line: number) => {
     const from = projection.lines[line - 1]
     const to = projection.lines[line] ?? raw.length + 1
@@ -155,8 +195,11 @@ export function arrangeTaskCapsules(
     const card = byId.get(marker.taskId)
     const box = boxForLine(marker.line)
     if (!box) continue
+    seen.add(box)
     const state = card?.state ?? (marker.state === 'DONE' ? 'DONE' : 'UNKNOWN')
+    markTaskContext(boxes, marker.line, marker.contextEnd, raw, card?.agentId ?? '', state, seen)
     const group = slot(marker.taskId, box)
+    group.dataset.taskAgent = agentData(card?.agentId ?? '')
     if (group.dataset.state !== state) {
       group.dataset.state = state
       const toggle = () => actions.togglePanel(marker.taskId)
@@ -169,7 +212,12 @@ export function arrangeTaskCapsules(
       }
       const pill = makeButton(doc, labels[state], state.toLowerCase(), click)
       if (state === 'DONE') pill.disabled = true
-      group.replaceChildren(pill)
+      if (card) {
+        const badge = doc.createElement('span')
+        badge.className = 'plate-task-agent-chip'
+        badge.textContent = agentLabels[agentData(card.agentId)] ?? card.agentId
+        group.replaceChildren(badge, pill)
+      } else group.replaceChildren(pill)
       if (card && state === 'DOING') group.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(card)))
     }
     if (card && state === 'ERROR') {
@@ -181,7 +229,7 @@ export function arrangeTaskCapsules(
       }
     }
     if (card && state === 'DOING') {
-      const pill = group.firstElementChild!
+      const pill = group.querySelector('[data-task-pill=doing]')!
       const label = `⟳ DOING · ${clock(card)}`
       if (pill.textContent !== label) pill.textContent = label
     }
@@ -209,16 +257,31 @@ export function arrangeTaskCapsules(
   for (const todo of scan.todos) {
     const box = boxForLine(todo.line)
     if (!box) continue
+    seen.add(box)
+    markTaskContext(boxes, todo.line, todo.contextEnd, raw, todo.agent, 'TODO', seen)
     const group = slot('todo:' + todo.from, box)
-    const label = todo.agent ? `▷ 交办 · ${todo.agent}` : '▷ TODO · 交办'
-    const signature = JSON.stringify(todo)
+    const normalized = agentData(todo.agent)
+    const profile = agents.find(agent => agent.id === todo.agent)
+    const label = todo.agent
+      ? (agentLabels[normalized || todo.agent] ?? profile?.name ?? todo.agent) +
+        (profile?.model ? ' · ' + profile.model : '')
+      : agentLabels['']
+    const signature = JSON.stringify([todo, label])
     if (group.dataset.signature !== signature) {
       group.dataset.signature = signature
-      group.replaceChildren(makeButton(doc, `[ ${label} ]`, 'todo', () => actions.start(todo)),
-        makeButton(doc, '选择 Agent', 'select-agent', () => actions.chooseAgent(todo)))
+      group.dataset.taskAgent = normalized
+      const agentButton = makeButton(doc, label + ' ▾', 'agent', () => actions.chooseAgent(todo))
+      agentButton.dataset.taskAgent = normalized
+      const stateButton = makeButton(doc, '▷ 交办', 'todo', () => actions.start(todo))
+      stateButton.dataset.taskLineState = 'todo'
+      group.replaceChildren(agentButton, stateButton)
     }
+  }
+  for (const box of boxes) if (!seen.has(box)) {
+    delete box.dataset.taskAgent
+    delete box.dataset.taskLineState
+    delete box.dataset.taskContextOf
   }
   for (const group of groups.values()) group.remove()
   for (const panel of panels.values()) panel.remove()
 }
-

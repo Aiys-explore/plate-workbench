@@ -8,6 +8,7 @@ import type {
 import type { Candidate, StartupApi, StartupState } from '../../shared/startup'
 import type { NoteIndexApi, NoteIndexState } from '../../shared/note-index'
 import { capabilityKeys, type AgentProfile, type AgentsApi } from '../../shared/agents'
+import type { AgentPluginsApi } from '../../shared/agent-plugins'
 
 // S2 桥接层：notes/startup/appInfo/graphLayout 走真实 Rust 命令；
 // 其余模块（agents/p10/p11/p12/resume/delegation/collaboration/board/plateTerminal/sessions）
@@ -81,14 +82,15 @@ function createNotesApi(): NotesApi {
 
 function createAgentsApi(): AgentsApi {
   const discover = () => invoke<{ type: string; name: string; executable: string }[]>('agents_discover')
-  const unsupported = async (): Promise<never> => { throw new Error('本机 Agent 列表由已安装的 CLI 决定') }
+  const unsupported = async (): Promise<never> => { throw new Error('请在「使用 / Agent」中管理插件') }
   return {
     async list() {
       const capabilities = Object.fromEntries(capabilityKeys.map(key => [key, {
-        state: 'unknown', source: '本机发现', adapter: '', date: null,
+        state: 'unknown', source: '本机接入', adapter: '', date: null,
       }])) as AgentProfile['capabilities']
-      return (await discover()).map(agent => ({
-        ...agent, id: agent.type, enabled: true, icon: 'terminal', color: '', model: '', effort: '',
+      const active = await invoke<Pick<AgentProfile, 'id' | 'name' | 'model' | 'executable'>[]>('agent_plugins_active')
+      return active.map(agent => ({
+        ...agent, type: agent.id, enabled: true, icon: 'terminal', color: '', effort: '',
         permission: '', workdir: '', extraArgv: [], logOverride: '', timeoutMs: 900_000,
         logPath: '', logSource: '', probe: null, delegationRevision: '', capabilities,
       }))
@@ -101,10 +103,30 @@ function createAgentsApi(): AgentsApi {
   }
 }
 
+function createAgentPluginsApi(): AgentPluginsApi {
+  return {
+    list: (refresh = false) => invoke('agent_plugins_list', { refresh }),
+    install: id => invoke('agent_plugin_install', { id }),
+    uninstall: ids => invoke('agent_plugin_uninstall', { ids }),
+    update: input => invoke('agent_plugin_update', { input }),
+    reorder: ids => invoke('agent_plugins_reorder', { ids }),
+    resetOrder: () => invoke('agent_plugins_reset_order'),
+    importManifest: json => invoke('agent_plugin_import', { json }),
+    browseExecutable: () => invoke('agent_plugin_browse'),
+    resolveTarget: id => invoke('agent_plugins_resolve', { id: id ?? null }),
+    onChange: callback => {
+      let live = true
+      const registered = listen('agent-plugins:changed', () => { if (live) callback() })
+      return () => { live = false; void registered.then(unlisten => unlisten()) }
+    },
+  }
+}
+
 function createGraphLayoutApi(): GraphLayoutApi {
   return {
     getAll: () => invoke<Record<string, GraphLayoutEntry>>('graph_layout_get_all'),
     saveBatch: (items) => invoke<void>('graph_layout_save_batch', { items }),
+    setCollapsed: (noteId, collapsed) => invoke<void>('graph_layout_set_collapsed', { noteId, collapsed }),
     resetAll: () => invoke<void>('graph_layout_reset'),
     connectNodes: (sourceId, targetId, downstream = false) => invoke<Note>('graph_layout_connect_nodes', { sourceId, targetId, downstream }),
   }
@@ -144,6 +166,7 @@ export function createTauriBridge(): WorkbenchApi {
       onChange: () => () => undefined,
     },
     agents: createAgentsApi(),
+    agentPlugins: createAgentPluginsApi(),
     agentSettings: {
       get: () => invoke<AgentSettings>('agent_settings_get'),
       save: input => invoke<AgentSettings>('agent_settings_save', {

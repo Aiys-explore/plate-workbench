@@ -93,6 +93,66 @@ export class EditorSurface {
     const node = this.targets.get(element)
     return node?.kind === 'box' ? visible(node).trim() : ''
   }
+  caretAt(point: number): { left: number; top: number; height: number } | undefined {
+    if (this.source) {
+      const index = this.session.projection.rawPoints.indexOf(point)
+      if (index < 0) return undefined
+      const css = getComputedStyle(this.source)
+      const mirror = document.createElement('div')
+      Object.assign(mirror.style, { position:'fixed', left:'-10000px', top:'0', visibility:'hidden',
+        width:this.source.clientWidth+'px', boxSizing:'border-box', padding:css.padding,
+        font:css.font, letterSpacing:css.letterSpacing, tabSize:css.tabSize,
+        whiteSpace:'pre-wrap', overflowWrap:'break-word' })
+      const marker = document.createElement('span')
+      mirror.append(document.createTextNode(this.source.value.slice(0, index)), marker)
+      marker.textContent = this.source.value.slice(index) || '\u200b'
+      document.body.append(mirror)
+      const rect = marker.getClientRects()[0], origin = mirror.getBoundingClientRect()
+      mirror.remove()
+      return rect ? { left: rect.left, top: rect.top, height: rect.height || 20 } : undefined
+    }
+    if (!this.root) return undefined
+    if (this.caret && this.session.selection.head === point) {
+      const visual = this.caret.getBoundingClientRect()
+      if (visual.height) return { left: visual.left, top: visual.top, height: visual.height }
+    }
+    const endpoint = this.endpoint(point, true)
+    if (!endpoint) return undefined
+    const range = this.host.ownerDocument.createRange()
+    range.setStart(endpoint.node, endpoint.offset)
+    range.collapse(true)
+    let rect = range.getBoundingClientRect()
+    if (!rect.height) {
+      const box = [...boxes(this.session.projection.root)].find(n => n.role !== 'document' && n.from <= point && point <= n.to)
+      const element = box && [...this.root.querySelectorAll<HTMLElement>('[data-editor-role]')]
+        .find(el => this.targets.get(el) === box)
+      if (element) rect = element.getBoundingClientRect()
+    }
+    return rect.height ? { left: rect.left, top: rect.top, height: rect.height } : undefined
+  }
+  lineAt(point: number): { start: number; end: number; text: string } | undefined {
+    const { raw, projection } = this.session
+    const line = projection.lines.filter(start => start <= point).length - 1
+    const start = projection.lines[line]
+    const end = projection.lines[line + 1] ?? raw.length + (raw.endsWith(projection.newline) ? projection.newline.length : 0)
+    const text = raw.slice(start, Math.min(end, raw.length)).replace(/(?:\r?\n|\r)$/, '')
+    return { start, end, text }
+  }
+  inCode(point: number) {
+    return [...boxes(this.session.projection.root)].some(node =>
+      node.role === 'code' && node.from <= point && point <= node.to)
+  }
+  applyAutocomplete(edit: { from: number; to: number; insert: string; caret: number }) {
+    let applied = false
+    this.outsideEdit(() => {
+      if (this.readonlyOverride || this.resultLock) throw new EditError('编辑会话已暂停或正在保存')
+      const { caret, ...patch } = edit
+      applied = this.session.completeTask(patch, caret)
+      return applied
+    })
+    if (applied) this.restoreSelection()
+    return applied
+  }
   outsideEdit(fn: () => boolean) {
     try {
       if (fn()) { this.refresh(false); this.hooks.changed?.(this.session) }

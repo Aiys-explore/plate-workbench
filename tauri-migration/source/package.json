@@ -1,7 +1,7 @@
 {
   "name": "notes-agent-workbench",
   "productName": "Plate Workbench",
-  "version": "0.3.0-s7.1",
+  "version": "0.4.0-s8.1",
   "private": true,
   "description": "Plate 笔记 + Agent 工作台（Tauri v2 迁移线）",
   "scripts": {

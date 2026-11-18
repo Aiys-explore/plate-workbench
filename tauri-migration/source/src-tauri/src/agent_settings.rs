@@ -3,6 +3,7 @@ use std::{fs, io::ErrorKind, path::PathBuf, sync::Mutex};
 use tauri::{AppHandle, Manager, State};
 
 pub const DSH_KEY_ENV: &str = "DEEPSEEK_API_KEY";
+pub const DSH_URL_ENV: &str = "DEEPSEEK_BASE_URL";
 
 #[derive(Default)]
 pub struct AgentSettings(Mutex<()>);
@@ -12,13 +13,15 @@ pub struct AgentSettings(Mutex<()>);
 struct StoredSettings {
     default_agent: Option<String>,
     deepseek_protected: Option<Vec<u8>>,
+    base_url: Option<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
     default_agent: Option<String>,
-    deepseek_key: &'static str,
+    pub deepseek_key: &'static str,
+    pub base_url: Option<String>,
 }
 
 impl StoredSettings {
@@ -30,12 +33,12 @@ impl StoredSettings {
         } else {
             "unset"
         };
-        SettingsView { default_agent: self.default_agent, deepseek_key }
+        SettingsView { default_agent: self.default_agent, deepseek_key, base_url: self.base_url }
     }
 }
 
 impl AgentSettings {
-    fn path(app: &AppHandle) -> Result<PathBuf, String> {
+    pub fn path(app: &AppHandle) -> Result<PathBuf, String> {
         if let Some(directory) = std::env::var_os("PLATE_AGENT_SETTINGS_DIR").map(PathBuf::from) {
             if directory.is_absolute() { return Ok(directory.join("agent-settings.json")); }
         }
@@ -63,12 +66,36 @@ impl AgentSettings {
             String::from_utf8(secret).map_err(|_| "DeepSeek 密钥已损坏，请在 Agent 设置中重新保存".into())
         }).transpose()
     }
+
+    pub fn view(&self, app: &AppHandle) -> Result<SettingsView, String> {
+        let _guard = self.0.lock().unwrap();
+        Ok(Self::read(app)?.view())
+    }
+
+    pub fn set_deepseek(&self, app: &AppHandle, key: Option<String>, clear: bool, url: Option<String>) -> Result<(), String> {
+        let _guard = self.0.lock().unwrap();
+        let mut settings = Self::read(app)?;
+        if let Some(url) = url {
+            let value = url.trim();
+            settings.base_url = if value.is_empty() { None } else {
+                let parsed = tauri::Url::parse(value).map_err(|_| "请输入有效的 Base URL")?;
+                let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+                if parsed.host_str().is_none() || !parsed.username().is_empty() ||
+                    parsed.password().is_some() || parsed.query().is_some() || parsed.fragment().is_some() ||
+                    (parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback)) {
+                    return Err("Base URL 请用 HTTPS 或本机 HTTP，且不要包含凭据、查询参数或片段".into());
+                }
+                Some(parsed.to_string())
+            };
+        }
+        update_key(&mut settings, key, clear)?;
+        write_json(Self::path(app)?, &settings)
+    }
 }
 
 #[tauri::command]
 pub fn agent_settings_get(app: AppHandle, state: State<'_, AgentSettings>) -> Result<SettingsView, String> {
-    let _guard = state.0.lock().unwrap();
-    Ok(AgentSettings::read(&app)?.view())
+    state.view(&app)
 }
 
 #[tauri::command]
@@ -82,25 +109,34 @@ pub fn agent_settings_save(
     let _guard = state.0.lock().unwrap();
     let mut settings = AgentSettings::read(&app)?;
     settings.default_agent = default_agent;
-    if let Some(key) = deepseek_key {
+    update_key(&mut settings, deepseek_key, clear_deepseek_key)?;
+    write_json(AgentSettings::path(&app)?, &settings)?;
+    Ok(settings.view())
+}
+
+fn update_key(settings: &mut StoredSettings, key: Option<String>, clear: bool) -> Result<(), String> {
+    if let Some(key) = key {
         let key = key.trim();
         if key.is_empty() || key.len() > 1024 || key.chars().any(|character| character.is_whitespace() || character.is_control()) {
             return Err("请输入有效格式的 DeepSeek API Key".into());
         }
         settings.deepseek_protected = Some(protect(key.as_bytes(), true)?);
-    } else if clear_deepseek_key {
+    } else if clear {
         settings.deepseek_protected = None;
     }
-    let path = AgentSettings::path(&app)?;
+    Ok(())
+}
+
+pub fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), String> {
     let directory = path.parent().ok_or("找不到本地 Agent 设置目录")?;
     fs::create_dir_all(directory).map_err(|error| format!("无法创建 Agent 设置目录：{error}"))?;
-    let temporary = directory.join(format!("agent-settings-{}.tmp", uuid::Uuid::new_v4()));
-    let bytes = serde_json::to_vec(&settings).map_err(|error| error.to_string())?;
-    if let Err(error) = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, path)) {
+    let temporary = directory.join(format!("agent-state-{}.tmp", uuid::Uuid::new_v4()));
+    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, &path)) {
         let _ = fs::remove_file(&temporary);
         return Err(format!("无法保存 Agent 设置：{error}"));
     }
-    Ok(settings.view())
+    Ok(())
 }
 
 #[cfg(windows)]

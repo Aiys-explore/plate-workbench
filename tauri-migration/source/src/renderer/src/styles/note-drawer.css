@@ -4,18 +4,19 @@
 
 .note-drawer {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: var(--note-drawer-width, 520px);
+  top: 62px;
+  right: 12px;
+  bottom: 66px;
+  width: min(var(--note-drawer-width, 520px), calc(100% - 24px));
   display: flex;
   flex-direction: column;
   background: var(--surface-editor, #fff);
-  border-left: 1px solid var(--border, var(--color-border-decorative));
-  box-shadow: -14px 0 36px rgba(15, 23, 42, 0.14);
+  border: 1px solid var(--color-border-decorative);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-level-2);
   transform: translateX(calc(100% + 12px));
   visibility: hidden;
-  transition: transform 0.26s ease, visibility 0.26s;
+  transition: transform 0.18s ease, visibility 0.18s;
   z-index: 30;
 }
 .note-drawer[data-open='true'] { transform: none; visibility: visible; }
@@ -53,3 +54,6 @@
 }
 .note-drawer-body .note-editor-body { flex: 1; min-height: 0; overflow: auto; }
 .note-drawer-body .note-notice { flex: none; }
+
+@media (max-width: 1079px) { .note-drawer { top: 104px; } }
+@media (prefers-reduced-motion: reduce) { .note-drawer { transition: none; } }
