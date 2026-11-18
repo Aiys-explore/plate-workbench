@@ -1,0 +1,81 @@
+{
+  "seed": {
+    "ok": true,
+    "value": {
+      "noteId": "59e8c60e-fd6b-4c0b-ad1f-120103b97466"
+    }
+  },
+  "discover": {
+    "ok": true,
+    "value": [
+      "codex:codex.cmd",
+      "claude:claude.exe"
+    ]
+  },
+  "startOk": {
+    "ok": true,
+    "value": {
+      "state": "DOING",
+      "agentId": "teststub",
+      "promptHead": "测试任务：输出回执"
+    }
+  },
+  "okFinished": {
+    "ok": true,
+    "value": {
+      "state": "PENDING",
+      "pendingKind": "review_ready",
+      "outputHasPrompt": true,
+      "logHas": false,
+      "events": 1
+    }
+  },
+  "startFail": {
+    "ok": true,
+    "value": {
+      "state": "DOING"
+    }
+  },
+  "failFinished": {
+    "ok": true,
+    "value": {
+      "state": "ERROR",
+      "errorMsg": "进程退出码 3，输出见日志"
+    }
+  },
+  "startLongThenStop": {
+    "ok": true,
+    "value": {
+      "started": "DOING",
+      "stopped": "TODO",
+      "msg": "已手动停止，退回待办"
+    }
+  },
+  "followUpMarkDoneReject": {
+    "ok": true,
+    "value": {
+      "followPromptHasAdd": true,
+      "done": "DONE",
+      "rejected": "TODO"
+    }
+  },
+  "summary": {
+    "ok": true,
+    "value": {
+      "59e8c60e-fd6b-4c0b-ad1f-120103b97466": {
+        "doing": 0,
+        "done": 1,
+        "error": 0,
+        "pending": 0,
+        "todo": 2
+      }
+    }
+  },
+  "missingAgent": {
+    "ok": true,
+    "value": {
+      "rejected": true,
+      "msg": "本机未发现 nosuchagent，请先安装或在插件中心登记"
+    }
+  }
+}

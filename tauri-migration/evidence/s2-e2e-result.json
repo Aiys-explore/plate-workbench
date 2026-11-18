@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-11-18T00:45+08:00",
+  "env": { "cdpPort": 9223, "workspace": "evidence/s2-workspace (PLATE_WORKSPACE_ROOT)" },
+  "results": {
+    "startupState": { "ok": true, "value": { "phase": "choose", "suggested": "C:\\Users\\ian\\Documents\\笔记 + Agent 工作台\\acceptance\\mission-redesign\\tauri-migration-20261117\\evidence\\s2-workspace" } },
+    "startupSubmit": { "ok": true, "value": { "phase": "ready", "path": "C:\\Users\\ian\\Documents\\笔记 + Agent 工作台\\acceptance\\mission-redesign\\tauri-migration-20261117\\evidence\\s2-workspace", "intro": false, "agent": "unconfigured" } },
+    "createNoteA": { "ok": true, "value": { "id": "89f8a490-1682-4eed-8a4f-9af1adc3bd07", "title": "S2 验收笔记", "project": "default", "revisionHead": "bcac5fa5ccf9" } },
+    "createNoteB": { "ok": true, "value": { "id": "97fb2f40-5952-45c8-9d9d-4acba9e0c43e", "title": "S2 下游笔记" } },
+    "connectNodes": { "ok": true, "value": { "hasLinkLine": true } },
+    "links": { "ok": true, "value": { "nodes": 2, "edges": ["89f8a490->97fb2f40"], "bindings": ["S2 下游笔记:resolved"] } },
+    "updateSave": { "ok": true, "value": { "status": "saved" } },
+    "draftWrite": { "ok": true, "value": { "ok": true } },
+    "draftList": { "ok": true, "value": { "count": 1, "source": "unchanged" } },
+    "draftRestore": { "ok": true, "value": { "status": "restored" } },
+    "draftDiscard": { "ok": true, "value": { "discarded": true } },
+    "draftListAfterDiscard": { "ok": true, "value": { "count": 0 } },
+    "search": { "ok": true, "value": { "count": 1, "first": { "title": "S2 验收笔记", "field": "title", "match": "验收" } } },
+    "projects": { "ok": true, "value": ["default:默认"] },
+    "graphSaveGetAll": { "ok": true, "value": { "x": 120, "y": 240, "pinned": true } },
+    "graphReset": { "ok": true, "value": { "entriesAfterReset": 0 } },
+    "dbTables": { "ok": true, "value": ["graph_layout", "note", "note_draft", "note_link", "note_tag", "project", "task_runs"] },
+    "appInfo": { "ok": true, "value": { "name": "Plate Workbench (Tauri)", "version": "0.3.0-s2" } }
+  },
+  "diskArtifacts": {
+    "notes": ["projects/default/89f8a490-1682-4eed-8a4f-9af1adc3bd07.md (101B)", "projects/default/97fb2f40-5952-45c8-9d9d-4acba9e0c43e.md (19B)"],
+    "index": ["index.sqlite", "index.sqlite-wal", "index.sqlite-shm", "plate-workbench.json"]
+  },
+  "note": "原始完整输出见会话记录；本文件为归档摘要，字段与原始输出一致（startupState 原始含 candidate 对象）。",
+  "rawScript": "s2-e2e.mjs"
+}

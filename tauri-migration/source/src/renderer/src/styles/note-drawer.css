@@ -1,0 +1,55 @@
+/* ── S3 图谱即桌面：右侧笔记编辑抽屉 ─────────────────────────── */
+.notes-stage { display: flex; flex-direction: column; overflow: hidden; }
+.notes-stage > .relations { flex: 1; min-height: 0; }
+
+.note-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--note-drawer-width, 520px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-editor, #fff);
+  border-left: 1px solid var(--border, var(--color-border-decorative));
+  box-shadow: -14px 0 36px rgba(15, 23, 42, 0.14);
+  transform: translateX(calc(100% + 12px));
+  visibility: hidden;
+  transition: transform 0.26s ease, visibility 0.26s;
+  z-index: 30;
+}
+.note-drawer[data-open='true'] { transform: none; visibility: visible; }
+.note-drawer-resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.note-drawer-resize:hover, .note-drawer-resize:focus-visible {
+  background: var(--color-surface-hover, #eef0f2);
+}
+.note-drawer-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  border-bottom: 1px solid var(--border, var(--color-border-decorative));
+  min-height: 40px;
+}
+.note-drawer-heading h2 { margin: 0; font-size: 13px; color: var(--color-text-primary); }
+.note-drawer-heading .note-actions { margin-inline-start: auto; display: flex; align-items: center; gap: var(--spacing-1, 4px); }
+.note-drawer-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  gap: var(--spacing-2, 8px);
+  overflow: auto;
+}
+.note-drawer-body .note-editor-body { flex: 1; min-height: 0; overflow: auto; }
+.note-drawer-body .note-notice { flex: none; }

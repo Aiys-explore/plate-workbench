@@ -1,0 +1,204 @@
+/* D3.b · P09 委派入口与确认 · 静态样式
+ *
+ * 值来源：design/02-pages.md P09（头 48 / 尾 64 / 正文 12px 24px / 区块纵距 12 /
+ * 字段间距 8 / 命令面板上限 480x264 / 确认与结果上限 760x736 / 内宽 >=592px 双列 /
+ * textarea 窄 136px、宽 160px）、design/01-design-system.md 5.1-5.7、
+ * design/d2-p09-profiles.json。
+ *
+ * 字体映射：旧 .markdown-panes 内定义的 --font-markdown 不在对话框继承范围内，
+ * 此处按 P09 冻结映射改用规范变量 --font-family-code / --font-size-code /
+ * --line-height-code，不改任何 JS。
+ */
+
+.delegation-dialog {
+  container-type: inline-size;
+  container-name: delegation;
+  width: min(var(--component-modal-width-delegation), calc(100% - 32px));
+  max-width: var(--component-modal-width-delegation);
+  max-height: min(736px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text-primary);
+  background: var(--color-surface-bar);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-modal-radius);
+  box-shadow: var(--shadow-level-4);
+}
+.delegation-dialog::backdrop { background: var(--color-surface-overlay); }
+
+/* 命令面板：上限 480x264 */
+.delegation-dialog:not(:has(.delegation-preview-heading)) {
+  width: min(var(--component-modal-width-regular), calc(100% - 32px));
+  max-width: var(--component-modal-width-regular);
+  max-height: min(264px, calc(100% - 32px));
+}
+
+.delegation-dialog > header {
+  display: flex;
+  align-items: center;
+  height: var(--component-modal-header-height);
+  flex: 0 0 var(--component-modal-header-height);
+  padding-inline: var(--spacing-6);
+  border-bottom: var(--border-width-line) solid var(--color-border-decorative);
+}
+.delegation-dialog > footer {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 96px);
+  align-items: center;
+  gap: var(--spacing-2);
+  justify-content: flex-end;
+  min-height: var(--component-modal-footer-height);
+  flex: 0 0 auto;
+  padding-inline: var(--spacing-6);
+  border-top: var(--border-width-line) solid var(--color-border-decorative);
+  background: var(--color-surface-bar);
+}
+.delegation-dialog > footer [role='status'] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: end;
+  overflow-wrap: anywhere;
+}
+.delegation-dialog > footer button { min-width: 96px; }
+.delegation-dialog > footer button:first-child { min-width: 56px; }
+
+.delegation-dialog h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+}
+.delegation-dialog h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-body);
+}
+
+.delegation-content {
+  padding: var(--spacing-3) var(--spacing-6);
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.delegation-content p { margin: 6px 0 10px; overflow-wrap: anywhere; }
+.delegation-content p[role='alert'] { color: var(--color-functional-danger-text); }
+.delegation-content p[role='status'] { color: var(--color-text-secondary); }
+.delegation-action {
+  min-width: 0;
+  margin-block: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--radius-sm);
+}
+.delegation-action label { display: block; overflow-wrap: anywhere; margin-block: var(--spacing-2); }
+.delegation-action label input { margin-inline-end: var(--spacing-2); }
+.delegation-action button + button { margin-inline-start: var(--spacing-2); }
+
+/* 区块纵距 12px、字段间距 8px；内宽 >=592px 时配置双列 */
+.delegation-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-2) var(--spacing-3);
+  margin: 0 0 var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-3);
+}
+.delegation-fields legend { font-weight: var(--font-weight-semibold); }
+.delegation-fields :is(label, .delegation-profile) { display: grid; gap: 3px; min-width: 0; }
+.delegation-fields p { grid-column: 1 / -1; }
+.delegation-fields .delegation-cwd { margin: 0; color: var(--color-text-secondary); }
+
+.delegation-dialog :is(input, select, textarea, pre) {
+  color: var(--color-text-primary);
+  background: var(--color-surface-editor);
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-input-radius);
+  min-width: 0;
+  padding: var(--component-input-padding);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-input-font-size);
+}
+.delegation-dialog :is(input, select):focus-visible,
+.delegation-dialog textarea:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: 0;
+  border-color: var(--color-border-focus);
+}
+
+.delegation-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-block-start: var(--spacing-3);
+}
+
+/* P09 完整文本：只读预览与可编辑 textarea 共用一次草稿。
+   预览保留空白与换行并软折长串；textarea 独立纵滚。 */
+.delegation-dialog :is(pre, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--spacing-2) 0 0;
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-code);
+  line-height: var(--line-height-code);
+}
+.delegation-dialog pre {
+  max-height: 33vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--color-surface-editor);
+  color: var(--color-text-primary);
+}
+.delegation-dialog textarea {
+  min-height: 136px;
+  max-height: 50vh;
+  overflow: auto;
+  resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 视口 <600px：外框边距 8px、正文左右 12px */
+@media (max-width: 599px) {
+  .delegation-dialog { width: calc(100% - 16px); max-height: calc(100% - 16px); }
+  .delegation-dialog > header,
+  .delegation-dialog > footer { padding-inline: var(--spacing-3); }
+  .delegation-content { padding: var(--spacing-3); }
+}
+
+/* P09 内宽 >=592px：配置双列；宽档 textarea 160px */
+@container delegation (min-width: 592px) {
+  .delegation-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .delegation-dialog textarea { min-height: 160px; }
+}
+
+/* P09 行按钮（CodeMirror widget，沿用 .delegate-line） */
+.cm-editor .delegate-line {
+  margin-inline-start: var(--spacing-2);
+  height: var(--component-pill-height);
+  padding: var(--component-pill-padding);
+  vertical-align: baseline;
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--component-pill-radius);
+  background: var(--accent-bg-surface);
+  color: var(--color-accent-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-pill-font-size);
+  font-weight: var(--component-pill-font-weight);
+}
+.cm-editor .delegate-line:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-focus);
+}
+.cm-editor .delegate-line:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-border-focus);
+  outline-offset: var(--focus-offset);
+}

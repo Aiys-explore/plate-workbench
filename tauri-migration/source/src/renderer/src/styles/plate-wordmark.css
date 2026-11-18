@@ -1,0 +1,24 @@
+.plate-wordmark {
+  --plate-logo-ink: 112px;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: calc(var(--plate-logo-ink) * 1.006);
+  height: calc(var(--plate-logo-ink) * .3504);
+  line-height: 1;
+}
+
+/* Crop only the transparent margins for the sidebar; keep the PNG unmodified. */
+.plate-wordmark img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  width: calc(var(--plate-logo-ink) * 1.589);
+  height: auto;
+  left: calc(var(--plate-logo-ink) * -.2948);
+  top: calc(var(--plate-logo-ink) * -.1039);
+}
+
+@media (max-width: 719px) {
+  .plate-wordmark { --plate-logo-ink: 84px; }
+}

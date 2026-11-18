@@ -1,0 +1,107 @@
+{
+  "seed": {
+    "ok": true,
+    "value": {
+      "noteId": "c939e1b8-390b-421c-8826-6d59fa0222f9",
+      "discarded": 0
+    }
+  },
+  "writeTaskLines": {
+    "ok": true,
+    "value": {
+      "status": "saved",
+      "revision": "b1d61879346a191c8d39338387c99d7e0f831a9354c72c7591eca68210d58877"
+    }
+  },
+  "afterReload": {
+    "ok": true,
+    "value": {
+      "noteId": "c939e1b8-390b-421c-8826-6d59fa0222f9",
+      "drawerOpenInitially": "false"
+    }
+  },
+  "drawerReopened": true,
+  "todoPills": {
+    "ok": true,
+    "value": {
+      "count": 3,
+      "texts": [
+        "[ ▷ 交办 · longstub ]",
+        "[ ▷ TODO · 交办 ]",
+        "[ ▷ TODO · 交办 ]"
+      ],
+      "dirty": false
+    }
+  },
+  "doingState": {
+    "ok": true,
+    "value": {
+      "doingPill": true,
+      "stopPill": true,
+      "lineDoing": true,
+      "pulse": "doing",
+      "badge": "⚡ 1 进行中"
+    }
+  },
+  "stopDiskReverted": true,
+  "stopRevert": {
+    "ok": true,
+    "value": {
+      "todoPillBack": true,
+      "doingGone": true,
+      "lineReverted": true
+    }
+  },
+  "pendingSeen": true,
+  "pendingState": {
+    "ok": true,
+    "value": {
+      "pendingPill": true,
+      "panel": true,
+      "logPreview": "S5 STUB RUN\r\nPROMPT:--profile\r",
+      "adoptBtn": true,
+      "rejectBtn": true,
+      "pulse": "pending",
+      "badge": "● 1 待审阅"
+    }
+  },
+  "adoptToDisk": {
+    "ok": true,
+    "value": {
+      "clicked": true,
+      "lineDone": true,
+      "quoteSaved": true,
+      "pendingGone": true,
+      "donePill": true,
+      "panelGone": true,
+      "cleanSession": true
+    }
+  },
+  "rejectPollSawPending": true,
+  "rejectRevert": {
+    "ok": true,
+    "value": {
+      "clicked": true,
+      "lineReverted": true,
+      "todoPillBack": true,
+      "noQuoteForRejected": true
+    }
+  },
+  "finalState": {
+    "ok": true,
+    "value": {
+      "doingPillGone": true,
+      "pendingPillGone": true,
+      "doneCount": 1,
+      "rawHasQuote": true,
+      "eventFlow": [
+        "DOING:t-jfdeh9",
+        "TODO:t-jfdeh9",
+        "PENDING:t-uorht8",
+        "DONE:t-uorht8",
+        "PENDING:t-dkrkxm",
+        "TODO:t-dkrkxm"
+      ]
+    }
+  }
+}

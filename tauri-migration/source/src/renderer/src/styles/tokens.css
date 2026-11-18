@@ -1,0 +1,194 @@
+:root {
+  /* D1.V2 typography */
+  --font-family-ui: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --font-family-markdown: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --font-family-code: 'Cascadia Mono', 'Consolas', 'SF Mono', 'Menlo', 'DejaVu Sans Mono', monospace;
+  --font-size-ui-small: 12px;
+  --font-size-ui-body: 14px;
+  --font-size-ui-title: 20px;
+  --font-size-ui-large: 20px;
+  --font-size-markdown-body: 15px;
+  --font-size-markdown-h1: 28px;
+  --font-size-markdown-h2: 24px;
+  --font-size-markdown-h3: 20px;
+  --font-size-markdown-h4: 17px;
+  --font-size-markdown-h5: 15px;
+  --font-size-markdown-h6: 14px;
+  --font-size-code: 13px;
+  --font-size-numbers: 15px;
+  --font-size-label: 12px;
+  --font-size-error: 13px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-ui-small: 18px;
+  --line-height-ui-body: 20px;
+  --line-height-ui-title: 28px;
+  --line-height-ui-large: 28px;
+  --line-height-markdown-body: 25px;
+  --line-height-markdown-h1: 36px;
+  --line-height-markdown-h2: 32px;
+  --line-height-markdown-h3: 28px;
+  --line-height-markdown-h4: 24px;
+  --line-height-markdown-h5: 20px;
+  --line-height-markdown-h6: 20px;
+  --line-height-code: 20px;
+  --line-height-numbers: 20px;
+  --line-height-label: 16px;
+  --line-height-error: 18px;
+  --letter-spacing-default: 0;
+  --letter-spacing-markdown-h1: -0.02em;
+  --letter-spacing-markdown-h2: -0.01em;
+  --letter-spacing-label: 0.01em;
+  --letter-spacing-numbers: 0;
+  --font-variant-numeric-numbers: tabular-nums;
+
+  /* D1.V2 layout */
+  --layout-window-min-width: 720px;
+  --layout-window-min-height: 480px;
+  --layout-header-height: 56px;
+  --layout-pane-heading-height: 48px;
+  --layout-sidebar-width: clamp(180px, 20vw, 280px);
+  --layout-sidebar-min: 180px;
+  --layout-sidebar-max: 280px;
+  --layout-sidebar-collapsed: 48px;
+  --layout-agent-width: clamp(240px, 28vw, 360px);
+  --layout-agent-min: 240px;
+  --layout-agent-max: 360px;
+  --layout-agent-collapsed: 48px;
+  --layout-content-min-width: 400px;
+  --layout-content-max-width: 840px;
+  --layout-footer-height: 32px;
+
+  /* D1.V2 spacing / radius / border widths */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-pill: 11px;
+  --border-width-line: 1px;
+  --border-width-focus: 2px;
+  --border-width-divider: 3px;
+  --focus-offset: 2px;
+
+  /* D1.V2 z-index */
+  --z-index-base: 0;
+  --z-index-dropdown: 100;
+  --z-index-sticky: 200;
+  --z-index-tooltip: 300;
+  --z-index-modal-overlay: 400;
+  --z-index-modal: 500;
+  --z-index-toast: 600;
+
+  /* D1.V2 transitions and motion */
+  --transition-fast-duration: 100ms;
+  --transition-fast-easing: ease-out;
+  --transition-normal-duration: 150ms;
+  --transition-normal-easing: ease-out;
+  --transition-smooth-duration: 250ms;
+  --transition-smooth-easing: ease-in-out;
+  --transition-slow-duration: 350ms;
+  --transition-slow-easing: ease-in-out;
+  --motion-reduced-decorative-duration: 0ms;
+  --motion-functional-duration: 100ms;
+  --caret-interval: 530ms;
+  --caret-cycle: 1060ms;
+  --bot-eye-size: 6px;
+  --bot-eye-spacing: 12px;
+  --bot-eye-follow-delay: 80ms;
+  --bot-anim-doing-duration: 1200ms;
+  --bot-anim-doing-easing: ease-in-out;
+  --bot-anim-pending-duration: 400ms;
+  --bot-anim-pending-easing: ease-out;
+  --bot-anim-review-duration: 800ms;
+  --bot-anim-review-easing: ease-in-out;
+  --bot-anim-done-duration: 300ms;
+  --bot-anim-done-easing: ease-in-out;
+  --bot-anim-error-duration: 300ms;
+  --bot-anim-error-easing: ease-in-out;
+
+  /* D1.V2 component geometry */
+  --component-button-height: 32px;
+  --component-button-min-width: 64px;
+  --component-button-padding: 8px 16px;
+  --component-button-radius: 6px;
+  --component-button-font-size: 13px;
+  --component-button-font-weight: 600;
+  --component-input-height: 32px;
+  --component-input-padding: 6px 12px;
+  --component-input-radius: 6px;
+  --component-input-font-size: 13px;
+  --component-pill-height: 22px;
+  --component-pill-padding: 4px 8px;
+  --component-pill-radius: 11px;
+  --component-pill-font-size: 12px;
+  --component-pill-font-weight: 500;
+  --component-pill-icon-size: 14px;
+  --component-pill-icon-gap: 4px;
+  --component-card-radius: 9px;
+  --component-card-padding: 12px;
+  --component-modal-min-width: 360px;
+  --component-modal-max-width: 600px;
+  /* Alma 弹窗宽度三档：常规 / 会话详情 / 分派 */
+  --component-modal-width-regular: 480px;
+  --component-modal-width-detail: 560px;
+  --component-modal-width-delegation: 560px;
+  --component-modal-padding: 24px;
+  --component-modal-radius: 12px;
+  --component-modal-header-height: 48px;
+  --component-modal-footer-height: 64px;
+  --component-scrollbar-width: 8px;
+  --component-scrollbar-radius: 4px;
+  --component-checkbox-size: 16px;
+  --component-checkbox-radius: 3px;
+  --component-checkbox-border-width: 1.5px;
+  --component-checkbox-check-size: 12px;
+  --component-checkbox-gap: 8px;
+  --component-toggle-width: 40px;
+  --component-toggle-height: 22px;
+  --component-toggle-thumb-size: 18px;
+  --component-toggle-thumb-travel: 18px;
+  --component-toggle-radius: 11px;
+  --component-toggle-duration: 150ms;
+  --component-dropdown-option-height: 32px;
+  --component-dropdown-option-padding: 8px 12px;
+  --component-dropdown-max-visible-options: 8;
+  --component-tooltip-delay: 500ms;
+  --component-tooltip-max-width: 240px;
+  --component-tooltip-padding: 6px 10px;
+  --component-tooltip-radius: 6px;
+  --component-tooltip-font-size: 12px;
+  --component-stat-value-font-size: 24px;
+  --component-stat-value-font-weight: 600;
+  --component-stat-value-numeric: tabular-nums;
+
+  /* legacy aliases — values identical to D1.V2 spec tokens */
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  --text-small: var(--font-size-ui-small);
+  --text-body: var(--font-size-ui-body);
+  --text-title: var(--font-size-ui-title);
+  --text-icon: 20px;
+  --text-markdown: var(--font-size-markdown-body);
+  --space-1: var(--spacing-1);
+  --space-2: var(--spacing-2);
+  --space-3: var(--spacing-3);
+  --space-4: var(--spacing-4);
+  --space-5: var(--spacing-5);
+  --line: var(--border-width-line);
+  --focus-width: var(--border-width-focus);
+  --header-height: var(--layout-header-height);
+  --pane-heading-height: var(--layout-pane-heading-height);
+  --button-height: var(--component-button-height);
+  /* legacy layout values kept as-is: virtual-track and collapse behavior
+     depends on them; D1.V2 spec clamps are exposed above for D3.b */
+  --sidebar-width: clamp(160px, 19vw, 240px);
+  --agent-width: clamp(180px, 25vw, 320px);
+  --pane-rail: 52px;
+}

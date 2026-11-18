@@ -1,0 +1,80 @@
+{
+  "seed": {
+    "ok": true,
+    "value": {
+      "a": "dcebfb60-7aca-436f-bd3a-0b6204f1c4d4",
+      "b": "cb3fe013-5b4e-491f-aa20-8d231f098972"
+    }
+  },
+  "stageNoSwitch": {
+    "ok": true,
+    "value": {
+      "viewSwitch": false,
+      "terminalPage": false,
+      "graph": true,
+      "drawerClosed": true
+    }
+  },
+  "clickNode": {
+    "ok": true,
+    "value": {
+      "clicked": true,
+      "id": "cb3fe013-5b4e-491f-aa20-8d231f098972"
+    }
+  },
+  "drawerOpened": {
+    "ok": true,
+    "value": {
+      "open": true,
+      "editor": true,
+      "title": "S3 下游笔记",
+      "framed": "2"
+    }
+  },
+  "cdpInsert": {
+    "ok": true
+  },
+  "dirtyState": {
+    "ok": true,
+    "value": {
+      "status": "有未保存修改",
+      "draftState": "等待写入草稿",
+      "hostHasText": true
+    }
+  },
+  "save": {
+    "ok": true,
+    "value": {
+      "clicked": true,
+      "disabled": false
+    }
+  },
+  "savedToDisk": {
+    "ok": true,
+    "value": {
+      "hasChinese": true,
+      "hasComposition": true
+    }
+  },
+  "escCloses": {
+    "ok": true,
+    "value": {
+      "closed": "true"
+    }
+  },
+  "reopened": {
+    "ok": true,
+    "value": {
+      "clicked": true
+    }
+  },
+  "contentAfterResume": {
+    "ok": true,
+    "value": {
+      "open": true,
+      "text": true
+    }
+  },
+  "shotLight": "light.png saved",
+  "shotDark": "dark.png saved"
+}

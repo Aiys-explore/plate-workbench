@@ -1,0 +1,267 @@
+/* Plate desktop layout; keep legacy tokens available to the original components.
+
+   颜色全部来自 styles/light.css / styles/dark.css，本文件只做几何与排版，
+   不再声明任何色值，避免出现第二套颜色真相源。 */
+.plate-ui {
+  /* 几何 */
+  --plate-control: 30px;
+  --plate-icon-control: 28px;
+  --plate-icon-size: 16px;
+  --plate-radius: 6px;
+  --plate-topbar-height: 48px;
+  --plate-doc-width: 780px;
+  --plate-gutter: clamp(24px, 4vw, 52px);
+  --plate-drawer-width: 280px;
+  --plate-sidebar-width: 244px;
+
+  /* 排版：字号与行高成对给出，避免 14px 文字配 18px 行高的挤压 */
+  --font-family-ui: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-family-markdown: var(--font-family-ui);
+  --font-size-ui-body: 14px;
+  --line-height-ui-body: 20px;
+  --font-size-ui-title: 20px;
+  --line-height-ui-title: 28px;
+  --font-size-ui-small: 12px;
+  --line-height-ui-small: 18px;
+  --font-size-markdown-body: 15px;
+  --line-height-markdown-body: 1.65;
+  --plate-list-font: 13px;
+  --plate-list-line: 20px;
+  --plate-caption-font: 12px;
+  --plate-caption-line: 18px;
+
+  /* 控件几何：与旧 tokens 的 32px 组件按钮统一，消除 30/32 混用 */
+  --component-button-height: 30px;
+  --component-input-height: 32px;
+
+  /* 面层与状态色引用主题 token */
+  --color-surface-window: var(--color-surface-editor);
+  --accent-bg-surface: var(--state-selected);
+
+  grid-template-rows: var(--plate-topbar-height) minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--color-surface-editor);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  line-height: var(--line-height-ui-body);
+}
+.plate-ui .topbar {
+  height: var(--plate-topbar-height); justify-content: start; gap: var(--space-2); padding-inline: var(--space-3) var(--space-4);
+  background: var(--color-surface-bar);
+}
+.plate-ui .topbar-actions { margin-inline-start: auto; }
+.plate-ui .topbar .version {
+  font-size: 11px; background: transparent; margin-inline-start: var(--space-1);
+}
+.plate-ui .topbar button { height: var(--plate-control); }
+/* 图标按钮统一为 28px 盒 / 16px 图标（特异度需高于上面的 .topbar button） */
+.plate-ui .icon-button,
+.plate-ui .topbar button.icon-button {
+  width: var(--plate-icon-control); min-width: var(--plate-icon-control); height: var(--plate-icon-control);
+  display: inline-grid; place-items: center; padding: 0; position: relative;
+}
+.plate-ui .icon-button::after,
+.plate-ui .topbar button.icon-button::after,
+.plate-ui .plate-sidebar-toggle::after,
+.plate-ui .topbar button.plate-sidebar-toggle::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+.plate-ui .icon-button svg { width: var(--plate-icon-size); height: var(--plate-icon-size); }
+.plate-ui .plate-brand {
+  --plate-logo-ink: 64px;
+  padding: 0 var(--space-2); min-width: 74px; border-color: transparent;
+}
+.plate-ui .plate-brand .plate-wordmark { --plate-logo-ink: 62px; }
+.plate-ui .plate-sidebar-toggle,
+.plate-ui .topbar button.plate-sidebar-toggle {
+  width: var(--plate-icon-control); min-width: var(--plate-icon-control); height: var(--plate-icon-control);
+  padding: 0; display: inline-grid; place-items: center; position: relative;
+}
+.plate-ui .plate-place { padding-inline: var(--space-2); }
+.plate-ui button { border-radius: var(--plate-radius); }
+.plate-ui :is(button:not(.button-primary,[data-editor-task],.home-runtime-switch), summary):hover:not(:disabled,[aria-disabled='true']) {
+  background-color: var(--color-surface-hover);
+}
+.plate-ui :is(button, select, summary, [role='menuitem']):focus-visible {
+  outline: 2px solid var(--color-border-focus); outline-offset: -2px;
+}
+.plate-ui button[aria-disabled='true'] { color: var(--color-text-disabled); }
+.plate-ui h2 { text-wrap: balance; }
+.plate-ui p { text-wrap: pretty; }
+.plate-ui .workbench-main { min-height: 0; min-width: 0; }
+.plate-ui .home-document-host:not([hidden]) { display: flex; flex-direction: column; }
+.plate-ui .home-document-host > .layout { flex: 1; height: auto; grid-template-rows: minmax(0, 1fr); }
+.plate-ui .session-footer { flex: none; font-variant-numeric: tabular-nums; }
+.plate-ui .notes-sidebar {
+  min-width: 0; min-height: 0; overflow: hidden; border: 0;
+  background: var(--color-surface-side);
+}
+.plate-ui .notes-sidebar .notes-heading {
+  height: 46px; flex: none; border: 0; padding-inline: var(--space-3) 44px;
+  background: transparent;
+}
+.plate-ui .notes-sidebar .notes-heading h2 { position: static; clip-path: none; font-size: 14px; }
+.plate-ui .sidebar-scroll { overflow: hidden; padding-block-end: var(--space-2); }
+.plate-ui .sidebar-scroll .notes-tree { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.plate-ui :is(.harness-partitions, .notes-search, .note-create-panel) { padding-inline: var(--space-3); flex-shrink: 0; }
+.plate-ui .notes-search-box {
+  height: 32px; grid-template-columns: 27px minmax(0, 1fr) 24px;
+  border-color: var(--color-border-decorative); border-radius: var(--plate-radius);
+}
+.plate-ui .notes-search-box:not(:has(button)) { grid-template-columns: 27px minmax(0, 1fr); }
+.plate-ui .notes-search input { font-size: var(--plate-list-font); }
+.plate-ui .notes-search-box:focus-within { outline-width: 1px; }
+.plate-ui .note-create-panel > button:first-child {
+  background: var(--state-selected); color: var(--color-accent-text);
+  height: 30px; font-size: var(--plate-list-font); font-weight: 600;
+}
+.plate-ui .note-create-panel > button:first-child:hover:not(:disabled) { color: var(--color-text-primary); }
+.plate-ui .notes-views { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); margin: var(--space-1) var(--space-3) var(--space-1); padding: 0; }
+.plate-ui .tree-row { inset-inline: 8px; font-size: var(--plate-list-font); border-radius: var(--plate-radius); }
+.plate-ui .tree-row small { font-size: var(--plate-caption-font); }
+.plate-ui .tree-row[aria-current='page'] { background: var(--state-selected); }
+.plate-ui .tree-row[aria-current='page']:hover { background: var(--state-selected-hover); }
+.plate-ui .tree-row[aria-current='page']::before { width: 2px; background: var(--color-border-focus); }
+.plate-ui .notes-tree:focus:not(:focus-visible) .tree-row[data-active='true'] { outline: none; }
+.plate-ui .tree-project:not([aria-expanded]) { cursor: default; background: transparent; }
+.plate-ui .tree-project-title > small { margin-inline-start: auto; flex: none; padding-inline-start: var(--space-1); font-variant-numeric: tabular-nums; }
+.plate-ui .home-agent-dock {
+  flex: 0 0 min(34%, 250px); min-height: 112px; max-height: none;
+  padding: var(--space-3) var(--space-2) var(--space-2); gap: var(--space-2);
+}
+.plate-ui .home-agent-dock header { padding: 0 var(--space-1); }
+.plate-ui .home-agent-dock header h2 { font-size: var(--plate-list-font); }
+.plate-ui .home-agent-dock header small { font-size: var(--plate-caption-font); color: var(--color-text-secondary); }
+.plate-ui .home-agent-dock-scroll { flex: 1; }
+.plate-ui .plate-dock-group + .plate-dock-group { margin-top: var(--space-2); }
+.plate-ui .plate-dock-group h3 {
+  margin: 0 var(--space-1) var(--space-1); font-size: var(--plate-caption-font); font-weight: 500; color: var(--color-text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.plate-ui .home-agent-dock .home-agent-target {
+  display: grid; grid-template-columns: 25px minmax(0,1fr) auto; gap: var(--space-2);
+  align-items: center;
+  height: 56px; min-height: 56px; padding-inline: var(--space-1); border-radius: var(--plate-radius);
+}
+/* 同名会话需要完整 8 位短 ID 时行高放宽。
+   特异度需高于 harness.css 的 ".harness-shell :is(...) button" 规则。 */
+.plate-ui .home-agent-dock .home-agent-target[data-same-name='true'] {
+  height: 72px; min-height: 72px;
+}
+.plate-ui .plate-dock-label { display: grid; text-align: start; line-height: 1.35; }
+.plate-ui .plate-dock-label > * { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.plate-ui .plate-dock-label strong { font-size: var(--plate-list-font); line-height: var(--plate-list-line); font-weight: 600; }
+.plate-ui .plate-dock-label small { font-size: var(--plate-caption-font); line-height: var(--plate-caption-line); color: var(--color-text-secondary); }
+.plate-ui .plate-dock-label > small { display: flex; align-items: baseline; gap: var(--space-1); }
+.plate-ui .plate-dock-label > small > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plate-ui .plate-dock-label code { flex: none; font-size: 11px; font-family: var(--font-family-ui); font-variant-numeric: tabular-nums; }
+.plate-ui .home-agent-dock .plate-log-row { cursor: pointer; }
+.plate-ui .home-agent-dock .plate-dock-state { font-size: 11px; }
+.plate-ui .plate-dock-state[data-live='true'] { color: var(--color-functional-success-text); }
+.plate-ui .plate-dock-empty { padding-inline: var(--space-1); color: var(--color-text-secondary); font-size: var(--plate-caption-font); }
+.plate-ui .plate-dock-empty p { margin: 0 0 var(--space-1); line-height: 1.6; }
+.plate-ui .plate-dock-empty button { color: var(--color-accent-text); padding-inline: var(--space-1); margin-inline-start: calc(-1 * var(--space-1)); }
+.plate-ui .plate-sidebar-bottom {
+  display: grid; grid-template-columns: 1fr auto; flex: none; gap: var(--space-1); padding: var(--space-2);
+  border-top: 1px solid var(--color-border-decorative);
+}
+.plate-ui .notes-sidebar .plate-sidebar-bottom button {
+  display: flex; align-items: center; justify-content: start; gap: var(--space-2); padding-inline: var(--space-2);
+  height: var(--plate-control); font-size: var(--plate-list-font); white-space: nowrap;
+}
+.plate-ui .plate-dock-back { align-self: start; margin: var(--space-1) var(--space-2); }
+.plate-ui .notes-editor .notes-heading {
+  min-height: 46px; padding-inline: 44px 16px; background: var(--color-surface-editor);
+}
+.plate-ui .notes-editor .notes-heading h2 { flex: 1; min-width: 0; }
+.plate-ui .notes-editor > .pane-toggle { top: 8px; }
+.plate-ui .note-actions { gap: 3px; }
+.plate-ui .note-actions button, .plate-ui [data-editor-meta-actions] button { height: var(--plate-control); font-size: var(--plate-list-font); }
+.plate-ui .view-switch { display: flex; gap: var(--space-2); }
+.plate-ui .view-switch button { border-color: transparent; }
+.plate-ui .view-switch button[aria-pressed='true'] {
+  background-color: var(--state-selected); box-shadow: inset 0 -2px var(--color-border-focus);
+}
+.plate-ui .view-switch button[aria-pressed='true']:hover { background-color: var(--state-selected-hover); }
+.plate-ui [data-editor-meta], .plate-ui [data-editor-toolbar] {
+  width: min(var(--plate-doc-width), calc(100% - 2 * var(--plate-gutter)));
+  margin-inline: auto; padding-inline: 0;
+}
+.plate-ui [data-editor-meta] { height: 76px; flex-basis: 76px; align-items: center; border-bottom: 0; padding-block-start: 8px; }
+.plate-ui [data-editor-meta-title] { font: 600 28px/38px var(--font-family-ui); margin-inline-start: -5px; }
+.plate-ui [data-editor-meta-title]:focus { border-color: var(--plate-editor-focus); box-shadow: none; }
+.plate-ui [data-editor-toolbar] { height: 36px; flex-basis: 36px; gap: var(--space-1); padding: var(--space-1) 0; }
+.plate-ui [data-editor-toolbar] button { flex-shrink: 0; height: var(--plate-control); }
+.plate-ui [data-editor-tool][aria-pressed='true'] { background: var(--state-selected); box-shadow: inset 0 -2px var(--color-border-focus); }
+.plate-ui [data-editor-tool][aria-pressed='mixed'] { background: var(--state-selected); border-bottom: 2px dashed var(--color-border-focus); }
+.plate-ui [data-editor-toolbar] button.plate-assign {
+  margin-inline-start: auto; color: var(--color-accent-text); background: var(--state-selected);
+  padding-inline: var(--space-2); height: var(--plate-control); font-weight: 600;
+}
+.plate-ui [data-editor-toolbar] .plate-toolbar-divider {
+  flex: none; width: var(--border-width-line); height: 20px; align-self: center;
+  background: var(--color-border-decorative);
+}
+.plate-ui .editor-tool-reason { width: min(var(--plate-doc-width), calc(100% - 2 * var(--plate-gutter))); margin-inline: auto; }
+.plate-ui [data-editor-canvas] {
+  width: min(var(--plate-doc-width), calc(100% - 2 * var(--plate-gutter))); padding-block: 15px 28px;
+}
+.plate-ui [data-editor-host='render'] { min-height: 66px; }
+.plate-ui [data-editor-host]:is(:focus,:focus-visible) { box-shadow: 0 0 0 1px var(--plate-editor-focus); }
+.plate-ui [data-editor-related] {
+  border-color: transparent; border-top-color: var(--color-border-decorative);
+  border-radius: 0; color: var(--color-text-secondary); margin-block-start: 17px;
+}
+.plate-ui [data-editor-related] summary {
+  border-radius: var(--plate-radius);
+  padding: var(--space-2) var(--space-1);
+  margin-inline: calc(-1 * var(--space-1));
+}
+.plate-ui [data-editor-related] summary .plate-links-badge {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  margin-inline-start: var(--space-1); border-radius: var(--radius-pill);
+  background: var(--state-selected); color: var(--color-accent-text);
+  font-size: var(--font-size-ui-small); font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.plate-ui .note-empty {
+  margin: clamp(50px, 14vh, 125px) auto 0;
+  max-width: calc(100% - 36px); color: var(--color-text-secondary); text-align: center;
+}
+.plate-ui .home-runtime-manager { padding: 35px clamp(24px, 5vw, 72px); }
+.plate-ui .plate-runtime-content { max-width: 860px; margin-inline: auto; }
+.plate-ui .home-runtime-manager header { align-items: center; }
+.plate-ui .home-runtime-manager header h2 { font-size: 26px; line-height: 1.4; }
+.plate-ui .home-runtime-manager ul { border: 0; border-top: 1px solid var(--color-border-decorative); border-radius: 0; background: transparent; margin: 6px 0; }
+.plate-ui .home-runtime-row { padding: 8px 3px; }
+.plate-ui .home-runtime-row button { height: 30px; }
+.plate-ui .plate-plugin-section { margin-block-start: 21px; }
+.plate-ui .plate-plugin-section h3 { margin: 0 0 6px; font-size: 14px; }
+.plate-ui .plate-plugin-section h3 small { margin-inline-start: 6px; font-size: 12px; color: var(--color-text-secondary); }
+.plate-ui .plate-plugin-section p { font-size: 13px; margin: 3px 0; }
+.plate-ui .home-runtime-manager summary { padding: 6px 8px; border-radius: var(--plate-radius); }
+.plate-ui .home-target-dialog { width: min(520px, calc(100% - 32px)); padding: 21px 24px; }
+.plate-ui .home-target-dialog h2[tabindex='-1']:focus { outline: none; }
+.plate-ui .home-target-dialog p { color: var(--color-text-secondary); }
+.plate-ui .home-target-dialog pre { border-radius: var(--plate-radius); font: inherit; padding: 10px 13px; }
+.plate-ui .home-target-dialog select { display: block; width: 100%; margin-block-start: 5px; min-height: 32px; }
+.plate-ui .plate-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; margin-block-start: 17px; }
+.plate-ui .plate-kicker { display: block; color: var(--color-text-secondary); font-size: 12px; margin-bottom: 4px; }
+.plate-ui .plate-delivery-evidence { padding: 6px 10px; border-radius: var(--plate-radius); background: var(--color-surface-side); }
+.plate-ui .plate-delivery-evidence summary { padding: 4px; cursor: pointer; }
+.plate-ui .plate-delivery-evidence dl { display: grid; grid-template-columns: 64px 1fr; gap: 3px 8px; margin: 6px 4px; }
+.plate-ui .plate-delivery-evidence dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 879px) {
+  .plate-ui .workbench-drawer:is(.notes-drawer,.agent-drawer) {
+    inset: var(--plate-topbar-height) auto 0 0; width: min(78vw, var(--plate-drawer-width)); height: auto;
+  }
+  .plate-ui .notes-drawer > .notes-sidebar > .pane-toggle { inset: 8px 9px auto auto; width: 30px; }
+}
+@media (max-height: 560px) {
+  .plate-ui .home-agent-dock { flex-basis: 27%; min-height: 88px; }
+  .plate-ui .sidebar-scroll { min-height: 90px; overflow: auto; }
+  .plate-ui .sidebar-scroll .notes-tree { flex: none; overflow: visible; }
+}

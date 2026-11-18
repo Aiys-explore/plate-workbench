@@ -1,0 +1,271 @@
+/* M3.3 · P10 任务行与结论 · 静态样式子包（D6 P10）
+ *
+ * 值来源（冻结定稿，未新造值）：
+ * - design/03-elements-p10.csv（44 字段全状态）
+ * - design/pages/P10.md（布局、折行、焦点、减动效）
+ * - design/tokens.json；src/renderer/src/styles/{tokens.css,light.css,dark.css}
+ *
+ * 仅覆盖 M3.3 新增：八态行内状态 pill（含计时/来源/无进展/最后事件/原因）、
+ * 可折叠结论/指标、待回写提示、确认完成面板与按钮。不重做既有控件。
+ * 前缀 .p10m33；Sol 接线时按 REPORT.md 的语义 class 表挂 data-* / aria-*。
+ */
+
+.p10m33-flow {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: var(--spacing-2);
+  row-gap: var(--spacing-2);
+  color: var(--color-text-primary);
+}
+
+/* ---- 运行状态带：pill → 计时 → 来源，8px 折行间距 ---- */
+.p10m33-status {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--spacing-2);
+  row-gap: var(--spacing-2);
+  color: var(--color-text-primary);
+}
+
+/* 状态 pill：22px 高，1px 装饰边用内描边不占位，14px 图标垂直居中 */
+.p10m33-pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--component-pill-icon-gap);
+  min-width: 0;
+  max-width: 100%;
+  height: var(--component-pill-height);
+  padding: var(--component-pill-padding);
+  border: none;
+  border-radius: var(--component-pill-radius);
+  box-shadow: inset 0 0 0 var(--border-width-line) var(--pill-border, transparent);
+  color: var(--pill-fg);
+  background: var(--pill-bg);
+  font-family: var(--font-family-ui);
+  font-size: var(--component-pill-font-size);
+  font-weight: var(--component-pill-font-weight);
+  line-height: 14px;
+  letter-spacing: var(--letter-spacing-default);
+  overflow-wrap: anywhere;
+}
+.p10m33-pill-icon {
+  flex: 0 0 auto;
+  width: var(--component-pill-icon-size);
+  height: var(--component-pill-icon-size);
+  stroke: currentColor;
+  stroke-width: 1.5px;
+  fill: none;
+}
+.p10m33-pill--starting { --pill-fg: var(--color-semantic-starting-text); --pill-bg: var(--color-semantic-starting-bg); --pill-border: var(--color-semantic-starting-border); }
+.p10m33-pill--doing    { --pill-fg: var(--color-semantic-doing-text);    --pill-bg: var(--color-semantic-doing-bg);    --pill-border: var(--color-semantic-doing-border); }
+.p10m33-pill--pending  { --pill-fg: var(--color-semantic-pending-text);  --pill-bg: var(--color-semantic-pending-bg);  --pill-border: var(--color-semantic-pending-border); }
+.p10m33-pill--review   { --pill-fg: var(--color-semantic-review-text);   --pill-bg: var(--color-semantic-review-bg);   --pill-border: var(--color-semantic-review-border); }
+.p10m33-pill--done     { --pill-fg: var(--color-semantic-done-text);     --pill-bg: var(--color-semantic-done-bg);     --pill-border: var(--color-semantic-done-border); }
+.p10m33-pill--error    { --pill-fg: var(--color-semantic-error-text);    --pill-bg: var(--color-semantic-error-bg);    --pill-border: var(--color-semantic-error-border); }
+.p10m33-pill--paused   { --pill-fg: var(--color-semantic-paused-text);   --pill-bg: var(--color-semantic-paused-bg);   --pill-border: var(--color-semantic-paused-border); }
+.p10m33-pill--unknown  { --pill-fg: var(--color-semantic-unknown-text);  --pill-bg: var(--color-semantic-unknown-bg);  --pill-border: var(--color-semantic-unknown-border); }
+.p10m33-pill--stall    { --pill-fg: var(--color-semantic-no-progress-text); --pill-bg: var(--color-semantic-no-progress-bg); --pill-border: var(--color-semantic-no-progress-border); }
+
+/* 计时 / 来源 / 最后事件：12/16，次级文字；计时用 tabular-nums，不作 live region（Sol 决定） */
+.p10m33-clock {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  letter-spacing: var(--letter-spacing-default);
+  font-variant-numeric: tabular-nums;
+}
+.p10m33-note {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-small);
+  letter-spacing: var(--letter-spacing-default);
+  overflow-wrap: anywhere;
+}
+
+/* 运行原因/结果、等待原文：13/18 主文字，可选择 */
+.p10m33-literal {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-body);
+  letter-spacing: var(--letter-spacing-default);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* ---- 结论与用量（可折叠） ---- */
+.p10m33-result {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  color: var(--color-text-primary);
+}
+.p10m33-quote {
+  min-width: 0;
+  padding: var(--spacing-1) var(--spacing-3);
+  border-left: var(--border-width-divider) solid var(--color-border-focus);
+  border-radius: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-markdown);
+  font-size: var(--font-size-markdown-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-markdown-body);
+  letter-spacing: var(--letter-spacing-default);
+  user-select: text;
+}
+.p10m33-metrics {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-markdown);
+  font-size: var(--font-size-markdown-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-markdown-body);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+/* ---- 次级按钮（展开/折叠、检查回写、确认完成、返回）：32px、min 56px、间距 8px ---- */
+.p10m33-btn-secondary {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  max-width: 100%;
+  height: var(--component-button-height);
+  padding: 6px 8px;
+  border: var(--border-width-line) solid var(--color-border-control);
+  border-radius: var(--component-button-radius);
+  color: var(--color-text-primary);
+  background: var(--color-surface-control);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--component-button-font-weight);
+  line-height: var(--line-height-ui-body);
+  letter-spacing: var(--letter-spacing-default);
+  cursor: pointer;
+  transition: background-color var(--motion-functional-duration) var(--transition-fast-easing);
+}
+.p10m33-btn-secondary:hover { background: var(--color-surface-hover); border-color: var(--color-border-focus); }
+.p10m33-btn-secondary:active { background: var(--color-surface-pressed); border-color: var(--color-border-focus); box-shadow: inset 0 2px 0 0 var(--color-border-focus); }
+.p10m33-btn-secondary:focus-visible { box-shadow: inset 0 0 0 var(--border-width-focus) var(--color-border-focus); }
+.p10m33-btn-secondary:hover:focus-visible,
+.p10m33-btn-secondary:active:focus-visible { box-shadow: inset 0 0 0 var(--border-width-focus) var(--color-border-focus), inset 0 2px 0 0 var(--color-border-focus); }
+.p10m33-btn-secondary:disabled,
+.p10m33-btn-secondary[aria-disabled='true'] {
+  color: var(--color-text-disabled);
+  background: var(--color-surface-control);
+  border-color: var(--color-border-control);
+  cursor: default;
+}
+
+/* 主按钮（确认面板内“标为完成”）：32px、min 56px，外环保留 4px 焦点环 */
+.p10m33-btn-primary {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  max-width: 100%;
+  height: var(--component-button-height);
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--component-button-radius);
+  color: var(--color-text-inverse);
+  background: var(--color-accent-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--component-button-font-weight);
+  line-height: var(--line-height-ui-body);
+  letter-spacing: var(--letter-spacing-default);
+  cursor: pointer;
+  transition: background-color var(--motion-functional-duration) var(--transition-fast-easing);
+}
+.p10m33-btn-primary:hover { background: var(--color-accent-hover); color: var(--color-text-primary); }
+.p10m33-btn-primary:active { background: var(--color-accent-pressed); box-shadow: inset 0 2px 0 0 var(--color-text-inverse); }
+.p10m33-btn-primary:focus-visible { outline: var(--border-width-focus) solid var(--color-border-focus); outline-offset: var(--focus-offset); }
+.p10m33-btn-primary:hover:focus-visible { outline-color: var(--color-border-focus); }
+.p10m33-btn-primary:disabled,
+.p10m33-btn-primary[aria-disabled='true'] { color: var(--color-text-disabled); background: var(--color-surface-control); cursor: default; }
+
+/* ---- 待回写提示：12/16 次级说明，流内块 ---- */
+.p10m33-write { min-width: 0; max-width: 100%; display: flex; flex-wrap: wrap; column-gap: var(--spacing-2); row-gap: var(--spacing-2); align-items: center; }
+.p10m33-write .p10m33-note { flex: 1 1 auto; }
+
+/* ---- 确认完成面板：流内单列卡，圆角 6px，8px/12px 内距 ---- */
+.p10m33-confirm {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width-line) solid var(--color-border-decorative);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-side);
+  color: var(--color-text-primary);
+}
+.p10m33-confirm-head {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-title);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-ui-title);
+  letter-spacing: var(--letter-spacing-default);
+}
+.p10m33-confirm-target {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-ui-body);
+  letter-spacing: var(--letter-spacing-default);
+  overflow-wrap: anywhere;
+}
+.p10m33-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  /* 主提交外绘焦点环预留 4px */
+  padding-block: var(--focus-offset);
+}
+.p10m33-confirm-actions .p10m33-btn-primary { margin-left: auto; }
+
+/* 减少动效：关闭 D1 功能过渡，布局与状态切换保持即时 */
+@media (prefers-reduced-motion: reduce) {
+  .p10m33-btn-secondary,
+  .p10m33-btn-primary { transition: none; }
+}
+
+[data-editor-host] [data-p10-collapsed] { display: none; }
+[data-editor-role=task] [data-p10-slot=status] { display: inline-flex; vertical-align: middle; }
+[data-editor-role=task][data-p10-line] { flex-wrap: wrap; }
+[data-editor-role=task][data-p10-line] > [data-p10-slot=status] { flex: 0 0 calc(100% - var(--spacing-6)); margin-inline-start: var(--spacing-6); }
+[data-p10-slot=detail] { margin-block: var(--spacing-1) var(--spacing-2); min-width: 0; }
+[data-editor-role=li] > [data-p10-slot=detail] { margin-inline-start: var(--spacing-6); }
+[data-p10-slot=detail]:focus-within { scroll-margin: var(--spacing-2); }
+.p10m33-detail { display: grid; gap: var(--spacing-2); user-select: text; overflow-wrap: anywhere; }
+.p10m33-detail .p10m33-result[hidden] { display: none; }
+.p10m33-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.p10m33-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.p10m33-feedback { color: var(--color-text-secondary); font-size: var(--font-size-ui-small); }

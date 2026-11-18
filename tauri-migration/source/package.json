@@ -1,0 +1,40 @@
+{
+  "name": "notes-agent-workbench",
+  "productName": "Plate Workbench",
+  "version": "0.3.0-s1.1",
+  "private": true,
+  "description": "Plate 笔记 + Agent 工作台（Tauri v2 迁移线）",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/highlight": "^1.2.5",
+    "@tauri-apps/api": "^2",
+    "dompurify": "^3.4.17",
+    "framer-motion": "12.43.0",
+    "markdown-it": "^15.0.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "yaml": "^2.9.1",
+    "zustand": "^5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "playwright": "^1.65.0",
+    "typescript": "~5.9",
+    "vite": "^7"
+  }
+}
