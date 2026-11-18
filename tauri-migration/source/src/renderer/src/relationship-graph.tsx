@@ -61,13 +61,14 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
   return { ordered,points,height:Math.max(320,y) }
 }
 
-export function RelationshipGraph({ nodes, edges, selected, label, open, close, state, reload, editorOpen, rightInset, canChange, noteUpdated }: {
+export function RelationshipGraph({ nodes, edges, selected, label, open, close, state, reload, editorOpen, rightInset, canChange, noteUpdated, activeProject }: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
   open: (id: string, origin?:HTMLElement) => void; close: () => void
   editorOpen?: boolean; rightInset?: number
   state: { busy: boolean; error?: string }; reload: () => void
   canChange: (id: string) => boolean
   noteUpdated: (note: Note) => void
+  activeProject: string
 }) {
   const [scope, setScope] = useState<'nearby' | 'all'>(() => selected ? 'nearby' : 'all')
   const [anchor, setAnchor] = useState(selected)
@@ -510,7 +511,7 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       let title = '新笔记'
       let seq = 2
       while (titles.has(title)) { title = `新笔记 ${seq++}` }
-      const created = await window.workbench.notes.create(title, 'default', 'blank')
+      const created = await window.workbench.notes.create(title, activeProject, 'blank')
       const { x, y } = clamp(pt)
       resolvedLayout.current.add(created.id)
       await window.workbench.graphLayout.saveBatch([{ noteId: created.id, x, y, pinned: true }])

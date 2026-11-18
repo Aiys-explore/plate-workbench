@@ -53,6 +53,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   const editorIdentity = useRef<object>({})
   const recoveryOpener = useRef<HTMLElement | null>(null)
   const [session, setSession] = useState<EditorSession>()
+  const liveSession = useRef<EditorSession | undefined>(undefined)
   const surface = useRef<EditorSurface | null>(null)
   const graphHandle = useRef<ReturnType<EditorSession['suspend']> | undefined>(undefined)
   const drawerResize = useRef<{ pointer: number; startWidth: number; startX: number } | null>(null)
@@ -141,6 +142,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     selectedPath.current = next?.path
     setNote(next)
     setDraft(recovered ?? next?.content ?? '')
+    liveSession.current = editor
     setSession(editor)
     graphHandle.current = undefined
     setExternalPath('')
@@ -180,6 +182,35 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     }
     requestIndex.current=()=>void refreshIndex(true)
     let pending: ReturnType<typeof setTimeout> | undefined
+    let externalTimer: ReturnType<typeof setTimeout> | undefined
+    let externalSequence = 0
+    const pathKey = (path: string) => navigator.platform.startsWith('Win')
+      ? path.replaceAll('/', '\\').toLowerCase() : path
+    function checkExternal(path: string) {
+      clearTimeout(externalTimer)
+      const expected = ++externalSequence
+      const identity = editorIdentity.current
+      const id = selection.current
+      const selected = selectedPath.current
+      if (!id || !selected) return
+      const current = () => active && expected === externalSequence &&
+        editorIdentity.current === identity && selection.current === id
+      async function check(id: string, selected: string) {
+        if (!current()) return
+        if (inFlight.current) {
+          externalTimer = setTimeout(() => void check(id, selected), 100)
+          return
+        }
+        const disk = await api.read(id).then(note => note.revision, () => undefined)
+        if (!current()) return
+        if (inFlight.current) {
+          externalTimer = setTimeout(() => void check(id, selected), 100)
+          return
+        }
+        setExternalPath(disk !== liveSession.current?.baseRevision ? selected : '')
+      }
+      if (pathKey(path) === pathKey(selected)) void check(id, selected)
+    }
     async function refresh(initial = false, propagate = false) {
       const request = ++sequence
       workspaceReady.current = false
@@ -217,13 +248,13 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     }
     refreshWorkspace.current = () => refresh(false, true)
     const unsubscribe = api.onChanged((path, external) => {
-      if (external && selectedPath.current === path) setExternalPath(path)
+      if (external && selectedPath.current && pathKey(selectedPath.current) === pathKey(path)) checkExternal(path)
       workspaceReady.current = false
       setWorkspaceStatus('pending')
       if (pending === undefined) pending = setTimeout(() => { pending = undefined; void refresh() }, 0)
     })
     void refresh(true)
-    return () => { active = false; workspaceReady.current = false; clearTimeout(pending); unsubscribe() }
+    return () => { active = false; workspaceReady.current = false; clearTimeout(pending); clearTimeout(externalTimer); unsubscribe() }
   }, [api])
 
   useEffect(() => {
@@ -690,6 +721,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     {sidebarSplitter}
     <main className="pane editor notes-editor notes-stage" aria-label="编辑区" onKeyDown={saveShortcut}>
       <RelationshipGraph nodes={items} edges={index.edges} selected={activeId}
+        activeProject={projects.find(item => item.id === project && item.archivedAt === null)?.id ?? DEFAULT_PROJECT}
         label={label} open={(id,origin)=>select(id,false,origin)}
         close={closeNoteDrawer} editorOpen={drawerOpen} rightInset={drawerOpen ? drawerWidth + 16 : 0}
         canChange={id => !inFlight.current && !recoveries.some(draft => draft.id === id) &&

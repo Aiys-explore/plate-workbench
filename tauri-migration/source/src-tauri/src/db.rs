@@ -61,12 +61,24 @@ pub fn open(root: &std::path::Path) -> Result<Connection, String> {
           ended_at INTEGER,
           duration_ms INTEGER,
           tokens_used INTEGER,
-          updated_at INTEGER NOT NULL
+          updated_at INTEGER NOT NULL,
+          review_prompt TEXT,
+          follow_context TEXT
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_task_runs_note ON task_runs(note_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_task_runs_state ON task_runs(state);
         "#,
     )
     .map_err(|e| format!("初始化 schema 失败：{e}"))?;
+    for column in ["review_prompt", "follow_context"] {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('task_runs') WHERE name = ?1)",
+            [column], |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if !exists {
+            conn.execute(&format!("ALTER TABLE task_runs ADD COLUMN {column} TEXT"), [])
+                .map_err(|e| e.to_string())?;
+        }
+    }
     Ok(conn)
 }

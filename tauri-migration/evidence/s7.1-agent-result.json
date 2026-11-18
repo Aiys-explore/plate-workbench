@@ -1,0 +1,25 @@
+{
+  "status": "pass",
+  "version": "0.3.0-s7.1",
+  "releaseExecutableSHA256": "21fda0bb59e7825ee1aac48d312b25e9db7f417e71e6157b4b98a9daf2c6bd73",
+  "passed": [
+    "Windows GUI subsystem PE verified",
+    "untagged task opens chooser, and creates no run before selection",
+    "real DSH missing credential links to settings; Windows-encrypted key survives restart and is write-only",
+    "saved Codex default works without a new chooser",
+    "per-task override reaches real DSH with stored key and redacts the echoed secret",
+    "topbar settings can remove stored key independently of default Agent"
+  ],
+  "requests": [
+    {
+      "authorized": true,
+      "hasTask": true,
+      "route": "/v1/messages"
+    },
+    {
+      "authorized": true,
+      "hasTask": true,
+      "route": "/v1/messages"
+    }
+  ]
+}

@@ -226,9 +226,18 @@ export interface AppInfo {
   version: string
 }
 
+export interface AgentSettings {
+  defaultAgent: string | null
+  deepseekKey: 'unset' | 'saved' | 'environment'
+}
+
 export interface WorkbenchApi {
   startup: StartupApi
   agents: AgentsApi
+  agentSettings: {
+    get(): Promise<AgentSettings>
+    save(input: { defaultAgent: string | null; deepseekKey?: string; clearDeepseekKey?: boolean }): Promise<AgentSettings>
+  }
   p10: P10Api
   p11: P11Api
   p12: P12Api

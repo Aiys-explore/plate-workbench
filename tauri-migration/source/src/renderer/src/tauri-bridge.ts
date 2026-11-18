@@ -3,9 +3,9 @@ import { listen } from '@tauri-apps/api/event'
 import type {
   DraftRecovery, DraftSummary, GraphLayoutApi, GraphLayoutEntry, LinkIndex,
   Note, NoteFilters, NotesApi, NoteSummary, ProjectSummary, SaveResult,
-  SearchResult, TasksApi, TaskRunCard, WorkbenchApi, AppInfo, NativeDialogState,
+  SearchResult, TasksApi, TaskRunCard, WorkbenchApi, AppInfo, AgentSettings, NativeDialogState,
 } from '../../shared/ipc'
-import type { StartupApi, StartupState } from '../../shared/startup'
+import type { Candidate, StartupApi, StartupState } from '../../shared/startup'
 import type { NoteIndexApi, NoteIndexState } from '../../shared/note-index'
 import { capabilityKeys, type AgentProfile, type AgentsApi } from '../../shared/agents'
 
@@ -29,10 +29,10 @@ function createStartupApi(): StartupApi {
     state: read,
     suggest: read,
     async browse() {
-      const path = await invoke<string | null>('startup_browse')
-      if (!path) return last
+      const candidate = await invoke<Candidate | null>('startup_browse')
+      if (!candidate) return last
       const suggested = last.phase === 'choose' ? last.suggested : undefined
-      return last = { phase: 'choose', suggested, candidate: { token: path, path, kind: 'empty' } }
+      return last = { phase: 'choose', suggested, candidate }
     },
     submit: (token: string) => remember(invoke<StartupState>('startup_submit', { token })),
     rebuild: (token: string) => remember(invoke<StartupState>('startup_rebuild', { token })),
@@ -144,6 +144,14 @@ export function createTauriBridge(): WorkbenchApi {
       onChange: () => () => undefined,
     },
     agents: createAgentsApi(),
+    agentSettings: {
+      get: () => invoke<AgentSettings>('agent_settings_get'),
+      save: input => invoke<AgentSettings>('agent_settings_save', {
+        defaultAgent: input.defaultAgent,
+        deepseekKey: input.deepseekKey ?? null,
+        clearDeepseekKey: input.clearDeepseekKey ?? false,
+      }),
+    },
     p10: stubGroup('p10') as WorkbenchApi['p10'],
     p11: stubGroup('p11') as WorkbenchApi['p11'],
     p12: stubGroup('p12') as WorkbenchApi['p12'],

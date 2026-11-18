@@ -30,11 +30,14 @@ export function useTaskCards(noteId: string): TaskRunCard[] {
 }
 
 export interface InlineTaskActions {
-  start(todo: TaskTodo): void
+  start(todo: TaskTodo, selectedAgent?: string): void
+  chooseAgent(todo: TaskTodo): void
+  openAgentSettings(): void
   stop(card: TaskRunCard): void
   adopt(card: TaskRunCard): void
   follow(card: TaskRunCard, instruction: string): void
   reject(card: TaskRunCard): void
+  restore(card: TaskRunCard): void
   recover(taskId: string): void
   togglePanel(taskId: string): void
   submitFollow(taskId: string): void
@@ -66,6 +69,11 @@ function makePanel(doc: Document, current: () => TaskRunCard, actions: InlineTas
   panel.dataset.taskId = card.taskId
   panel.dataset.p10Slot = ''
   panel.contentEditable = 'false'
+  const notice = doc.createElement('p')
+  notice.dataset.taskNotice = ''
+  notice.hidden = true
+  notice.setAttribute('role', 'status')
+  panel.append(notice)
   const log = doc.createElement('pre')
   log.dataset.taskLog = ''
   log.textContent = (card.state === 'PENDING' ? card.outputDraft : card.logTail) || '（暂无输出）'
@@ -104,6 +112,8 @@ function makePanel(doc: Document, current: () => TaskRunCard, actions: InlineTas
 }
 
 const panelCards = new WeakMap<HTMLElement, { card: TaskRunCard }>()
+const missingDeepSeekKey = (card: TaskRunCard) => card.agentId === 'dsh' &&
+  (card.logTail.includes('MISSING_CREDENTIAL') || card.errorMsg?.includes('DeepSeek Harness 缺少 API Key'))
 
 export function arrangeTaskCapsules(
   editor: EditorSurface,
@@ -153,7 +163,7 @@ export function arrangeTaskCapsules(
       const labels = { DOING: '⟳ DOING', PENDING: '👁 待审阅', DONE: '✓ DONE',
         ERROR: '执行失败 · 查看', TODO: '恢复待办', UNKNOWN: '待核对 · 恢复待办' }
       const click = () => {
-        if (card?.state === 'TODO') actions.reject(card)
+        if (card?.state === 'TODO') actions.restore(card)
         else if (state === 'UNKNOWN') actions.recover(marker.taskId)
         else toggle()
       }
@@ -161,7 +171,14 @@ export function arrangeTaskCapsules(
       if (state === 'DONE') pill.disabled = true
       group.replaceChildren(pill)
       if (card && state === 'DOING') group.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(card)))
-      if (card && state === 'ERROR') group.append(makeButton(doc, '恢复待办', 'retry', () => actions.reject(card)))
+    }
+    if (card && state === 'ERROR') {
+      if (!group.querySelector('[data-task-pill=retry]')) {
+        group.append(makeButton(doc, '恢复待办', 'retry', () => actions.reject(card)))
+      }
+      if (missingDeepSeekKey(card) && !group.querySelector('[data-task-pill=settings]')) {
+        group.append(makeButton(doc, '配置 DeepSeek', 'settings', actions.openAgentSettings))
+      }
     }
     if (card && state === 'DOING') {
       const pill = group.firstElementChild!
@@ -179,6 +196,10 @@ export function arrangeTaskCapsules(
       panels.delete(marker.taskId)
       panelCards.get(panel)!.card = card
       const log = panel.querySelector('[data-task-log]')!
+      const notice = panel.querySelector<HTMLElement>('[data-task-notice]')!
+      const warning = state === 'PENDING' || state === 'ERROR' ? card.errorMsg ?? '' : ''
+      if (notice.textContent !== warning) notice.textContent = warning
+      notice.hidden = !warning
       const text = (state === 'PENDING' ? card.outputDraft : card.logTail || card.errorMsg) || '（暂无输出）'
       if (log.textContent !== text) log.textContent = text
       if (box.nextElementSibling !== panel) box.after(panel)
@@ -193,7 +214,8 @@ export function arrangeTaskCapsules(
     const signature = JSON.stringify(todo)
     if (group.dataset.signature !== signature) {
       group.dataset.signature = signature
-      group.replaceChildren(makeButton(doc, `[ ${label} ]`, 'todo', () => actions.start(todo)))
+      group.replaceChildren(makeButton(doc, `[ ${label} ]`, 'todo', () => actions.start(todo)),
+        makeButton(doc, '选择 Agent', 'select-agent', () => actions.chooseAgent(todo)))
     }
   }
   for (const group of groups.values()) group.remove()

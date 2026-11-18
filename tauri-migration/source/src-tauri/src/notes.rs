@@ -309,12 +309,17 @@ pub struct NoteStore {
     pub projects_dir: PathBuf,
     pub conn: Mutex<Connection>,
     refs: Mutex<HashMap<String, Vec<String>>>,
+    _lease: fs::File,
 }
 
 const SUMMARY_COLUMNS: &str = "id, path, title, project_id, kind, created_at, updated_at";
 
 impl NoteStore {
     pub fn new(root: &Path) -> Result<Self, String> {
+        fs::create_dir_all(root).map_err(|e| format!("无法创建工作区：{e}"))?;
+        let lease = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)
+            .open(root.join(".plate-runtime.lock")).map_err(|e| format!("无法打开工作区锁：{e}"))?;
+        lease.try_lock().map_err(|e| format!("工作区正在被另一个 Plate 实例使用，或无法加锁：{e}"))?;
         let projects_dir = root.join("projects");
         fs::create_dir_all(&projects_dir).map_err(|e| format!("无法创建 projects 目录：{e}"))?;
         let conn = crate::db::open(root)?;
@@ -323,9 +328,11 @@ impl NoteStore {
             projects_dir,
             conn: Mutex::new(conn),
             refs: Mutex::new(HashMap::new()),
+            _lease: lease,
         };
         store.ensure_project(DEFAULT_PROJECT, "默认")?;
         store.scan()?;
+        crate::agent_runner::recover_interrupted(&store.conn.lock().unwrap())?;
         Ok(store)
     }
 

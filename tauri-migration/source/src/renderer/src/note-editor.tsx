@@ -19,6 +19,7 @@ type Form = { title: string; fields: Field[]; validate?: (values:string[])=>Reco
 type Menu = { anchor: HTMLElement; mark: Bookmark; detail?: string; choices: { label: string; run: () => void; disabled?: boolean; reason?:string }[] }
 
 import { arrangeTaskCapsules, useTaskCards, type InlineTaskActions } from './task-capsules'
+import { openAgentSettings, TaskAgentDialog } from './agent-settings-dialog'
 import { scanTaskLines, outputQuote, type TaskTodo } from '../../shared/task-markdown'
 import { TaskActions } from './p11'
 import type { TaskInfo } from '../../shared/p11'
@@ -43,6 +44,7 @@ export function NoteEditor(props: Props) {
   current.current = props
   const [epoch, redraw] = useReducer(n => n + 1, 0)
   const taskCards = useTaskCards(note.id)
+  const [choosingAgent, setChoosingAgent] = useState<TaskTodo>()
   const open = useRef(new Set<string>())
   const logOpen = useRef<string | null>(null)
   const followDrafts = useRef(new Map<string, string>())
@@ -61,14 +63,18 @@ export function NoteEditor(props: Props) {
     if (marker) await applyTaskEdit(marker.from, marker.to, agent ? 'TODO(@' + agent + ')' : 'TODO')
   }
   const taskAction = useMemo<InlineTaskActions>(() => ({
-    start: (todo: TaskTodo) => taskRun(async () => {
+    chooseAgent: setChoosingAgent,
+    start: (todo: TaskTodo, selectedAgent?: string) => taskRun(async () => {
+      const version = session.version
       const live = scanTaskLines(session.raw).todos.find(row => row.from === todo.from && row.to === todo.to &&
         row.content === todo.content && row.agent === todo.agent)
       if (!live?.content) throw new Error('请输入完整的任务内容')
+      const agent = selectedAgent || live.agent || (await window.workbench.agentSettings.get()).defaultAgent
+      if (!agent) { setChoosingAgent(live); return }
       const taskId = 't-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12)
-      if (!await applyTaskEdit(todo.from, todo.to, 'DOING #' + taskId)) return
+      if (!await current.current.commitTaskEdit(version, todo.from, todo.to, 'DOING #' + taskId)) return
       try {
-        await window.workbench.tasks.start({ noteId: note.id, taskId, promptText: todo.content, agentSelector: todo.agent || 'dsh' })
+        await window.workbench.tasks.start({ noteId: note.id, taskId, promptText: todo.content, agentSelector: agent })
       } catch (error) {
         // Verify state before rolling back: an interrupted receipt may follow a real start.
         const runs = await window.workbench.tasks.listByNote(note.id)
@@ -77,8 +83,8 @@ export function NoteEditor(props: Props) {
       }
     }),
     stop: card => taskRun(async () => {
-      await window.workbench.tasks.stop(card.taskId)
-      await resetTask(card.taskId, card.agentId)
+      const stopped = await window.workbench.tasks.stop(card.taskId)
+      if (stopped.state === 'TODO') await resetTask(card.taskId, card.agentId)
     }),
     adopt: card => taskRun(async () => {
       const marker = findTask(card.taskId)
@@ -104,11 +110,16 @@ export function NoteEditor(props: Props) {
       await window.workbench.tasks.reject(card.taskId)
       await resetTask(card.taskId, card.agentId)
     }),
+    restore: card => taskRun(async () => {
+      if (findTask(card.taskId)?.state === 'DONE') throw new Error('请先完成采纳状态同步')
+      await resetTask(card.taskId, card.agentId)
+    }),
     recover: taskId => taskRun(async () => {
       const runs = await window.workbench.tasks.listByNote(note.id)
       if (runs.some(run => run.taskId === taskId)) throw new Error('已找到这次运行，请核对状态')
       await resetTask(taskId, '')
     }),
+    openAgentSettings,
     togglePanel: taskId => { logOpen.current = logOpen.current === taskId ? null : taskId; redraw() },
     submitFollow: taskId => { /* Enter 输入框直接走 follow */ void taskId },
     followDraft: (taskId, value) => { followDrafts.current.set(taskId, value) },
@@ -438,6 +449,10 @@ export function NoteEditor(props: Props) {
     <div data-editor-scroller ref={scroller}>
       <div data-editor-canvas>
         {issue && !form && <p role="alert" data-editor-notice data-tone="error">{issue}</p>}
+        {choosingAgent && <TaskAgentDialog onClose={() => setChoosingAgent(undefined)} select={agent => {
+          setChoosingAgent(undefined)
+          taskAction.start(choosingAgent, agent)
+        }}/>}
         {tableCell && <div data-editor-table-tools>
           {wideTable && <>
             <label>行 <select aria-label="当前表格行" value={tableCell.row} disabled={readOnly}

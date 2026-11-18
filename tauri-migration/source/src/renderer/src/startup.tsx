@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { StartupState } from '../../shared/startup'
 import { HelpDialog } from './help'
-import { RuntimeManagerDialog } from './runtime-manager'
+import { AgentSettingsDialog } from './agent-settings-dialog'
 
 export function StartupGate({ workbench }: { workbench: (path: string) => ReactNode }) {
   const api = window.workbench.startup
@@ -143,7 +143,7 @@ export function StartupGate({ workbench }: { workbench: (path: string) => ReactN
           {choosing && <button type="button" className="p13-action" disabled={disabled}
             onClick={event => invoke(api.browse, event.currentTarget)}>
               {state.phase === 'choose' && !state.suggested ? '选择目录' : '选择其他目录'}</button>}
-          {intro && <button type="button" className="p13-action" onClick={event =>
+          {(choosing || intro) && <button type="button" className="p13-action" disabled={disabled} onClick={event =>
             setModal({ kind: 'settings', origin: event.currentTarget })}>打开 Agent 设置</button>}
           {!intro && <button type="button" className="p13-action" disabled={disabled}
             onClick={() => invoke(api.exit)}>退出工作台</button>}
@@ -166,6 +166,6 @@ export function StartupGate({ workbench }: { workbench: (path: string) => ReactN
     </main>
     {modal?.kind === 'help' && <HelpDialog paletteBound={false} readAppInfo={window.workbench.getAppInfo}
       notePath={state.phase === 'ready' ? state.path : undefined} onClose={dismiss}/>}
-    {modal?.kind === 'settings' && <RuntimeManagerDialog onClose={dismiss}/>}
+    {modal?.kind === 'settings' && <AgentSettingsDialog onClose={dismiss}/>}
   </>
 }

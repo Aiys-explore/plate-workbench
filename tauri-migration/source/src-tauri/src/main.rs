@@ -1,4 +1,7 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod agent_runner;
+mod agent_settings;
 mod agent_store;
 mod db;
 mod graph_layout;
@@ -7,7 +10,7 @@ mod notes;
 mod process_job;
 
 use notes::{Note, NoteFilters, NoteStore, SaveResult, SearchResult};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use agent_runner::{TaskCard, TaskEngine};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -15,14 +18,19 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 pub struct AppState {
-    pub root: Mutex<Option<PathBuf>>,
-    pub store: Mutex<Option<NoteStore>>,
+    workspace: Mutex<Option<Workspace>>,
+}
+
+struct Workspace {
+    store: NoteStore,
+    generation: uuid::Uuid,
+    _watcher: notify::RecommendedWatcher,
 }
 
 fn with_store<T>(state: &State<'_, AppState>, f: impl FnOnce(&NoteStore) -> Result<T, String>) -> Result<T, String> {
-    let guard = state.store.lock().unwrap();
+    let guard = state.workspace.lock().unwrap();
     match guard.as_ref() {
-        Some(store) => f(store),
+        Some(workspace) => f(&workspace.store),
         None => Err("工作区尚未打开".into()),
     }
 }
@@ -52,37 +60,28 @@ fn agents_discover() -> Result<serde_json::Value, String> {
         .collect::<Vec<_>>()))
 }
 
-fn with_engine<T>(engine: &State<'_, TaskEngine>, root: &State<'_, AppState>, f: impl FnOnce(&TaskEngine, &PathBuf) -> Result<T, String>) -> Result<T, String> {
-    let guard = root.store.lock().unwrap();
-    match guard.as_ref() {
-        Some(_) => {
-            let path = root.root.lock().unwrap().clone().unwrap_or_default();
-            f(engine, &path)
-        }
-        None => Err("工作区尚未打开".into()),
-    }
+fn with_engine<T>(engine: &State<'_, TaskEngine>, state: &State<'_, AppState>, f: impl FnOnce(&TaskEngine, &PathBuf) -> Result<T, String>) -> Result<T, String> {
+    with_store(state, |store| f(engine, &store.root))
 }
 
 #[tauri::command]
 fn tasks_list_by_note(state: State<'_, AppState>, note_id: String) -> Result<Vec<TaskCard>, String> {
-    let guard = state.store.lock().unwrap();
-    if guard.is_none() { return Err("工作区尚未打开".into()) }
-    let root = state.root.lock().unwrap().clone().unwrap_or_default();
-    agent_runner::list_by_note(&root, &note_id)
+    with_store(&state, |store| agent_runner::list_by_note(&store.root, &note_id))
 }
 
 #[tauri::command]
 fn tasks_summary(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let guard = state.store.lock().unwrap();
-    if guard.is_none() { return Err("工作区尚未打开".into()) }
-    let root = state.root.lock().unwrap().clone().unwrap_or_default();
-    agent_runner::summary_by_notes(&root)
+    with_store(&state, |store| agent_runner::summary_by_notes(&store.root))
 }
 
 #[tauri::command]
 fn tasks_start(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: AppHandle,
     task_id: String, note_id: String, prompt_text: String, agent_selector: Option<String>) -> Result<TaskCard, String> {
-    let agent = agent_selector.unwrap_or_else(|| "dsh".into());
+    let agent = match agent_selector {
+        Some(agent) => agent,
+        None => app.state::<agent_settings::AgentSettings>().default_agent(&app)?
+            .ok_or("请先选择本次使用的 Agent，或在 Agent 设置中设为默认")?,
+    };
     with_engine(&engine, &state, |engine, root| {
         engine.start(app, root.clone(), task_id, note_id, agent, prompt_text)
     })
@@ -111,72 +110,75 @@ fn tasks_reject(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: 
 }
 
 #[tauri::command]
-fn startup_state(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    if state.store.lock().unwrap().is_some() {
-        let root = state.root.lock().unwrap().clone().unwrap_or_default();
-        return Ok(serde_json::json!({
-            "phase": "ready", "path": root.to_string_lossy(), "intro": false, "agent": "unconfigured"
-        }));
+fn startup_state(app: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
+        return Ok(ready(&workspace.store.root));
     }
     let suggest = default_suggest();
     if suggest.join(MARKER).exists() && suggest.join("projects").is_dir() {
-        open_store(&state, &suggest)?;
-        let root = state.root.lock().unwrap().clone().unwrap_or_default();
-        return Ok(serde_json::json!({
-            "phase": "ready", "path": root.to_string_lossy(), "intro": false, "agent": "unconfigured"
-        }));
+        return open_store(&app, &state, &suggest);
     }
     Ok(serde_json::json!({
         "phase": "choose",
         "suggested": suggest.to_string_lossy(),
-        "candidate": { "token": suggest.to_string_lossy(), "path": suggest.to_string_lossy(), "kind": "new" }
+        "candidate": workspace_candidate(&suggest)
     }))
 }
 
-fn open_store(state: &State<'_, AppState>, root: &PathBuf) -> Result<(), String> {
-    let store = NoteStore::new(root)?;
-    *state.root.lock().unwrap() = Some(root.clone());
-    *state.store.lock().unwrap() = Some(store);
-    Ok(())
+fn ready(root: &Path) -> serde_json::Value {
+    serde_json::json!({ "phase": "ready", "path": root.to_string_lossy(), "intro": false, "agent": "unconfigured" })
 }
 
-#[tauri::command]
-fn startup_submit(state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
-    let root = PathBuf::from(&token);
+fn workspace_candidate(root: &Path) -> serde_json::Value {
+    let kind = if root.join(MARKER).exists() || root.join("projects").is_dir() || root.join("index.sqlite").exists() {
+        "existing"
+    } else if root.is_dir() { "empty" } else { "new" };
+    serde_json::json!({ "token": root.to_string_lossy(), "path": root.to_string_lossy(), "kind": kind })
+}
+
+fn open_store(app: &AppHandle, state: &State<'_, AppState>, root: &Path) -> Result<serde_json::Value, String> {
     if !root.is_absolute() { return Err("笔记位置必须是绝对路径".into()); }
-    std::fs::create_dir_all(root.join("projects")).map_err(|e| format!("无法创建工作区：{e}"))?;
+    let mut current = state.workspace.lock().unwrap();
+    if let Some(workspace) = current.as_ref() {
+        if workspace.store.root == root { return Ok(ready(root)); }
+        if app.state::<TaskEngine>().has_running(&workspace.store.root) {
+            return Err("请先结束当前工作区的运行任务，再切换工作区".into());
+        }
+    }
+    let store = NoteStore::new(root)?;
     let marker = root.join(MARKER);
     if !marker.exists() {
         std::fs::write(&marker, serde_json::json!({
-            "version": "0.3.0-s2", "createdAt": notes::now_ms()
+            "version": app.package_info().version.to_string(), "createdAt": notes::now_ms()
         }).to_string()).map_err(|e| format!("无法写入工作区标记：{e}"))?;
     }
-    open_store(&state, &root)?;
-    Ok(serde_json::json!({
-        "phase": "ready", "path": token, "intro": false, "agent": "unconfigured"
-    }))
+    let generation = uuid::Uuid::new_v4();
+    let watcher = start_watcher(app.clone(), &store.projects_dir, generation)?;
+    *current = Some(Workspace { store, generation, _watcher: watcher });
+    Ok(ready(root))
 }
 
 #[tauri::command]
-fn startup_rebuild(state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
+fn startup_submit(app: AppHandle, state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
+    open_store(&app, &state, Path::new(&token))
+}
+
+#[tauri::command]
+fn startup_rebuild(app: AppHandle, state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
     let root = PathBuf::from(&token);
     if !root.join("projects").is_dir() { return Err("该目录没有 projects 子目录，无法重建索引".into()); }
-    open_store(&state, &root)?;
-    let store = state.store.lock().unwrap();
-    store.as_ref().unwrap().scan()?;
-    drop(store);
-    Ok(serde_json::json!({
-        "phase": "ready", "path": token, "intro": false, "agent": "unconfigured"
-    }))
+    let next = open_store(&app, &state, &root)?;
+    with_store(&state, NoteStore::scan)?;
+    Ok(next)
 }
 
 #[tauri::command]
-async fn startup_browse(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+async fn startup_browse(window: tauri::WebviewWindow) -> Result<Option<serde_json::Value>, String> {
     let (send, result) = tokio::sync::oneshot::channel();
     window.dialog().file().set_parent(&window).set_title("选择笔记位置")
         .pick_folder(move |path| { let _ = send.send(path); });
     result.await.map_err(|_| "目录选择器已关闭".to_string())?
-        .map(|path| path.into_path().map(|path| path.to_string_lossy().into_owned())
+        .map(|path| path.into_path().map(|path| workspace_candidate(&path))
             .map_err(|error| error.to_string()))
         .transpose()
 }
@@ -326,53 +328,53 @@ fn db_tables(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     })
 }
 
-fn start_watcher(app: AppHandle, projects_dir: PathBuf) {
+fn start_watcher(app: AppHandle, projects_dir: &Path, generation: uuid::Uuid) -> Result<notify::RecommendedWatcher, String> {
+    use notify::{Event, EventKind, RecursiveMode, Watcher};
+    use std::collections::BTreeSet;
+    let (send, events) = std::sync::mpsc::channel::<Event>();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        if let Ok(event) = event {
+            if !matches!(event.kind, EventKind::Access(_)) { let _ = send.send(event); }
+        }
+    }).map_err(|error| format!("无法启动笔记文件监听：{error}"))?;
+    watcher.watch(projects_dir, RecursiveMode::Recursive)
+        .map_err(|error| format!("无法监听工作区：{error}"))?;
+    let projects_dir = projects_dir.to_path_buf();
     std::thread::spawn(move || {
-        use notify::{Watcher, RecursiveMode};
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = match notify::recommended_watcher(tx) {
-            Ok(w) => w,
-            Err(_) => return,
-        };
-        if watcher.watch(&projects_dir, RecursiveMode::Recursive).is_err() { return; }
-        // 简单防抖：事件到达后静置 400ms 再广播一次
-        loop {
-            match rx.recv() {
-                Ok(_) => {
-                    std::thread::sleep(std::time::Duration::from_millis(400));
-                    while rx.try_recv().is_ok() {}
-                    if let Some(store) = app.state::<AppState>().store.lock().unwrap().as_ref() {
-                        if store.scan().is_ok() {
-                            let _ = app.emit("notes:changed", serde_json::json!({ "path": projects_dir.to_string_lossy(), "external": true }));
-                        }
+        while let Ok(event) = events.recv() {
+            std::thread::sleep(std::time::Duration::from_millis(180));
+            let mut changed = BTreeSet::new();
+            for event in std::iter::once(event).chain(events.try_iter().take(1024)) {
+                for path in event.paths {
+                    let path = if path.is_absolute() { path } else { projects_dir.join(path) };
+                    if path.starts_with(&projects_dir) &&
+                        path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md")) {
+                        changed.insert(path);
                     }
                 }
-                Err(_) => return,
+            }
+            let state = app.state::<AppState>();
+            let current = state.workspace.lock().unwrap();
+            let Some(workspace) = current.as_ref().filter(|workspace| workspace.generation == generation) else { return };
+            if workspace.store.scan().is_err() { continue; }
+            if changed.is_empty() {
+                let _ = app.emit("notes:changed", serde_json::json!({ "path": projects_dir.to_string_lossy(), "external": false }));
+            } else {
+                for path in changed {
+                    let _ = app.emit("notes:changed", serde_json::json!({ "path": path.to_string_lossy(), "external": true }));
+                }
             }
         }
     });
+    Ok(watcher)
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState { root: Mutex::new(None), store: Mutex::new(None) })
-        .setup(|app| {
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                // 等 startup 完成后再启动监听；此处轮询根目录出现即挂 watcher
-                loop {
-                    let root = handle.state::<AppState>().root.lock().unwrap().clone();
-                    if let Some(root) = root {
-                        start_watcher(handle.clone(), root.join("projects"));
-                        return;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-            });
-            Ok(())
-        })
+        .manage(AppState { workspace: Mutex::new(None) })
+        .manage(agent_settings::AgentSettings::default())
         .invoke_handler(tauri::generate_handler![
             startup_state, startup_browse, startup_submit, startup_rebuild, startup_exit,
             app_info, db_tables,
@@ -382,6 +384,7 @@ fn main() {
             drafts_list, drafts_write, drafts_discard, drafts_restore, drafts_save_copy,
             graph_layout_get_all, graph_layout_save_batch, graph_layout_reset, graph_layout_connect_nodes,
             agents_discover,
+            agent_settings::agent_settings_get, agent_settings::agent_settings_save,
             tasks_list_by_note, tasks_summary, tasks_start, tasks_stop, tasks_follow_up,
             tasks_mark_done, tasks_reject
         ])

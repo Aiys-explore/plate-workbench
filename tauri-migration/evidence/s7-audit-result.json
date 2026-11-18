@@ -1,0 +1,36 @@
+{
+  "status": "pass",
+  "version": "0.3.0-s7.0",
+  "passed": [
+    {
+      "name": "P1-1 startup reconciles first round without resending",
+      "proof": true
+    },
+    {
+      "name": "P1-2 existing TODO restores its Markdown marker",
+      "proof": true
+    },
+    {
+      "name": "P1-5 follow-up carries prior output and history; stop, failure and restart restore it",
+      "proof": true
+    },
+    {
+      "name": "P1-3 rejected runs excluded from graph counts",
+      "proof": {
+        "doing": 0,
+        "done": 1,
+        "error": 0,
+        "pending": 0,
+        "todo": 0
+      }
+    },
+    {
+      "name": "P2-1 selected file notification, self-save filtering and watcher rebind",
+      "proof": true
+    },
+    {
+      "name": "P2-2 graph note is in the selected partition",
+      "proof": true
+    }
+  ]
+}

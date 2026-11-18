@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { AppInfo, WorkbenchApi } from '../../shared/ipc'
 import { PaletteHost } from './palette'
@@ -8,11 +8,13 @@ import { HelpDialog } from './help'
 import { StartupGate } from './startup'
 import { useWorkbench } from './store'
 import { PlateWordmark } from './plate-wordmark'
+import { AgentSettingsDialog, useAgentSettingsEntry } from './agent-settings-dialog'
 import './styles/tokens.css'
 import './styles/light.css'
 import './styles/dark.css'
 import './styles/workbench.css'
 import './styles/agent-settings.css'
+import './styles/agent-settings-dialog.css'
 import './styles/agent-sessions.css'
 import './styles/delegation.css'
 import './styles/editor.css'
@@ -56,6 +58,9 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
   const toggleTheme = useWorkbench((state) => state.toggleTheme)
   const [info, setInfo] = useState<AppInfo>()
   const [helpOrigin, setHelpOrigin] = useState<Source>()
+  const [agentSettings, setAgentSettings] = useState(false)
+  const openSettings = useCallback(() => setAgentSettings(true), [])
+  useAgentSettingsEntry(openSettings)
   const [paletteBound, setPaletteBound] = useState(false)
   const sidebarCollapsed = useWorkbench(state => state.sidebarCollapsed)
   const toggleSidebar = useWorkbench(state => state.toggleSidebar)
@@ -89,6 +94,8 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
           onClick={home}><PlateWordmark /></button>
         {info && <span className="version" title={info.version}>v{info.version}</span>}
         <div className="agent-settings-actions topbar-actions">
+        <button type="button" className="plate-agent-settings-entry" aria-haspopup="dialog"
+          onClick={openSettings}>Agent 设置</button>
         <button type="button" className="icon-button" onClick={toggleTheme} aria-label={theme === 'light' ? '切换至深色主题' : '切换至浅色主题'}>
           <span aria-hidden="true">{theme === 'light' ? '深色' : '浅色'}</span>
         </button>
@@ -108,6 +115,7 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
         </div>
       </div>
       {helpOrigin && <HelpDialog notePath={notePath} restore={helpOrigin.restore} paletteBound={paletteBound} readAppInfo={window.workbench.getAppInfo} onClose={() => setHelpOrigin(undefined)}/>}
+      {agentSettings && <AgentSettingsDialog onClose={() => setAgentSettings(false)}/>}
       <PaletteHost registry={registry} shell={shell} fallback={fallback} binding={setPaletteBound}/>
     </div>
   )

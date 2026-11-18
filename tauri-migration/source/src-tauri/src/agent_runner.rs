@@ -1,13 +1,13 @@
 // 任务执行引擎：tokio 异步状态机，stdout/stderr 250ms 节流写入 log_tail，
 // 退出后 PENDING(review_ready) / ERROR，并通过 `task:state-changed` 通知前端。
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, async_runtime};
+use tauri::{AppHandle, Emitter, Manager, async_runtime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::{oneshot, watch};
@@ -17,6 +17,13 @@ const LOG_TAIL_LIMIT: usize = 4000;
 const OUTPUT_LIMIT: usize = 200_000;
 const RUN_TIMEOUT: Duration = Duration::from_secs(900);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(4);
+const INSTRUCTION_LIMIT: usize = 24_000;
+
+#[derive(Serialize, Deserialize)]
+struct FollowContext {
+    task: String,
+    instructions: Vec<String>,
+}
 
 #[derive(Serialize, Clone)]
 pub struct TaskCard {
@@ -49,6 +56,8 @@ pub struct TaskCard {
     pub tokens_used: Option<i64>,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
+    #[serde(skip)]
+    follow_context: Option<String>,
 }
 
 fn now_ms() -> i64 {
@@ -67,7 +76,7 @@ fn tail(text: &str, limit: usize) -> String {
 
 const CARD_COLUMNS: &str =
     "task_id, note_id, agent_id, state, pending_kind, prompt_text, output_draft, log_tail, \
-     error_msg, external_session_id, started_at, ended_at, duration_ms, tokens_used, updated_at";
+     error_msg, external_session_id, started_at, ended_at, duration_ms, tokens_used, updated_at, follow_context";
 
 fn row_to_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskCard> {
     Ok(TaskCard {
@@ -86,6 +95,7 @@ fn row_to_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskCard> {
         duration_ms: row.get(12)?,
         tokens_used: row.get(13)?,
         updated_at: row.get(14)?,
+        follow_context: row.get(15)?,
     })
 }
 
@@ -112,10 +122,10 @@ pub fn list_by_note(root: &PathBuf, note_id: &str) -> Result<Vec<TaskCard>, Stri
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
-pub fn summary_by_notes(root: &PathBuf) -> Result<serde_json::Value, String> {
+pub fn summary_by_notes(root: &Path) -> Result<serde_json::Value, String> {
     let conn = Connection::open(root.join("index.sqlite")).map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT note_id, state, COUNT(*) FROM task_runs GROUP BY note_id, state")
+        .prepare("SELECT note_id, state, COUNT(*) FROM task_runs WHERE state <> 'TODO' GROUP BY note_id, state")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
@@ -134,6 +144,44 @@ pub fn summary_by_notes(root: &PathBuf) -> Result<serde_json::Value, String> {
     Ok(serde_json::Value::Object(result.into_iter().collect()))
 }
 
+// Called only after the caller has acquired the workspace's exclusive lease.
+pub fn recover_interrupted(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "UPDATE task_runs SET
+            state=CASE WHEN review_prompt IS NULL THEN 'ERROR' ELSE 'PENDING' END,
+            pending_kind=CASE WHEN review_prompt IS NULL THEN NULL ELSE 'review_ready' END,
+            prompt_text=COALESCE(review_prompt,prompt_text), review_prompt=NULL,
+            error_msg='上次运行随 Plate 退出而中断', ended_at=?1,
+            duration_ms=MAX(0,?1-started_at), updated_at=?1 WHERE state='DOING'",
+        [now_ms()],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn prepare_follow(previous: &TaskCard, instruction: &str) -> Result<(String, String), String> {
+    let instruction = instruction.trim();
+    if instruction.is_empty() { return Err("请输入修改意见".into()); }
+    let mut context = match &previous.follow_context {
+        Some(value) => serde_json::from_str::<FollowContext>(value).map_err(|error| error.to_string())?,
+        None => FollowContext { task: previous.prompt_text.clone(), instructions: vec![] },
+    };
+    let size = context.instructions.iter().map(String::len).sum::<usize>() + instruction.len();
+    if size > INSTRUCTION_LIMIT { return Err("追加意见已超过长度上限，请采纳结果后新建任务".into()); }
+    let mut prompt = context.task.clone();
+    for prior in &context.instructions {
+        prompt.push_str("\n\n先前修改意见：\n");
+        prompt.push_str(prior);
+    }
+    if !previous.output_draft.is_empty() {
+        prompt.push_str("\n\n上一轮回答（供参考）：\n");
+        prompt.push_str(&previous.output_draft);
+    }
+    prompt.push_str("\n\n补充指令：");
+    prompt.push_str(instruction);
+    context.instructions.push(instruction.to_string());
+    Ok((prompt, serde_json::to_string(&context).map_err(|error| error.to_string())?))
+}
+
 fn build_command(agent_type: &str, executable: &str, prompt: &str) -> Result<(Command, bool), String> {
     let mut command = Command::new(executable);
     match agent_type {
@@ -141,8 +189,7 @@ fn build_command(agent_type: &str, executable: &str, prompt: &str) -> Result<(Co
         "codex" => { command.args(["exec", "--skip-git-repo-check", "-"]); }
         "claude" => { command.args(["-p", "--output-format", "text"]); }
         "opencode" => {
-            let extension = Path::new(executable).extension().and_then(|ext| ext.to_str());
-            if cfg!(windows) && !extension.is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
+            if !crate::agent_store::supports_entry(agent_type, Path::new(executable)) {
                 return Err("OpenCode 后台执行需要原生 .exe 入口".into());
             }
             command.args(["run", "--", prompt]);
@@ -179,25 +226,33 @@ impl TaskEngine {
         agent_type: String,
         prompt: String,
     ) -> Result<TaskCard, String> {
-        self.launch(app, root, task_id, note_id, agent_type, prompt, false)
+        self.launch(app, root, task_id, note_id, agent_type, prompt, None)
     }
 
     fn launch(
         &self, app: AppHandle, root: PathBuf, task_id: String, note_id: String,
-        agent_type: String, prompt: String, follow_up: bool,
+        agent_type: String, prompt: String, follow_context: Option<String>,
     ) -> Result<TaskCard, String> {
         let executable = crate::agent_store::resolve(&agent_type)
             .ok_or_else(|| format!("本机未发现 {agent_type}，请安装后刷新 Agent 列表"))?;
-        let (command, piped) = build_command(&agent_type, &executable, &prompt)?;
+        let (mut command, piped) = build_command(&agent_type, &executable, &prompt)?;
+        let deepseek_key = if agent_type == "dsh" {
+            use crate::agent_settings::{AgentSettings, DSH_KEY_ENV};
+            let stored = app.state::<AgentSettings>().deepseek_key(&app)?;
+            if let Some(key) = &stored { command.env(DSH_KEY_ENV, key); }
+            stored.or_else(|| std::env::var(DSH_KEY_ENV).ok().filter(|key| !key.trim().is_empty()))
+        } else {
+            None
+        };
         let key = (root.clone(), task_id.clone());
         let mut running = self.running.lock().unwrap();
         if running.contains_key(&key) { return Err("此任务正在执行".into()) }
         let conn = Connection::open(root.join("index.sqlite")).map_err(|e| e.to_string())?;
         let started = now_ms();
-        let changed = if follow_up {
+        let changed = if follow_context.is_some() {
             conn.execute(
-                "UPDATE task_runs SET state='DOING', pending_kind=NULL, prompt_text=?4,
-                 log_tail='', output_draft='', error_msg=NULL, started_at=?5, ended_at=NULL,
+                "UPDATE task_runs SET state='DOING', pending_kind=NULL,
+                 review_prompt=prompt_text, prompt_text=?4, log_tail='', error_msg=NULL, started_at=?5, ended_at=NULL,
                  duration_ms=NULL, updated_at=?5 WHERE task_id=?1 AND note_id=?2
                  AND agent_id=?3 AND state='PENDING'",
                 rusqlite::params![task_id, note_id, agent_type, prompt, started],
@@ -218,13 +273,20 @@ impl TaskEngine {
         let _ = app.emit(EVENT_TASK_STATE, &card);
         let registry = self.running.clone();
         async_runtime::spawn(async move {
-            let result = run_task(&app, &root, &task_id, command, piped.then_some(prompt), signal).await;
+            let result = run_task(
+                &app, &root, &task_id, command, piped.then_some(prompt), signal,
+                follow_context.as_deref(), &agent_type, deepseek_key.as_deref(),
+            ).await;
             let mut running = registry.lock().unwrap();
             running.remove(&key);
             if let Ok(card) = &result { let _ = app.emit(EVENT_TASK_STATE, card); }
             let _ = completed.send(Some(result.map(|_| ())));
         });
         Ok(card)
+    }
+
+    pub fn has_running(&self, root: &Path) -> bool {
+        self.running.lock().unwrap().keys().any(|(path, _)| path == root)
     }
 
     pub async fn stop(&self, root: &Path, task_id: &str) -> Result<TaskCard, String> {
@@ -243,6 +305,7 @@ impl TaskEngine {
         let card = read_card(root, task_id)?;
         match card.state.as_str() {
             "TODO" => Ok(card),
+            "PENDING" if card.error_msg.is_some() => Ok(card),
             "ERROR" => Err(card.error_msg.unwrap_or_else(|| "无法确认任务已停止".into())),
             _ => Err("任务已结束或不在当前进程中运行".into()),
         }
@@ -250,8 +313,8 @@ impl TaskEngine {
 
     pub fn follow_up(&self, app: AppHandle, root: &PathBuf, task_id: &str, instruction: &str) -> Result<TaskCard, String> {
         let previous = read_card(root, task_id)?;
-        let prompt = format!("{}\n\n补充指令：{}", previous.prompt_text, instruction);
-        self.launch(app, root.clone(), task_id.to_string(), previous.note_id, previous.agent_id, prompt, true)
+        let (prompt, context) = prepare_follow(&previous, instruction)?;
+        self.launch(app, root.clone(), task_id.to_string(), previous.note_id, previous.agent_id, prompt, Some(context))
     }
 
     pub fn mark_done(&self, app: AppHandle, root: &PathBuf, task_id: &str) -> Result<TaskCard, String> {
@@ -331,14 +394,20 @@ fn publish_log(app: &AppHandle, root: &Path, task_id: &str, log: &str) {
     }
 }
 
-fn finalize(root: &Path, task_id: &str, state: &str, error: Option<&str>, output: &str, log: &str) -> Result<TaskCard, String> {
+fn finalize(root: &Path, task_id: &str, state: &str, error: Option<&str>, output: &str, log: &str, follow_context: Option<&str>) -> Result<TaskCard, String> {
     let conn = Connection::open(root.join("index.sqlite")).map_err(|error| error.to_string())?;
     let pending_kind = (state == "PENDING").then_some("review_ready");
     let ended = now_ms();
     let changed = conn.execute(
-        "UPDATE task_runs SET state=?2, pending_kind=?3, error_msg=?4, output_draft=?5, log_tail=?7,
+        "UPDATE task_runs SET
+         state=CASE WHEN review_prompt IS NOT NULL AND ?2<>'PENDING' THEN 'PENDING' ELSE ?2 END,
+         pending_kind=CASE WHEN review_prompt IS NOT NULL THEN 'review_ready' ELSE ?3 END,
+         error_msg=?4, log_tail=?7,
+         output_draft=CASE WHEN review_prompt IS NOT NULL AND ?2<>'PENDING' THEN output_draft ELSE ?5 END,
+         prompt_text=CASE WHEN review_prompt IS NOT NULL AND ?2<>'PENDING' THEN review_prompt ELSE prompt_text END,
+         follow_context=CASE WHEN ?2='PENDING' THEN ?8 ELSE follow_context END, review_prompt=NULL,
          ended_at=?6, duration_ms=?6 - started_at, updated_at=?6 WHERE task_id=?1 AND state='DOING'",
-        rusqlite::params![task_id, state, pending_kind, error, output, ended, log],
+        rusqlite::params![task_id, state, pending_kind, error, output, ended, log, follow_context],
     ).map_err(|error| error.to_string())?;
     if changed != 1 { return Err("任务已被其他操作更新".into()); }
     read_card(root, task_id)
@@ -444,26 +513,37 @@ async fn supervise(
 
 async fn run_task(
     app: &AppHandle, root: &Path, task_id: &str, command: Command,
-    prompt: Option<String>, cancel: oneshot::Receiver<()>,
+    prompt: Option<String>, cancel: oneshot::Receiver<()>, follow_context: Option<&str>,
+    agent_type: &str, deepseek_key: Option<&str>,
 ) -> Result<TaskCard, String> {
-    let result = supervise(root, command, prompt, cancel, RUN_TIMEOUT,
-        |log| publish_log(app, root, task_id, log)).await;
+    let redact = |value: &str| match deepseek_key {
+        Some(key) => value.replace(key, "[已隐藏密钥]"),
+        None => value.to_owned(),
+    };
+    let result = supervise(root, command, prompt, cancel, RUN_TIMEOUT, |log| {
+        publish_log(app, root, task_id, &redact(log));
+    }).await;
     let result = match result {
         Ok(result) => result,
-        Err(error) => return finalize(root, task_id, "ERROR", Some(&error), "", ""),
+        Err(error) => return finalize(root, task_id, "ERROR", Some(&error), "", "", follow_context),
     };
     let SupervisedOutput { outcome, stdout, log, input } = result;
     let (state, error) = match outcome {
-        Outcome::Cancelled => ("TODO", Some("已停止，退回待办".to_string())),
+        Outcome::Cancelled => ("TODO", Some(if follow_context.is_some() {
+            "已停止追加，上一轮结果可继续审阅"
+        } else { "已停止，退回待办" }.to_string())),
         Outcome::Timeout => ("ERROR", Some("执行超时（15 分钟），进程树已终止".to_string())),
         Outcome::Exit(Ok(exit)) if exit.success() => match input {
             Ok(()) => ("PENDING", None),
             Err(error) => ("ERROR", Some(format!("Agent 未完整接收任务：{error}"))),
         },
+        Outcome::Exit(Ok(_)) if agent_type == "dsh" && log.contains("MISSING_CREDENTIAL") => (
+            "ERROR", Some("DeepSeek Harness 缺少 API Key。请打开 Agent 设置，保存 DeepSeek API Key 后重试。".into()),
+        ),
         Outcome::Exit(Ok(exit)) => ("ERROR", Some(format!("进程退出码 {}，输出见日志", exit.code().unwrap_or(-1)))),
         Outcome::Exit(Err(error)) => ("ERROR", Some(format!("执行失败：{error}"))),
     };
-    finalize(root, task_id, state, error.as_deref(), &stdout, &log)
+    finalize(root, task_id, state, error.as_deref(), &redact(&stdout), &redact(&log), follow_context)
 }
 
 #[cfg(all(test, windows))]

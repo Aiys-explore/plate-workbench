@@ -13,7 +13,12 @@ const CANDIDATES: &[(&str, &str, &[&str])] = &[
     ("opencode", "OpenCode", &["opencode.exe", "opencode.cmd", "opencode.bat", "opencode"]),
 ];
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+pub fn supports_entry(agent_type: &str, path: &Path) -> bool {
+    !cfg!(windows) || agent_type != "opencode" ||
+        path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
 
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
@@ -39,7 +44,7 @@ pub fn discover() -> Vec<DiscoveredAgent> {
         'per_type: for dir in &dirs {
             for file in *files {
                 let candidate = dir.join(file);
-                if candidate.is_file() {
+                if candidate.is_file() && supports_entry(agent_type, &candidate) {
                     found.push(DiscoveredAgent {
                         agent_type: (*agent_type).to_string(),
                         name: (*name).to_string(),
@@ -56,7 +61,8 @@ pub fn discover() -> Vec<DiscoveredAgent> {
 pub fn resolve(agent_type: &str) -> Option<String> {
     // 隔离验收钩子：PLATE_AGENT_<TYPE>=可执行文件路径，仅测试环境注入。
     if let Ok(path) = std::env::var(format!("PLATE_AGENT_{}", agent_type.to_uppercase())) {
-        if !path.trim().is_empty() {
+        if Path::new(&path).is_absolute() && Path::new(&path).is_file() &&
+            supports_entry(agent_type, Path::new(&path)) {
             return Some(path);
         }
     }
