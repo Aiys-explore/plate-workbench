@@ -1,0 +1,107 @@
+{
+  "startup": {
+    "ok": true,
+    "value": {
+      "submitted": true,
+      "phase": "ready",
+      "path": "C:\\Users\\ian\\Documents\\笔记 + Agent 工作台\\acceptance\\mission-redesign\\tauri-migration-20261117\\evidence\\real-agent-workspace"
+    }
+  },
+  "discover": {
+    "ok": true,
+    "value": [
+      "codex -> C:\\Users\\ian\\AppData\\Roaming\\npm\\codex.cmd",
+      "claude -> C:\\Users\\ian\\.local\\bin\\claude.exe"
+    ]
+  },
+  "seed": {
+    "ok": true,
+    "value": {
+      "noteId": "44b18cfa-1b82-475b-8ab8-8e093b270790",
+      "status": "saved"
+    }
+  },
+  "afterReload": {
+    "ok": true,
+    "value": {
+      "noteId": "44b18cfa-1b82-475b-8ab8-8e093b270790"
+    }
+  },
+  "openDrawer": {
+    "ok": true,
+    "value": {
+      "open": true
+    }
+  },
+  "dispatchCodex": {
+    "ok": true,
+    "value": {
+      "clicked": true
+    }
+  },
+  "codexDoing": true,
+  "codexPending": true,
+  "codexResult": {
+    "ok": true,
+    "value": {
+      "state": "PENDING",
+      "logHead": "8T00:13:49.851865Z  WARN codex_otel::auth_storage: credential storage file fallback completed credential_kind=\"mcp\" stor",
+      "outputHead": "Reading additional input from stdin...\n2026-11-18T00:13:49.754070Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-11-18T00:13:",
+      "hasStamp": true,
+      "events": [
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "PENDING:t-ty3lz9:codex"
+      ]
+    }
+  },
+  "adoptCodex": {
+    "ok": true,
+    "value": {
+      "done": true,
+      "quote": 33
+    }
+  },
+  "dispatchClaude": {
+    "ok": true,
+    "value": {
+      "clicked": true
+    }
+  },
+  "claudeSettled": true,
+  "claudeResult": {
+    "ok": true,
+    "value": {
+      "state": "PENDING",
+      "error": null,
+      "outputHead": "[claude-code:unrecognized_model] {\"model\":\"zcode/GLM-5.3[1m]\",\"query_source\":\"sdk\"}\nPlate real-agent OK mwldbvpw\n"
+    }
+  },
+  "final": {
+    "ok": true,
+    "value": {
+      "cards": [
+        "claude:PENDING",
+        "codex:DONE"
+      ],
+      "rawDone": true,
+      "events": [
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "DOING:t-ty3lz9:codex",
+        "PENDING:t-ty3lz9:codex",
+        "DONE:t-ty3lz9:codex",
+        "DOING:t-lkh3r7:claude",
+        "DOING:t-lkh3r7:claude",
+        "PENDING:t-lkh3r7:claude"
+      ]
+    }
+  }
+}
