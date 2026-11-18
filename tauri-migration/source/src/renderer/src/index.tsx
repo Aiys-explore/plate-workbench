@@ -8,9 +8,6 @@ import { HelpDialog } from './help'
 import { StartupGate } from './startup'
 import { useWorkbench } from './store'
 import { PlateWordmark } from './plate-wordmark'
-import { RuntimeManager, useLocalRuntimes } from './runtime-manager'
-import { HomeAgentDock } from './home-agent-dock'
-import type { SessionSummary } from '../../shared/sessions'
 import './styles/tokens.css'
 import './styles/light.css'
 import './styles/dark.css'
@@ -48,7 +45,6 @@ function ReadyWorkbench({ notePath }: { notePath: string }) {
 
 const glyph = {
   dock: 'M2.5 3.5h13v11h-13z M7 3.5v11',
-  activity: 'M2.5 9h3l2-4.5 2.5 9L12 9h3.5',
 }
 function RailIcon({ name }: { name: keyof typeof glyph }) {
   return <svg viewBox="0 0 18 18" width="17" height="17" fill="none" stroke="currentColor"
@@ -59,30 +55,19 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
   const theme = useWorkbench((state) => state.theme)
   const toggleTheme = useWorkbench((state) => state.toggleTheme)
   const [info, setInfo] = useState<AppInfo>()
-  const [view, setView] = useState<'home' | 'settings'>('home')
-  const [side, setSide] = useState<'notes' | 'agent'>('notes')
   const [helpOrigin, setHelpOrigin] = useState<Source>()
   const [paletteBound, setPaletteBound] = useState(false)
   const sidebarCollapsed = useWorkbench(state => state.sidebarCollapsed)
-  const agentCollapsed = useWorkbench(state => state.agentCollapsed)
   const toggleSidebar = useWorkbench(state => state.toggleSidebar)
-  const toggleAgent = useWorkbench(state => state.toggleAgent)
   const shell = useRef<HTMLDivElement>(null)
   const fallback = () => shell.current?.querySelector<HTMLElement>('.plate-brand') ?? null
   const forButton = (element: HTMLElement): Source => ({ element, restore: () => { if (!focus(element)) focus(fallback()) } })
   const openHelp = (source: Source) => setHelpOrigin(source)
-  const home = () => { setView('home'); setSide('notes'); window.dispatchEvent(new Event('close-workbench-drawer')) }
-  const openSettings = () => setView('settings')
-  const openFromDrawer = (action: () => void) => {
-    window.dispatchEvent(new Event('close-workbench-drawer'))
-    action()
-  }
+  const home = () => { if (useWorkbench.getState().sidebarCollapsed) toggleSidebar() }
   const desktopSidebar = useMedia('(min-width: 880px)')
-  const runtimes = useLocalRuntimes()
   usePaletteOwner('app', { actions: {
     'm51.theme.toggle': { run: toggleTheme },
     'm51.help.open': { run: source => { openHelp(source); return target('.p13-help[open] h2') } },
-    'm51.settings.open': { run: () => { openSettings(); return target('#home-runtime-title') } }
   } })
 
   useEffect(() => {
@@ -91,21 +76,17 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
     })
   }, [])
 
-  const dock = (sessions: SessionSummary[], show: (session: SessionSummary) => void) =>
-    <HomeAgentDock sessions={sessions} show={show} manage={() => openFromDrawer(openSettings)}/>
-
   return (
     <div className="shell harness-shell plate-ui" ref={shell}>
       <header className="topbar">
-        {view === 'home' && <button type="button" className="icon-button plate-sidebar-toggle"
-          aria-label={!desktopSidebar ? '打开笔记栏' : (side === 'agent' ? agentCollapsed : sidebarCollapsed) ? '展开左侧栏' : '收起左侧栏'}
+        <button type="button" className="icon-button plate-sidebar-toggle"
+          aria-label={!desktopSidebar ? '打开笔记栏' : sidebarCollapsed ? '展开左侧栏' : '收起左侧栏'}
           aria-haspopup={!desktopSidebar ? 'dialog' : undefined}
-          aria-expanded={desktopSidebar ? !(side === 'agent' ? agentCollapsed : sidebarCollapsed) : undefined}
-          onClick={!desktopSidebar ? () => window.dispatchEvent(new Event('open-notes-drawer')) : side === 'agent' ? toggleAgent : toggleSidebar}>
-          <RailIcon name="dock"/></button>}
-        <button type="button" className="plate-brand" title="首页" aria-label="首页" aria-current={view === 'home' ? 'page' : undefined}
+          aria-expanded={desktopSidebar ? !sidebarCollapsed : undefined}
+          onClick={!desktopSidebar ? () => window.dispatchEvent(new Event('open-notes-drawer')) : toggleSidebar}>
+          <RailIcon name="dock"/></button>
+        <button type="button" className="plate-brand" title="首页" aria-label="首页" aria-current="page"
           onClick={home}><PlateWordmark /></button>
-        {view === 'settings' && <button type="button" className="plate-place" aria-label="返回笔记首页" onClick={home}>返回首页</button>}
         {info && <span className="version" title={info.version}>v{info.version}</span>}
         <div className="agent-settings-actions topbar-actions">
         <button type="button" className="icon-button" onClick={toggleTheme} aria-label={theme === 'light' ? '切换至深色主题' : '切换至浅色主题'}>
@@ -122,13 +103,8 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
       <div className="workbench-frame">
         <div className="workbench-main">
           <div className="home-document-host">
-            <Layout side={side} onSide={setSide} dock={dock}
-              bottom={<nav className="plate-sidebar-bottom" aria-label="工作台入口">
-                <button type="button" aria-label="Agent 管理" onClick={() => openFromDrawer(openSettings)}>
-                  <RailIcon name="activity"/> 插件中心</button>
-              </nav>}/>
+            <Layout/>
           </div>
-          {view === 'settings' && <RuntimeManager runtimes={runtimes}/>}
         </div>
       </div>
       {helpOrigin && <HelpDialog notePath={notePath} restore={helpOrigin.restore} paletteBound={paletteBound} readAppInfo={window.workbench.getAppInfo} onClose={() => setHelpOrigin(undefined)}/>}

@@ -4,8 +4,6 @@ import { linkCatalog, resolveLink } from '../../shared/link-resolution'
 import { EditorDialog, NoteEditor } from './note-editor'
 import { EditorSession } from './editor/session'
 import type { EditorSurface } from './editor/surface'
-import { P12 } from './p12'
-import type { Scope } from '../../shared/p12'
 import { commandLayer, focus, target, usePaletteOwner, type Source } from './palette-registry'
 import { NotesTree } from './notes-tree'
 import { RelationshipGraph } from './relationship-graph'
@@ -17,12 +15,9 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 const DRAFT_DELAY_MS = 700
 const fileName = (path: string) => path.split(/[\\/]/).at(-1)
 
-import type { Subject } from '../../shared/p11'
-import { openP11, type BindingGuard } from './p11'
 
-export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sidebarSplitter, bindingGuard, searchNotes }: {
+export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sidebarSplitter, searchNotes }: {
   searchNotes: (source?: Source) => void
-  bindingGuard: RefObject<BindingGuard|undefined>
   agentCounts?: React.ReactNode
   sidebarBottom?: React.ReactNode
   sidebarSplitter?: React.ReactNode
@@ -88,8 +83,9 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   const selectedPath = useRef<string | undefined>(undefined)
   const draftWritePending = useRef<Promise<boolean> | undefined>(undefined)
   const cleanDiscard = useRef<{identity: object} | undefined>(undefined)
-  const [exporting,setExporting]=useState<{scope:Scope|null;restore:()=>void}>()
-  const closeExport=()=>{setExporting(undefined);if(exporting)requestAnimationFrame(exporting.restore)}
+  const [projectForm, setProjectForm] = useState<{ name: string; restore: () => void }>()
+  const [deleting, setDeleting] = useState<{ note: Note; restore: () => void }>()
+  const [dialogError, setDialogError] = useState('')
   const dirty = note !== null && draft !== note.content
   const external = externalPath === note?.path
   const catalog = useMemo(() => linkCatalog(items), [items])
@@ -229,22 +225,6 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     void refresh(true)
     return () => { active = false; workspaceReady.current = false; clearTimeout(pending); unsubscribe() }
   }, [api])
-
-  useEffect(()=>{
-    const apply=(event:Event)=>{
-      const removed=(event as CustomEvent<Subject>).detail
-      if(!note)return
-      if(removed.kind==='note' && removed.id===note.id){show(null);return}
-      const noteId=removed.kind==='task'?removed.task.noteId:removed.kind==='project'&&note.projectId===removed.id?note.id:null
-      if(noteId!==note.id)return
-      const identity=editorIdentity.current
-      void api.read(noteId).then(next=>{
-        if(editorIdentity.current===identity)show(next,undefined,undefined,verifyEditable(next))
-      },e=>setError(errorText(e)))
-    }
-    window.addEventListener('p11-removed',apply)
-    return()=>window.removeEventListener('p11-removed',apply)
-  },[note,api])
 
   useEffect(() => {
     if (!note || busy || !dirty) return
@@ -456,55 +436,31 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     })
   }
 
-  const projectsChanged=async()=>{await refreshWorkspace.current()}
   function newProject(source?: Source) {
-    openP11({kind:'project',saved:projectsChanged,createNote:(name,id,template)=>newProjectNote(name,id,template)}, source?.element, source?.restore)
+    const origin = document.activeElement
+    setDialogError('')
+    setProjectForm({ name: '', restore: source?.restore ?? (() => {
+      if (origin instanceof HTMLElement) focus(origin)
+    }) })
   }
-  function projectAction(id:string,action:'edit'|'archive'|'impact',source?: Source){
-    if(action==='impact')openP11({kind:'impact',subject:{kind:'project',id}})
-    else openP11({kind:'project',id,op:action,saved:projectsChanged},source?.element,source?.restore)
+  function closeProject() {
+    if (inFlight.current) return
+    setProjectForm(undefined)
+    if (projectForm) requestAnimationFrame(projectForm.restore)
   }
-  async function newProjectNote(name:string,id:string,template:NoteTemplate){
-    if(inFlight.current || session?.composing)return false
-    inFlight.current=true;setBusy(true)
-    try{
-      await draftWritePending.current?.catch(()=>false)
-      const choice=await chooseLeave()
-      if(choice==='stay')return false
-      if(choice==='save')await finishLeave(choice)
-      const next=await api.create(name,id,template)
-      const prepared=verifyEditable(next)
-      if(choice==='discard')await finishLeave(choice)
-      show(next,undefined,undefined,prepared)
-      setDrawerOpen(true);setConflict(undefined);setMessage('笔记已新建')
-      if(notesDrawer?.open)notesDrawer.close()
-      return true
-    }finally{inFlight.current=false;setBusy(false)}
-  }
-
-  useLayoutEffect(()=>{
-    bindingGuard.current=async ids=>{
-      if(!note || !ids.includes(note.id))return 'ready'
-      if(session?.composing || inFlight.current || external || pendingRecovery)throw new Error('请先核对当前编辑器的草稿或磁盘版本')
-      if(!dirty && !draftWritePending.current && !cleanDiscard.current)return 'ready'
-      inFlight.current=true;setBusy(true);cancelDraftTimer()
-      try{
-        await draftWritePending.current?.catch(()=>false)
-        const choice=await chooseLeave()
-        if(choice==='stay')return 'stay'
-        await finishLeave(choice)
-        if(choice==='discard'){
-          const disk=await api.read(note.id)
-          show(disk,undefined,undefined,verifyEditable(disk))
-        }
-        return 'again'
-      }finally{inFlight.current=false;setBusy(false)}
-    }
-    return()=>{bindingGuard.current=undefined}
-  })
-
-  const exportScope = (scope: Scope | null, restore: () => void) => {
-    if (!session?.composing) setExporting({ scope, restore })
+  function createProject() {
+    if (!projectForm || !projectForm.name.trim() || inFlight.current) return
+    const { name, restore } = projectForm
+    void run(async () => {
+      try {
+        const next = await api.createProject(name.trim())
+        setProjects(previous => [...previous.filter(p => p.id !== next.id), next])
+        setProject(next.id)
+        setProjectForm(undefined)
+        requestAnimationFrame(restore)
+        await refreshWorkspace.current()
+      } catch (reason) { setDialogError(errorText(reason)) }
+    })
   }
   useEffect(() => {
     const handle = (event: Event) => {
@@ -542,9 +498,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       'm51.note.new': { reason: unavailable, basis: objectVersion, allowed: mayAct,
         run: source => { newNote('blank', source); return target('[data-editor-meta-title]') } },
       'm51.project.new': { reason: projectUnavailable, basis: objectVersion, allowed: mayAct,
-        run: source => { newProject(source); return target('.p11-native[open] #p11-heading') } },
-      'm51.export.history': { reason: unavailable, basis: objectVersion, allowed: mayAct,
-        run: source => { exportScope(null, source.restore); return target('.p12-native-dialog[open] #p12-heading') } }
+        run: source => { newProject(source); return target('dialog[data-kind=project-create][open] input') } }
     }
   })
 
@@ -564,6 +518,49 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
   function save() {
     if (!note || !session || !dirty || pendingRecovery || session.locked || inFlight.current) return
     void run(async () => { await saveCurrent(true) })
+  }
+
+  async function commitTaskEdit(version: number, from: number, to: number, insert: string) {
+    const editor = surface.current
+    if (!note || !session || !editor?.canPatch || !api.updateStrict || inFlight.current ||
+        pendingRecovery || external || session.version !== version || note.revision !== session.baseRevision) {
+      throw new Error('请先核对当前笔记或结束编辑，再试一次')
+    }
+    const { raw, baseRevision } = session
+    const next = raw.slice(0, from) + insert + raw.slice(to)
+    let committed = false
+    editor.setResultLock(true)
+    try {
+      await run(async () => {
+        let versionToDiscard: string | undefined
+        if (session.dirty) {
+          versionToDiscard = crypto.randomUUID()
+          if (!await api.draftWrite(note.id, raw, baseRevision, versionToDiscard)) {
+            throw new Error('无法保全当前草稿，任务未提交')
+          }
+          draftVersion.current = versionToDiscard
+          persistedDraft.current = { identity: editorIdentity.current, content: raw }
+          setDraftState('written')
+        }
+        const result = await api.updateStrict!(note.id, next, baseRevision)
+        if (result.status !== 'saved') throw new Error('笔记版本已变化，任务未提交')
+        const updated = editor.outsideEdit(() => {
+          session.adoptResult(baseRevision, version, result.note, from, to, insert, true)
+          return true
+        })
+        if (!updated) throw new Error('无法同步编辑器，请读取磁盘版本')
+        setNote(result.note)
+        setDraft(result.note.content)
+        setExternalPath('')
+        setConflict(undefined)
+        committed = true
+        if (versionToDiscard && await api.draftDiscard(note.id, versionToDiscard)) {
+          draftVersion.current = undefined
+          persistedDraft.current = undefined
+        }
+      })
+    } finally { editor.setResultLock(false) }
+    return committed
   }
 
   async function saveCurrent(showConflict: boolean) {
@@ -625,7 +622,40 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
     if (note && !session?.composing) askDelete(note)
   }
   function askDelete(target: NoteSummary) {
-    openP11({kind:'impact',subject:{kind:'note',id:target.id}})
+    const opener = document.activeElement
+    const restore = () => {
+      if (!(opener instanceof HTMLElement && focus(opener))) {
+        focus(document.querySelector<HTMLElement>('.notes-tree, .plate-sidebar-toggle'))
+      }
+    }
+    void run(async () => {
+      setDialogError('')
+      if (recoveries.some(d => d.id === target.id) || note?.id === target.id && dirty) {
+        throw new Error('请先保存或处理这篇笔记的草稿，再移除笔记')
+      }
+      setDeleting({ note: target.id === note?.id ? note : await api.read(target.id), restore })
+    }, restore)
+  }
+  function closeDelete() {
+    if (inFlight.current) return
+    setDeleting(undefined)
+    if (deleting) requestAnimationFrame(deleting.restore)
+  }
+  function deleteNote() {
+    if (!deleting) return
+    const { note: target, restore } = deleting
+    void run(async () => {
+      try {
+        if ((await api.draftList()).some(d => d.id === target.id)) throw new Error('这篇笔记有本地草稿，请先处理草稿')
+        if (await api.delete(target.id, target.revision) !== 'deleted') {
+          throw new Error('笔记版本已变化，请取消并重新打开确认窗口')
+        }
+        if (selection.current === target.id) { show(null); setDrawerOpen(false) }
+        setDeleting(undefined)
+        requestAnimationFrame(restore)
+        await refreshWorkspace.current()
+      } catch (reason) { setDialogError(errorText(reason)) }
+    })
   }
   function saveShortcut(event: KeyboardEvent) {
     if (!event.defaultPrevented && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -646,18 +676,14 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       </div>
       <div className="sidebar-scroll">
       <NotesTree items={items} projects={projects} selected={note?.id} busy={busy} filters={{query,setQuery,project,setProject,tags,setTags}}
-        open={select} newNote={(template, partition) => newNote(template, undefined, partition)} newProject={newProject} remove={askDelete} projectAction={projectAction}
-        exportScope={exportScope} searchNotes={searchNotes} paletteMayAct={mayAct} projectUnavailable={projectUnavailable} paletteVersion={objectVersion} /></div>
+        open={select} newNote={(template, partition) => newNote(template, undefined, partition)} newProject={newProject} remove={askDelete}
+        searchNotes={searchNotes} paletteMayAct={mayAct} /></div>
       {agentCounts}
       {sidebarBottom}
       </div>
     </aside>
   )
   return <>
-    {exporting&&<P12 scope={exporting.scope} dirtyId={dirty?note?.id:undefined} unknownDraft={draftState==='failed'||draftState==='unavailable'} close={closeExport}
-      processDraft={()=>{setExporting(undefined);notesDrawer?.close();requestAnimationFrame(()=>{
-        if(dirty)surface.current?.focus();else document.querySelector<HTMLElement>('.draft-recovery button')?.focus()
-      })}}/>}
     {notesDrawer ? <dialog ref={notesDrawer.open ? notesDrawer.dialog : undefined} className="workbench-drawer notes-drawer" aria-label="笔记栏"
       onCancel={event => { event.preventDefault(); notesDrawer.close() }}
       onClick={event => { if (event.target === event.currentTarget) notesDrawer.close() }}>{sidebar}</dialog> : sidebar}
@@ -666,13 +692,19 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       <RelationshipGraph nodes={items} edges={index.edges} selected={activeId}
         label={label} open={(id,origin)=>select(id,false,origin)}
         close={closeNoteDrawer} editorOpen={drawerOpen} rightInset={drawerOpen ? drawerWidth + 16 : 0}
+        canChange={id => !inFlight.current && !recoveries.some(draft => draft.id === id) &&
+          (id !== note?.id || !dirty && !session?.composing && !external)}
+        noteUpdated={next => {
+          if (next.id === selection.current && next.id === note?.id && !session?.dirty &&
+              !session?.composing && next.revision !== session?.baseRevision) show(next)
+        }}
         state={indexState} reload={()=>requestIndex.current()} />
       <aside className={drawerOpen ? 'note-drawer open' : 'note-drawer'} data-open={drawerOpen}
         aria-label="笔记编辑抽屉" aria-hidden={!drawerOpen || undefined} inert={!drawerOpen}
         style={{ '--note-drawer-width': drawerWidth + 'px' } as CSSProperties}
         onKeyDown={event => {
           if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.keyCode === 229) return
-          if (leave || recoveryPreview || confirmDiscard || exporting) return
+          if (leave || recoveryPreview || confirmDiscard || deleting || projectForm) return
           event.preventDefault()
           closeNoteDrawer()
         }}>
@@ -706,10 +738,6 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
               else if (!notesDrawer && sidebarCollapsed) toggleSidebar()
               setReturnToSearch(true)
             }}>返回搜索结果</button>}
-            <button type="button" onClick={e=>{
-              const opener=e.currentTarget
-              exportScope(null,()=>opener.focus())
-            }}>导出记录</button>
             <button type="button" className="icon-button" aria-label="关闭编辑抽屉" onClick={closeNoteDrawer}>×</button>
           </div>
         </div>
@@ -770,7 +798,7 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
       </div>}
       <div className="note-editor-body">
       {note && session ? <NoteEditor session={session} note={note} surface={surface} readOnly={busy || pendingRecovery}
-        changed={changeDraft} save={save} remove={remove} wiki={activateLink}
+        changed={changeDraft} save={save} remove={remove} wiki={activateLink} commitTaskEdit={commitTaskEdit}
         status={<>
           {dirty && <span data-draft-state={draftState}>{draftState === 'written' ? '草稿已写入本地' : draftState === 'failed' ? '草稿写入失败' :
             draftState === 'unavailable' ? '本地草稿不可用' : '等待写入草稿'}</span>}
@@ -798,6 +826,19 @@ export function NotesWorkspace({ agentCounts, sidebarBottom, notesDrawer, sideba
         </div>
       </aside>
     </main>
+    {projectForm && <EditorDialog title="新建项目" kind="project-create" close={closeProject}>
+      <form onSubmit={event => { event.preventDefault(); createProject() }}>
+        <label>项目名称<input required maxLength={100} value={projectForm.name} disabled={busy}
+          onChange={event => { setDialogError(''); setProjectForm({ ...projectForm, name: event.currentTarget.value }) }} /></label>
+        {dialogError && <p role="alert">{dialogError}</p>}
+        <button type="submit" disabled={busy || !projectForm.name.trim()}>创建项目</button>
+      </form>
+    </EditorDialog>}
+    {deleting && <EditorDialog title="移除笔记" confirm close={closeDelete}>
+      <p>移除「{deleting.note.title}」及其 Markdown 文件？</p>
+      {dialogError && <p role="alert">{dialogError}</p>}
+      <button type="button" disabled={busy || !!dialogError} onClick={deleteNote}>确认移除</button>
+    </EditorDialog>}
     {confirmDiscard && <EditorDialog title="丢弃草稿" confirm close={() => setConfirmDiscard(undefined)}>
       <p>丢弃「{confirmDiscard.title}」的本地草稿？</p>
       <button type="button" onClick={() => { discardRecovery(confirmDiscard); setConfirmDiscard(undefined) }}>确认丢弃</button>

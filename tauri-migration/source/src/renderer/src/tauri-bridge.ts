@@ -7,6 +7,7 @@ import type {
 } from '../../shared/ipc'
 import type { StartupApi, StartupState } from '../../shared/startup'
 import type { NoteIndexApi, NoteIndexState } from '../../shared/note-index'
+import { capabilityKeys, type AgentProfile, type AgentsApi } from '../../shared/agents'
 
 // S2 桥接层：notes/startup/appInfo/graphLayout 走真实 Rust 命令；
 // 其余模块（agents/p10/p11/p12/resume/delegation/collaboration/board/plateTerminal/sessions）
@@ -21,13 +22,20 @@ function stubGroup(group: string): unknown {
 }
 
 function createStartupApi(): StartupApi {
-  const read = () => invoke<StartupState>('startup_state')
+  let last: StartupState = { phase: 'reading' }
+  const remember = async (request: Promise<StartupState>) => last = await request
+  const read = () => remember(invoke<StartupState>('startup_state'))
   return {
     state: read,
     suggest: read,
-    browse: () => Promise.reject(new Error('目录选择器将在 S3 接入，请先使用默认建议')),
-    submit: (token: string) => invoke<StartupState>('startup_submit', { token }),
-    rebuild: (token: string) => invoke<StartupState>('startup_rebuild', { token }),
+    async browse() {
+      const path = await invoke<string | null>('startup_browse')
+      if (!path) return last
+      const suggested = last.phase === 'choose' ? last.suggested : undefined
+      return last = { phase: 'choose', suggested, candidate: { token: path, path, kind: 'empty' } }
+    },
+    submit: (token: string) => remember(invoke<StartupState>('startup_submit', { token })),
+    rebuild: (token: string) => remember(invoke<StartupState>('startup_rebuild', { token })),
     retry: read,
     continue: read,
     exit: () => invoke<void>('startup_exit'),
@@ -47,6 +55,7 @@ function createNotesApi(): NotesApi {
     createProject: (name) => invoke<ProjectSummary>('projects_create', { name }),
     read: (id) => invoke<Note>('notes_read', { id }),
     update: (id, content, revision, draftVersion) => invoke<SaveResult>('notes_update', { id, content, revision, draftVersion }),
+    updateStrict: (id, content, revision) => invoke<SaveResult>('notes_update_strict', { id, content, revision }),
     delete: (id, revision) => invoke<'deleted' | 'changed'>('notes_delete', { id, revision }),
     list: (filters) => invoke<NoteSummary[]>('notes_list', { filters: filters ?? null }),
     links: () => invoke<LinkIndex>('notes_links'),
@@ -58,16 +67,38 @@ function createNotesApi(): NotesApi {
     draftRestore: (id) => invoke<DraftRecovery>('drafts_restore', { id }),
     draftSaveCopy: (id, version) => invoke<Note>('drafts_save_copy', { id, version }),
     bitmap: () => Promise.reject(new Error('位图导出将在后续阶段迁移')),
-    openLink: () => Promise.reject(new Error('外部链接打开将在后续阶段迁移')),
+    openLink: address => invoke<void>('notes_open_link', { address }),
     onChanged: (listener) => {
-      let off: (() => void) | undefined
-      void listen<{ path: string; external: boolean }>('notes:changed', (event) => {
-        listener(event.payload.path, event.payload.external)
-      }).then(unlisten => { off = unlisten })
-      return () => { off?.() }
+      let live = true
+      const off = listen<{ path: string; external: boolean }>('notes:changed', event => {
+        if (live) listener(event.payload.path, event.payload.external)
+      })
+      return () => { live = false; void off.then(unlisten => unlisten()) }
     },
   }
   return api
+}
+
+function createAgentsApi(): AgentsApi {
+  const discover = () => invoke<{ type: string; name: string; executable: string }[]>('agents_discover')
+  const unsupported = async (): Promise<never> => { throw new Error('本机 Agent 列表由已安装的 CLI 决定') }
+  return {
+    async list() {
+      const capabilities = Object.fromEntries(capabilityKeys.map(key => [key, {
+        state: 'unknown', source: '本机发现', adapter: '', date: null,
+      }])) as AgentProfile['capabilities']
+      return (await discover()).map(agent => ({
+        ...agent, id: agent.type, enabled: true, icon: 'terminal', color: '', model: '', effort: '',
+        permission: '', workdir: '', extraArgv: [], logOverride: '', timeoutMs: 900_000,
+        logPath: '', logSource: '', probe: null, delegationRevision: '', capabilities,
+      }))
+    },
+    async discover(type) {
+      return (await discover()).filter(agent => agent.type === type).map(agent => agent.executable)
+    },
+    cancelDiscover: async () => {},
+    save: unsupported, setEnabled: unsupported, remove: unsupported, probe: unsupported,
+  }
 }
 
 function createGraphLayoutApi(): GraphLayoutApi {
@@ -75,7 +106,7 @@ function createGraphLayoutApi(): GraphLayoutApi {
     getAll: () => invoke<Record<string, GraphLayoutEntry>>('graph_layout_get_all'),
     saveBatch: (items) => invoke<void>('graph_layout_save_batch', { items }),
     resetAll: () => invoke<void>('graph_layout_reset'),
-    connectNodes: (sourceId, targetId) => invoke<Note>('graph_layout_connect_nodes', { sourceId, targetId }),
+    connectNodes: (sourceId, targetId, downstream = false) => invoke<Note>('graph_layout_connect_nodes', { sourceId, targetId, downstream }),
   }
 }
 
@@ -112,7 +143,7 @@ export function createTauriBridge(): WorkbenchApi {
       status: () => Promise.resolve<NativeDialogState>({ pending: false, sequence: 0 }),
       onChange: () => () => undefined,
     },
-    agents: stubGroup('agents') as WorkbenchApi['agents'],
+    agents: createAgentsApi(),
     p10: stubGroup('p10') as WorkbenchApi['p10'],
     p11: stubGroup('p11') as WorkbenchApi['p11'],
     p12: stubGroup('p12') as WorkbenchApi['p12'],

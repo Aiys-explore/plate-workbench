@@ -35,6 +35,7 @@ export interface InlineTaskActions {
   adopt(card: TaskRunCard): void
   follow(card: TaskRunCard, instruction: string): void
   reject(card: TaskRunCard): void
+  recover(taskId: string): void
   togglePanel(taskId: string): void
   submitFollow(taskId: string): void
   followDraft(taskId: string, value: string): void
@@ -58,43 +59,52 @@ function makeButton(doc: Document, label: string, kind: string, onClick: (event:
   return button
 }
 
-function makePanel(doc: Document, card: TaskRunCard, actions: InlineTaskActions, followDraft: string) {
+function makePanel(doc: Document, current: () => TaskRunCard, actions: InlineTaskActions, followDraft: string) {
+  const card = current()
   const panel = doc.createElement('div')
   panel.dataset.taskPanel = card.state
+  panel.dataset.taskId = card.taskId
+  panel.dataset.p10Slot = ''
+  panel.contentEditable = 'false'
   const log = doc.createElement('pre')
   log.dataset.taskLog = ''
   log.textContent = (card.state === 'PENDING' ? card.outputDraft : card.logTail) || '（暂无输出）'
   panel.append(log)
   if (card.state === 'DOING') {
-    panel.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(card)))
+    panel.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(current())))
   }
   if (card.state === 'PENDING') {
-    const adopt = makeButton(doc, '✓ 采纳并完成', 'adopt', () => actions.adopt(card))
-    const reject = makeButton(doc, '✕ 驳回重做', 'reject', () => actions.reject(card))
+    const adopt = makeButton(doc, '✓ 采纳并完成', 'adopt', () => actions.adopt(current()))
+    const reject = makeButton(doc, '✕ 驳回重做', 'reject', () => actions.reject(current()))
     const row = doc.createElement('div')
     row.dataset.taskFollowRow = ''
-    const input = doc.createElement('input')
-    input.type = 'text'
+    const input = doc.createElement('textarea')
+    input.rows = 2
     input.placeholder = '追加修改意见…'
+    input.setAttribute('aria-label', '追加修改意见')
     input.value = followDraft
     input.dataset.taskFollowInput = card.taskId
+    // This is a native text field inside the editor, with a separate undo and IME lifecycle.
+    for (const type of ['beforeinput', 'compositionstart', 'compositionend', 'cut', 'copy', 'paste']) {
+      input.addEventListener(type, event => event.stopPropagation())
+    }
     input.addEventListener('input', () => actions.followDraft(card.taskId, input.value))
     input.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && !event.isComposing) {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault()
-        actions.follow(card, input.value)
+        event.stopPropagation()
+        actions.follow(current(), input.value)
       }
     })
-    const send = makeButton(doc, '✎ 追加并续跑', 'follow', () => actions.follow(card, input.value))
+    const send = makeButton(doc, '✎ 追加并续跑', 'follow', () => actions.follow(current(), input.value))
     row.append(input, send)
     panel.append(adopt, row, reject)
   }
   return panel
 }
 
-/**
- * 依据 scanTaskLines 结果把胶囊挂到对应块元素上。幂等：每次调用先清理旧节点。
- */
+const panelCards = new WeakMap<HTMLElement, { card: TaskRunCard }>()
+
 export function arrangeTaskCapsules(
   editor: EditorSurface,
   cards: TaskRunCard[],
@@ -106,56 +116,87 @@ export function arrangeTaskCapsules(
   const doc = editor.host.ownerDocument
   const root = editor.host.querySelector<HTMLElement>('[data-editor-host=render]')
   if (!root) return
-  for (const old of [...root.querySelectorAll('[data-task-pill],[data-task-panel]')]) old.remove()
+  const groups = new Map([...root.querySelectorAll<HTMLElement>('[data-task-capsule]')].map(el => [el.dataset.taskCapsule!, el]))
+  const panels = new Map([...root.querySelectorAll<HTMLElement>('[data-task-panel][data-task-id]')].map(el => [el.dataset.taskId!, el]))
   const { raw, projection } = editor.session
   const scan = scanTaskLines(raw)
   const boxes = [...root.querySelectorAll<HTMLElement>('[data-editor-role=task], [data-editor-role=paragraph]')]
   const boxForLine = (line: number) => {
     const from = projection.lines[line - 1]
-    const to = projection.lines[line] ?? raw.length
+    const to = projection.lines[line] ?? raw.length + 1
     return boxes.find(box => Number(box.dataset.p10From) >= from && Number(box.dataset.p10From) < to)
   }
-  const markerIds = new Set(scan.markers.map(marker => marker.taskId))
-  const lineHasMarker = new Set(scan.markers.map(marker => marker.line))
+  const byId = new Map(cards.map(card => [card.taskId, card]))
+  function slot(key: string, box: HTMLElement) {
+    let group = groups.get(key)
+    groups.delete(key)
+    if (!group) {
+      group = doc.createElement('span')
+      group.dataset.taskCapsule = key
+      group.dataset.taskPillGroup = ''
+      group.dataset.p10Slot = ''
+      group.contentEditable = 'false'
+    }
+    if (group.parentElement !== box) box.append(group)
+    return group
+  }
 
   for (const marker of scan.markers) {
-    const card = cards.find(entry => entry.taskId === marker.taskId)
-    if (!card) continue
+    const card = byId.get(marker.taskId)
     const box = boxForLine(marker.line)
     if (!box) continue
-    const state = card.state === 'PENDING' || card.state === 'DONE' ? card.state : 'DOING'
-    const pill = state === 'DOING'
-      ? makeButton(doc, `⟳ DOING · ${clock(card)}`, 'doing', () => actions.togglePanel(card.taskId))
-      : state === 'PENDING'
-        ? makeButton(doc, '👁 PENDING · 待审阅', 'pending', () => actions.togglePanel(card.taskId))
-        : makeButton(doc, '✓ DONE', 'done', () => {})
-    if (state === 'DOING') {
-      const stop = makeButton(doc, '■ 停止', 'stop', () => actions.stop(card))
-      pill.dataset.taskGroup = ''
-      const group = doc.createElement('span')
-      group.dataset.taskPillGroup = ''
-      group.contentEditable = 'false'
-      group.append(pill, stop)
-      box.append(group)
-    } else {
-      pill.contentEditable = 'false'
-      box.append(pill)
+    const state = card?.state ?? (marker.state === 'DONE' ? 'DONE' : 'UNKNOWN')
+    const group = slot(marker.taskId, box)
+    if (group.dataset.state !== state) {
+      group.dataset.state = state
+      const toggle = () => actions.togglePanel(marker.taskId)
+      const labels = { DOING: '⟳ DOING', PENDING: '👁 待审阅', DONE: '✓ DONE',
+        ERROR: '执行失败 · 查看', TODO: '恢复待办', UNKNOWN: '待核对 · 恢复待办' }
+      const click = () => {
+        if (card?.state === 'TODO') actions.reject(card)
+        else if (state === 'UNKNOWN') actions.recover(marker.taskId)
+        else toggle()
+      }
+      const pill = makeButton(doc, labels[state], state.toLowerCase(), click)
+      if (state === 'DONE') pill.disabled = true
+      group.replaceChildren(pill)
+      if (card && state === 'DOING') group.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(card)))
+      if (card && state === 'ERROR') group.append(makeButton(doc, '恢复待办', 'retry', () => actions.reject(card)))
     }
-    if (state === 'PENDING' || logOpen === marker.taskId) {
-      box.after(makePanel(doc, card, actions, followDrafts.get(marker.taskId) ?? ''))
+    if (card && state === 'DOING') {
+      const pill = group.firstElementChild!
+      const label = `⟳ DOING · ${clock(card)}`
+      if (pill.textContent !== label) pill.textContent = label
+    }
+    if (card && (state === 'PENDING' || logOpen === marker.taskId)) {
+      let panel = panels.get(marker.taskId)
+      if (panel?.dataset.taskPanel !== state || !panelCards.has(panel)) {
+        panel?.remove()
+        const live = { card }
+        panel = makePanel(doc, () => live.card, actions, followDrafts.get(marker.taskId) ?? '')
+        panelCards.set(panel, live)
+      }
+      panels.delete(marker.taskId)
+      panelCards.get(panel)!.card = card
+      const log = panel.querySelector('[data-task-log]')!
+      const text = (state === 'PENDING' ? card.outputDraft : card.logTail || card.errorMsg) || '（暂无输出）'
+      if (log.textContent !== text) log.textContent = text
+      if (box.nextElementSibling !== panel) box.after(panel)
     }
   }
 
   for (const todo of scan.todos) {
-    if (lineHasMarker.has(todo.line)) continue
     const box = boxForLine(todo.line)
     if (!box) continue
-    const group = doc.createElement('span')
-    group.dataset.taskPillGroup = ''
-    group.contentEditable = 'false'
+    const group = slot('todo:' + todo.from, box)
     const label = todo.agent ? `▷ 交办 · ${todo.agent}` : '▷ TODO · 交办'
-    group.append(makeButton(doc, `[ ${label} ]`, 'todo', () => actions.start(todo)))
-    box.append(group)
+    const signature = JSON.stringify(todo)
+    if (group.dataset.signature !== signature) {
+      group.dataset.signature = signature
+      group.replaceChildren(makeButton(doc, `[ ${label} ]`, 'todo', () => actions.start(todo)))
+    }
   }
+  for (const group of groups.values()) group.remove()
+  for (const panel of panels.values()) panel.remove()
 }
 

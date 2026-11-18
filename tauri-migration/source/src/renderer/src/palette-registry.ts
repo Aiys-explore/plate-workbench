@@ -6,12 +6,8 @@ export const commands = [
   ['m51.note.search', '搜索笔记', '聚焦笔记标题和正文搜索', ['find search'], true],
   ['m51.note.graph', '打开关系图', '查看上游资料和下游去向', ['graph'], true],
   ['m51.project.new', '新建项目', '打开新建项目表单', ['new project'], true],
-  ['m51.project.edit', '编辑选中项目', '打开选中项目的编辑表单', ['edit project'], true],
-  ['m51.export.history', '打开导出记录', '查看 Markdown 导出记录', ['export history'], true],
-  ['m51.export.project', '导出选中项目…', '打开选中项目的导出准备窗口', ['export project'], true],
-  ['m51.agent.show', '显示 Agent 面板', '查看 Agent 面板或当前会话', ['agent sessions 会话 绑定'], false],
+  ['m51.agent.show', '显示 Agent 面板', '查看此电脑已发现的 Agent', ['agent 连接器'], false],
   ['m51.theme.toggle', '切换明暗主题', '切换工作台配色', ['theme'], false],
-  ['m51.settings.open', '打开 Agent 设置', '查看 Agent 运行时设置', ['settings'], false],
   ['m51.help.open', '打开帮助', '查看帮助和快捷键', ['help shortcuts 快捷键'], false],
 ] as const
 export type CommandId = typeof commands[number][0]

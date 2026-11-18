@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { DEFAULT_PROJECT, NOTE_TEMPLATES, type NoteSummary, type NoteTemplate, type ProjectSummary, type NoteFilters, type SearchResult } from '../../shared/ipc'
-import type { Scope } from '../../shared/p12'
-import { target, usePaletteOwner, type Source } from './palette-registry'
+import { usePaletteOwner, type Source } from './palette-registry'
 import { EditorDialog } from './note-editor'
 
 const OVERSCAN = 5
@@ -31,16 +30,12 @@ function localDay() {
   return { start: +start, end: +end }
 }
 
-export function NotesTree({ items, projects, selected, busy, open, newNote, newProject, remove, projectAction, exportScope,
-  searchNotes, paletteMayAct, projectUnavailable, paletteVersion, filters }: {
+export function NotesTree({ items, projects, selected, busy, open, newNote, newProject, remove,
+  searchNotes, paletteMayAct, filters }: {
   filters: { query: string; setQuery: (value: string) => void; project: string; setProject: (value: string) => void;
     tags: string[]; setTags: React.Dispatch<React.SetStateAction<string[]>> }
   searchNotes: (source?: Source) => void
   paletteMayAct: () => boolean
-  projectUnavailable?: string
-  paletteVersion: string
-  exportScope:(scope:Scope,restore:()=>void)=>void
-  projectAction:(id:string,action:'edit'|'archive'|'impact',source?:Source)=>void
   items: NoteSummary[]; projects: ProjectSummary[]; selected?: string; busy: boolean
   open: (id: string, result?:boolean) => void; newNote: (template: NoteTemplate, partition?: string) => void; newProject: () => void
   remove: (note: NoteSummary) => void
@@ -49,7 +44,6 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
   const [view, setView] = useState<View>(initial.view)
   const anchors = useRef<Partial<Record<View,Anchor>>>(initial.anchors)
   const pendingAnchor = useRef(true)
-  const [explicitRow, setExplicitRow] = useState<string>()
   const [composing, setComposing] = useState(false)
   const { query, setQuery, project, setProject, tags, setTags } = filters
   const [available, setAvailable] = useState<string[]>([])
@@ -239,7 +233,7 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
       }
     }
     setFocused('')
-    setExplicitRow(undefined)
+
     pendingAnchor.current = true
   }
   function persist() {
@@ -289,12 +283,11 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
   })
   useEffect(persist,[view,collapsed])
 
-  function move(index: number, explicit = false) {
+  function move(index: number, _explicit = false) {
     const el = scroller()
     const row = rows[index]
     if (!row || !el) return
     setFocused(row.key)
-    if (explicit) setExplicitRow(row.key)
     const inset=treeStart(el)
     const top = inset+offsets[index], bottom = inset+offsets[index + 1]
     if (top < el.scrollTop) el.scrollTop = top
@@ -367,7 +360,7 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
     if (!row || event.nativeEvent.isComposing || event.keyCode===229 || event.altKey || event.ctrlKey || event.metaKey) return
     if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) {
       const anchor = document.getElementById('tree-' + row.key)?.getBoundingClientRect()
-      if (anchor && !event.repeat) {setExplicitRow(row.key);invokedByMore.current=false;setMenu({ row, x: anchor.left, y: anchor.bottom })}
+      if (anchor && !event.repeat) {invokedByMore.current=false;setMenu({ row, x: anchor.left, y: anchor.bottom })}
       event.preventDefault()
       return
     }
@@ -388,7 +381,7 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
         break
       case 'Enter':
         if(event.repeat)break
-        setExplicitRow(row.key)
+
         if (offsets[active + 1] <= scroll || offsets[active] >= scroll + height) {
           move(active)
           break
@@ -407,30 +400,10 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
   }
 
 
-  const selectedProjectRow = explicitRow && rows.find(row => row.key === explicitRow && !row.note)
-  const selectedProject = selectedProjectRow && selectedProjectRow.group.id !== DEFAULT_PROJECT
-    ? projects.find(p => p.id === selectedProjectRow.group.id) : undefined
-  useLayoutEffect(() => {
-    if (explicitRow && (!filtering || currentHits) && !rows.some(row => row.key === explicitRow)) setExplicitRow(undefined)
-  }, [explicitRow, rows, filtering, currentHits])
-  const projectTarget = selectedProject?.id
-  const basis = JSON.stringify([selectedProject, paletteVersion])
-  const allowed = () => !!projectTarget && !busy && !composing && paletteMayAct()
   usePaletteOwner('notes-tree', { actions: {
     'm51.note.search': { allowed: () => !!searchInput.current && paletteMayAct(),
       run: source => { searchNotes(source); return { element: () => searchInput.current } } },
-    'm51.project.edit': { reason: !projectTarget ? '请先在笔记树中选择可编辑项目' : projectUnavailable,
-      project: selectedProject, basis, allowed, run: source => {
-        projectAction(projectTarget!, 'edit', source)
-        return target('.p11-native[open] #p11-heading')
-      } },
-    'm51.export.project': { reason: !projectTarget ? '请先在笔记树中选择可导出的项目' : projectUnavailable,
-      project: selectedProject, basis, allowed, run: source => {
-        exportScope({ kind: 'project', id: projectTarget! }, source.restore)
-        return target('.p12-native-dialog[open] #p12-heading')
-      } }
   } })
-
   const hasNotes = groups.some((group) => group.notes.length)
   const writablePartition = projects.find(p => p.id === project && p.archivedAt === null)?.id
   return <>
@@ -570,7 +543,7 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
       aria-expanded={!!menu && invokedByMore.current} aria-label={`当前行操作：${rows[active].note?.title??rows[active].group.label}`}
       onClick={event=>{
         const rect=event.currentTarget.getBoundingClientRect()
-        setExplicitRow(rows[active].key);invokedByMore.current=true;setMenu({row:rows[active],x:rect.left,y:rect.bottom})
+        invokedByMore.current=true;setMenu({row:rows[active],x:rect.left,y:rect.bottom})
       }}>当前行操作 ⋯</button>}
     {menu && <div ref={menuRef} role="menu" data-editor-float style={{ left: Math.max(8, Math.min(menu.x, innerWidth - 168)),
       top: Math.max(8, Math.min(menu.y, innerHeight - 132)) }} onBlur={event => {
@@ -594,13 +567,6 @@ export function NotesTree({ items, projects, selected, busy, open, newNote, newP
         onClick={()=>{toggle(menu.row.group);menuOrigin();setMenu(undefined)}}>{expanded(menu.row.group.id)?'折叠':'展开'}</button>}
       <button type="button" role="menuitem" data-editor-float-item onClick={() => { setMenu(undefined); setInfo(menu.row) }}>查看完整信息</button>
       {!menu.row.note && menu.row.group.id===DEFAULT_PROJECT && <span className="p11-note">内置未归属不可变更</span>}
-      {!menu.row.note && menu.row.group.id!==DEFAULT_PROJECT && (['edit','archive','impact'] as const).map(action=>
-        <button type="button" role="menuitem" data-editor-float-item disabled={busy} key={action} onClick={()=>{
-          const id=menu.row.group.id;setMenu(undefined);menuOrigin();projectAction(id,action)
-        }}>{action==='edit'?'编辑项目':action==='impact'?'移除项目…':projects.find(p=>p.id===menu.row.group.id)?.archivedAt?'恢复项目':'归档项目'}</button>)}
-      {(menu.row.note||menu.row.group.id!==DEFAULT_PROJECT)&&<button type="button" role="menuitem" data-editor-float-item disabled={busy}
-        onClick={()=>{setMenu(undefined);exportScope(menu.row.note?{kind:'note',id:menu.row.note.id}:{kind:'project',id:menu.row.group.id},menuOrigin)}}>
-        {menu.row.note?'导出此笔记':'导出项目'}</button>}
       {menu.row.note && <button type="button" role="menuitem" data-editor-float-item disabled={busy}
         onClick={() => { setMenu(undefined);menuOrigin();remove(menu.row.note!) }}>移除笔记…</button>}
     </div>}

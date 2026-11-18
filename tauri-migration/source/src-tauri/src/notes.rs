@@ -118,6 +118,7 @@ pub struct NoteFilters {
     pub project_id: Option<String>,
     pub kind: Option<String>,
     pub tag: Option<String>,
+    pub tags: Vec<String>,
     pub query: Option<String>,
     pub links_to: Option<String>,
     pub linked_from: Option<String>,
@@ -190,6 +191,7 @@ pub struct Metadata {
     pub title: String,
     pub tags: HashSet<String>,
     pub references: Vec<String>,
+    pub downstream_refs: HashSet<String>,
     pub body: String,
 }
 
@@ -216,6 +218,7 @@ fn extract_metadata(content: &str, fallback: &str) -> Metadata {
 
     let mut tags = HashSet::new();
     let mut references = Vec::new();
+    let mut downstream_refs = HashSet::new();
     let mut in_fence = false;
     for line in body.lines() {
         let trimmed = line.trim_start();
@@ -227,7 +230,12 @@ fn extract_metadata(content: &str, fallback: &str) -> Metadata {
             if let Some(end) = after.find("]]") {
                 let inner = &after[..end];
                 let r#ref = inner.split('|').next().unwrap_or("").trim().to_string();
-                if !r#ref.is_empty() { references.push(r#ref); }
+                if !r#ref.is_empty() {
+                    if &rest[..pos] == "- " && after[end + 2..].trim() == "<!-- plate-downstream -->" {
+                        downstream_refs.insert(r#ref.clone());
+                    }
+                    references.push(r#ref);
+                }
                 rest = &after[end + 2..];
             } else { break; }
         }
@@ -250,7 +258,7 @@ fn extract_metadata(content: &str, fallback: &str) -> Metadata {
             i += 1;
         }
     }
-    Metadata { title, tags, references, body }
+    Metadata { title, tags, references, downstream_refs, body }
 }
 
 fn preview_of(body: &str) -> Option<String> {
@@ -400,7 +408,10 @@ impl NoteStore {
         conn.execute("DELETE FROM note_link WHERE source_note_id = ?1", params![id]).map_err(|e| e.to_string())?;
         for r#ref in &meta.references {
             let target: Option<String> = conn
-                .query_row("SELECT id FROM note WHERE title = ?1 LIMIT 1", params![r#ref], |r| r.get(0))
+                .query_row(
+                    "SELECT id FROM note WHERE id = ?1 OR title = ?1 ORDER BY (id = ?1) DESC, id LIMIT 1",
+                    params![r#ref], |r| r.get(0),
+                )
                 .optional().map_err(|e| e.to_string())?;
             if let Some(target) = target {
                 conn.execute(
@@ -478,6 +489,14 @@ impl NoteStore {
     }
 
     pub fn update(&self, id: &str, content: &str, revision: Option<String>, draft_version: Option<String>) -> Result<SaveResult, String> {
+        self.update_note(id, content, revision, draft_version, false)
+    }
+
+    pub fn update_strict(&self, id: &str, content: &str, revision: String) -> Result<SaveResult, String> {
+        self.update_note(id, content, Some(revision), None, true)
+    }
+
+    fn update_note(&self, id: &str, content: &str, revision: Option<String>, draft_version: Option<String>, strict: bool) -> Result<SaveResult, String> {
         check_note_id(id)?;
         let row = self.get_row(id)?;
         let disk = snapshot(Path::new(&row.path))?;
@@ -487,6 +506,10 @@ impl NoteStore {
             d.path == row.path && d.base_revision == expected && d.content == content
                 && draft_version.map_or(true, |v| v == d.version)
         }).map(|d| d.version.clone());
+        let on_conflict = || {
+            if strict { Err("笔记磁盘版本已变化，草稿已保留。请核对后再试。".into()) }
+            else { self.keep_both(&row, content) }
+        };
         match &disk {
             Some(d) if d.revision == expected => {
                 if d.content == content {
@@ -505,11 +528,11 @@ impl NoteStore {
                     }
                     _ => {
                         let _ = fs::remove_file(&temp);
-                        self.keep_both(&row, content)
+                        on_conflict()
                     }
                 }
             }
-            _ => self.keep_both(&row, content),
+            _ => on_conflict(),
         }
     }
 
@@ -550,14 +573,19 @@ impl NoteStore {
         drop(conn);
         if let Some(p) = &filters.project_id { all.retain(|n| &n.project_id == p); }
         if let Some(k) = &filters.kind { all.retain(|n| &n.kind == k); }
-        if let Some(t) = &filters.tag {
+        let tags = filters.tag.iter().chain(&filters.tags).collect::<HashSet<_>>();
+        if !tags.is_empty() {
             let conn = self.conn.lock().unwrap();
             let mut kept = Vec::new();
             for n in all {
-                let hit: Option<i64> = conn.query_row(
-                    "SELECT 1 FROM note_tag WHERE note_id = ?1 AND tag = ?2", params![n.id, t],
-                    |r| r.get(0)).optional().map_err(|e| e.to_string())?;
-                if hit.is_some() { kept.push(n); }
+                let mut matches = true;
+                for tag in &tags {
+                    let hit: Option<i64> = conn.query_row(
+                        "SELECT 1 FROM note_tag WHERE note_id = ?1 AND tag = ?2", params![n.id, tag],
+                        |r| r.get(0)).optional().map_err(|e| e.to_string())?;
+                    if hit.is_none() { matches = false; break; }
+                }
+                if matches { kept.push(n); }
             }
             all = kept;
         }
@@ -615,10 +643,11 @@ impl NoteStore {
     }
 
     pub fn search(&self, filters: NoteFilters) -> Result<Vec<SearchResult>, String> {
-        let query = filters.query.clone().unwrap_or_default();
-        if query.is_empty() { return Ok(Vec::new()); }
-        let needle = query.to_lowercase();
-        let notes = self.list(NoteFilters { project_id: filters.project_id.clone(), ..Default::default() })?;
+        let needle = filters.query.as_deref().unwrap_or_default().trim().to_lowercase();
+        let notes = self.list(filters)?;
+        if needle.is_empty() {
+            return Ok(notes.into_iter().map(|note| SearchResult { note, r#match: None }).collect());
+        }
         let mut out = Vec::new();
         for n in notes {
             let disk = match snapshot(Path::new(&n.path))? { Some(d) => d, None => continue };
@@ -662,9 +691,15 @@ impl NoteStore {
         let summaries = Self::query_summaries(&conn, "", &[])?;
         drop(conn);
         let mut nodes = Vec::new();
+        let mut downstream = HashSet::new();
         for s in &summaries {
             let disk = snapshot(Path::new(&s.path))?;
             let meta = disk.map(|d| extract_metadata(&d.content, &s.id));
+            if let Some(meta) = &meta {
+                for target in &meta.downstream_refs {
+                    downstream.insert((s.id.clone(), target.clone()));
+                }
+            }
             nodes.push(RelationshipNote {
                 summary: s.clone(),
                 preview: meta.as_ref().and_then(|m| preview_of(&m.body)),
@@ -683,11 +718,21 @@ impl NoteStore {
                 .map_err(|e| e.to_string())?;
             edges.extend(rows.filter_map(Result::ok));
         }
+        // The graph's existing edge direction represents material flow from target to source.
+        for edge in &mut edges {
+            if downstream.contains(&(edge.source.clone(), edge.target.clone())) {
+                std::mem::swap(&mut edge.source, &mut edge.target);
+            }
+        }
+        let mut seen_edges = HashSet::new();
+        edges.retain(|edge| seen_edges.insert((edge.source.clone(), edge.target.clone())));
         let refs = self.refs.lock().unwrap().clone();
         let mut bindings = Vec::new();
         for (source, list) in &refs {
             for r#ref in list {
-                let target = summaries.iter().find(|s| &s.title == r#ref).map(|s| s.id.clone());
+                let target = summaries.iter().find(|s| &s.id == r#ref)
+                    .or_else(|| summaries.iter().filter(|s| &s.title == r#ref).min_by_key(|s| &s.id))
+                    .map(|s| s.id.clone());
                 bindings.push(LinkBinding { source: source.clone(), r#ref: r#ref.clone(), target });
             }
         }
@@ -788,19 +833,30 @@ impl NoteStore {
         self.read(&copy_id)
     }
 
-    pub fn connect_nodes(&self, source_id: &str, target_id: &str) -> Result<Note, String> {
+    pub fn connect_nodes(&self, source_id: &str, target_id: &str, downstream: bool) -> Result<Note, String> {
         check_note_id(source_id)?;
         check_note_id(target_id)?;
         let source = self.read(source_id)?;
         let target = self.read(target_id)?;
-        let link_line = format!("- [[{}]]", target.summary.title);
+        if self.draft_row(source_id)?.is_some_and(|draft| draft.content != source.content) {
+            return Err("请先处理来源笔记的草稿".into())
+        }
+        let display = target.summary.title.replace(['[', ']', '|', '\n', '\r'], " ");
+        let suffix = if downstream { " <!-- plate-downstream -->" } else { "" };
+        let link_line = format!("- [[{target_id}|{display}]]{suffix}");
+        let existing = extract_metadata(&source.content, source_id);
+        if existing.references.iter().any(|reference| reference == target_id) &&
+            existing.downstream_refs.contains(target_id) == downstream {
+            return Ok(source);
+        }
         if source.content.contains(&link_line) { return Ok(source); }
         let mut next = source.content.clone();
         if !next.ends_with('\n') { next.push('\n'); }
+        next.push('\n');
         next.push_str(&link_line);
         next.push('\n');
         let revision = source.revision.clone();
-        match self.update(source_id, &next, Some(revision), None)? {
+        match self.update_strict(source_id, &next, revision)? {
             SaveResult::Saved { note } => Ok(note),
             SaveResult::Conflict { .. } => Err("连接节点时检测到外部修改，未建立链接".into()),
         }

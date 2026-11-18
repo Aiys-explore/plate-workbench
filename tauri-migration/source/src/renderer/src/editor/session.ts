@@ -1314,9 +1314,9 @@ export class EditorSession {
     this.pendingBlock = undefined
   }
   adoptResult(expectedRevision: string, version: number, note: { id: string; revision: string; content: string },
-    from: number, to: number, insert: string) {
+    from: number, to: number, insert: string, allowDirty = false) {
     this.writable()
-    if (this.dirty || this.version !== version || this.noteId !== note.id || this.baseRevision !== expectedRevision ||
+    if ((!allowDirty && this.dirty) || this.version !== version || this.noteId !== note.id || this.baseRevision !== expectedRevision ||
         from < 0 || to < from || to > this.raw.length ||
         note.content !== this.raw.slice(0, from) + insert + this.raw.slice(to)) deny('编辑内容已变化，请读取磁盘版本')
     const edits = [{ from, to, insert }]

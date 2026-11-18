@@ -3,12 +3,16 @@ mod agent_store;
 mod db;
 mod graph_layout;
 mod notes;
+#[cfg(windows)]
+mod process_job;
 
 use notes::{Note, NoteFilters, NoteStore, SaveResult, SearchResult};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use agent_runner::{TaskCard, TaskEngine};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
 pub struct AppState {
     pub root: Mutex<Option<PathBuf>>,
@@ -31,7 +35,7 @@ fn default_suggest() -> PathBuf {
     }
     let home = std::env::var("USERPROFILE").map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
-    home.join("Documents").join("Plate-Tauri-试用笔记")
+    home.join("Documents").join("Plate-Tauri-S7-试用笔记")
 }
 
 const MARKER: &str = "plate-workbench.json";
@@ -85,8 +89,9 @@ fn tasks_start(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: A
 }
 
 #[tauri::command]
-fn tasks_stop(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: AppHandle, task_id: String) -> Result<TaskCard, String> {
-        with_engine(&engine, &state, |engine, root| engine.stop(app, root, &task_id))
+async fn tasks_stop(engine: State<'_, TaskEngine>, state: State<'_, AppState>, task_id: String) -> Result<TaskCard, String> {
+    let root = with_engine(&engine, &state, |_, root| Ok(root.clone()))?;
+    engine.stop(&root, &task_id).await
 }
 
 #[tauri::command]
@@ -166,13 +171,40 @@ fn startup_rebuild(state: State<'_, AppState>, token: String) -> Result<serde_js
 }
 
 #[tauri::command]
+async fn startup_browse(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    let (send, result) = tokio::sync::oneshot::channel();
+    window.dialog().file().set_parent(&window).set_title("选择笔记位置")
+        .pick_folder(move |path| { let _ = send.send(path); });
+    result.await.map_err(|_| "目录选择器已关闭".to_string())?
+        .map(|path| path.into_path().map(|path| path.to_string_lossy().into_owned())
+            .map_err(|error| error.to_string()))
+        .transpose()
+}
+
+#[tauri::command]
 fn startup_exit() -> Result<(), String> {
     std::process::exit(0);
 }
 
 #[tauri::command]
-fn app_info() -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "name": "Plate Workbench (Tauri)", "version": "0.3.0-s2" }))
+fn app_info(app: AppHandle) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "name": "Plate Workbench", "version": app.package_info().version.to_string() }))
+}
+
+fn external_url(address: &str) -> Result<tauri::Url, String> {
+    if address.chars().any(char::is_control) { return Err("链接包含控制字符".into()) }
+    let url = tauri::Url::parse(address).map_err(|_| "链接格式无效".to_string())?;
+    if !matches!(url.scheme(), "https" | "http") || url.host_str().is_none() ||
+        !url.username().is_empty() || url.password().is_some() {
+        return Err("仅支持打开普通 HTTP 或 HTTPS 链接".into());
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+fn notes_open_link(app: AppHandle, address: String) -> Result<(), String> {
+    let url = external_url(&address)?;
+    app.opener().open_url(url.as_str(), None::<&str>).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -188,6 +220,11 @@ fn notes_read(state: State<'_, AppState>, id: String) -> Result<Note, String> {
 #[tauri::command]
 fn notes_update(state: State<'_, AppState>, id: String, content: String, revision: Option<String>, draft_version: Option<String>) -> Result<SaveResult, String> {
     with_store(&state, |s| s.update(&id, &content, revision, draft_version))
+}
+
+#[tauri::command]
+fn notes_update_strict(state: State<'_, AppState>, id: String, content: String, revision: String) -> Result<SaveResult, String> {
+    with_store(&state, |store| store.update_strict(&id, &content, revision))
 }
 
 #[tauri::command]
@@ -275,8 +312,8 @@ fn graph_layout_reset(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn graph_layout_connect_nodes(state: State<'_, AppState>, source_id: String, target_id: String) -> Result<Note, String> {
-    with_store(&state, |s| s.connect_nodes(&source_id, &target_id))
+fn graph_layout_connect_nodes(state: State<'_, AppState>, source_id: String, target_id: String, downstream: Option<bool>) -> Result<Note, String> {
+    with_store(&state, |s| s.connect_nodes(&source_id, &target_id, downstream.unwrap_or(false)))
 }
 
 #[tauri::command]
@@ -318,6 +355,8 @@ fn start_watcher(app: AppHandle, projects_dir: PathBuf) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState { root: Mutex::new(None), store: Mutex::new(None) })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -335,10 +374,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            startup_state, startup_submit, startup_rebuild, startup_exit,
+            startup_state, startup_browse, startup_submit, startup_rebuild, startup_exit,
             app_info, db_tables,
-            notes_create, notes_read, notes_update, notes_delete, notes_list,
-            notes_links, notes_search, notes_tags,
+            notes_create, notes_read, notes_update, notes_update_strict, notes_delete, notes_list,
+            notes_links, notes_search, notes_tags, notes_open_link,
             projects_list, projects_create,
             drafts_list, drafts_write, drafts_discard, drafts_restore, drafts_save_copy,
             graph_layout_get_all, graph_layout_save_batch, graph_layout_reset, graph_layout_connect_nodes,

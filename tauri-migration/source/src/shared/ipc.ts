@@ -162,7 +162,7 @@ export interface GraphLayoutApi {
   getAll(): Promise<Record<string, GraphLayoutEntry>>
   saveBatch(items: { noteId: string; x: number; y: number; pinned: boolean; parentNoteId?: string | null }[]): Promise<void>
   resetAll(): Promise<void>
-  connectNodes(sourceId: string, targetId: string): Promise<Note>
+  connectNodes(sourceId: string, targetId: string, downstream?: boolean): Promise<Note>
 }
 
 export type TaskState = 'TODO' | 'DOING' | 'PENDING' | 'DONE' | 'ERROR'
@@ -203,6 +203,7 @@ export interface NotesApi {
   createProject(name: string): Promise<ProjectSummary>
   read(id: string): Promise<Note>
   update(id: string, content: string, revision?: string, draftVersion?: string): Promise<SaveResult>
+  updateStrict?(id: string, content: string, revision: string): Promise<SaveResult>
   delete(id: string, revision?: string): Promise<'deleted' | 'changed'>
   list(filters?: NoteFilters): Promise<NoteSummary[]>
   links(): Promise<LinkIndex>

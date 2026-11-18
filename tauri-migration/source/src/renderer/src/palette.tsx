@@ -84,15 +84,6 @@ export function PaletteHost({ registry, shell, fallback, binding }: {
     if (notes) {
       let latest: NoteIndexState
       try {
-        if (expected.action.project) {
-          // Re-read the selected project via P11; a removed project must not open a stale form.
-          try {
-            const snapshot = expected.action.project
-            const project = await window.workbench.p11.project(snapshot.id)
-            if (!valid()) return
-            if (project.id !== snapshot.id || project.revision !== snapshot.revision) { fail(changed); return }
-          } catch { if (valid()) fail(changed); return }
-        }
         latest = await window.workbench.notes.index.status()
       } catch { if (valid()) fail(indexError); return }
       if (!valid()) return

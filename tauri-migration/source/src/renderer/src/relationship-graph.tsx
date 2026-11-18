@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
-import type { NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
+import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
 import { noteRelations } from './relation-directions'
 import { frameNodes, interpolateCamera, type Camera, type Point } from './relationship-camera'
@@ -61,11 +61,13 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
   return { ordered,points,height:Math.max(320,y) }
 }
 
-export function RelationshipGraph({ nodes, edges, selected, label, open, close, state, reload, editorOpen, rightInset }: {
+export function RelationshipGraph({ nodes, edges, selected, label, open, close, state, reload, editorOpen, rightInset, canChange, noteUpdated }: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
   open: (id: string, origin?:HTMLElement) => void; close: () => void
   editorOpen?: boolean; rightInset?: number
   state: { busy: boolean; error?: string }; reload: () => void
+  canChange: (id: string) => boolean
+  noteUpdated: (note: Note) => void
 }) {
   const [scope, setScope] = useState<'nearby' | 'all'>(() => selected ? 'nearby' : 'all')
   const [anchor, setAnchor] = useState(selected)
@@ -109,6 +111,8 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
   movedRef.current = moved
   const resolvedLayout = useRef(new Set<string>())
   const [actionError, setActionError] = useState('')
+  const deriving = useRef(false)
+  const [nextFocus, setNextFocus] = useState<string>()
   const [taskSummary, setTaskSummary] = useState<Record<string, {
     todo: number; doing: number; pending: number; done: number; error: number
   }>>({})
@@ -198,14 +202,18 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     for (const [id,point] of points) {
       const size=cards.get(id)!.height
       const p=(nodeAction==='move' && active===id ? moveTo : undefined) ?? moved.get(id) ?? point
-      placed.set(id,{x:Math.max(cardWidth/2+8,Math.min(diagramWidth-cardWidth/2-8,p.x)),
-        y:Math.max(size/2+8,Math.min(height-size/2-8,p.y)),width:cardWidth,height:size})
+      placed.set(id,{x:Math.max(cardWidth/2+8,p.x), y:Math.max(size/2+8,p.y),width:cardWidth,height:size})
     }
-    return {placed,wires:connectCards(links,placed,local)}
+    let extentX = diagramWidth, extentY = height
+    for (const card of placed.values()) {
+      extentX = Math.max(extentX, card.x + card.width / 2 + 24)
+      extentY = Math.max(extentY, card.y + card.height / 2 + 24)
+    }
+    return {placed, extentX, extentY, wires:connectCards(links,placed,local)}
   },[points,links,cards,nodeAction,active,moveTo,moved,diagramWidth,height,local])
   const clamp = ({x,y}:Point,id=active)=> {
     const half=((id && cards.get(id)?.height)||36)/2+8
-    return {x:Math.max(cardWidth/2+8,Math.min(diagramWidth-cardWidth/2-8,x)),y:Math.max(half,Math.min(height-half,y))}
+    return {x:Math.max(cardWidth/2+8,x), y:Math.max(half,y)}
   }
   const at = (id: string) => geometry.placed.get(id)!
   const restoreMovement = ({ id, before }: {id:string; before:Point | undefined}) => {
@@ -301,8 +309,9 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     const target=viewport.current
     if (!target?.clientWidth || !target.clientHeight) return
     const w=target.clientWidth, h=target.clientHeight
-    const scale=Math.min(1.12,Math.max(.42,Math.min((w-24)/diagramWidth,(h-48)/height)))
-    flyTo({scale,x:Math.max(12,(w-diagramWidth*scale)/2),y:Math.max(8,(h-height*scale)/2-12)},false)
+    const { extentX, extentY } = geometry
+    const scale=Math.min(1.12,Math.max(.08,Math.min((w-24)/extentX,(h-48)/extentY)))
+    flyTo({scale,x:Math.max(12,(w-extentX*scale)/2),y:Math.max(8,(h-extentY*scale)/2-12)},false)
   }
   function frameDetail(id:string,animate=live) {
     const target=viewport.current
@@ -481,6 +490,18 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     previousRows.current=ids
   },[ordered])
   useLayoutEffect(()=>{if (nodeAction==='menu' && (!activeNote || state.error)) closeInfo()},[activeNote,nodeAction,state.error])
+  useLayoutEffect(() => {
+    if (!nextFocus || !geometry.placed.has(nextFocus) || state.busy || !viewport.current) return
+    const node = world.current?.querySelector<SVGElement>(`[data-graph-node="${CSS.escape(nextFocus)}"]`)
+    if (!node) return
+    const position = at(nextFocus), current = camera.current, view = viewport.current
+    const available = Math.max(100, view.clientWidth - (rightInset ?? 0))
+    flyTo({ scale: current.scale, x: available / 2 - position.x * current.scale,
+      y: view.clientHeight / 2 - position.y * current.scale }, false)
+    setActive(nextFocus)
+    node.focus({ preventScroll: true })
+    setNextFocus(undefined)
+  }, [nextFocus, geometry, state.busy, rightInset])
   async function createNoteAt(event: React.MouseEvent<SVGSVGElement>) {
     if (state.busy || state.error || !world.current) return
     try {
@@ -490,17 +511,19 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       let seq = 2
       while (titles.has(title)) { title = `新笔记 ${seq++}` }
       const created = await window.workbench.notes.create(title, 'default', 'blank')
-      const x = Math.max(cardWidth / 2 + 8, Math.min(diagramWidth - cardWidth / 2 - 8, pt.x))
-      const y = Math.max(24, Math.min(height - 24, pt.y))
+      const { x, y } = clamp(pt)
       resolvedLayout.current.add(created.id)
       await window.workbench.graphLayout.saveBatch([{ noteId: created.id, x, y, pinned: true }])
+      setMoved(previous => new Map(previous).set(created.id, { x, y }))
       setActionError('')
       if (scope === 'nearby') chooseScope('all', center)
     } catch (e) { setActionError(String(e)) }
   }
 
   async function deriveChild(id: string) {
-    if (state.busy || state.error) return
+    if (state.busy || state.error || deriving.current) return
+    if (!canChange(id)) { setActionError('请先保存或处理父笔记的草稿'); return }
+    deriving.current = true
     try {
       const parent = byId.get(id)
       if (!parent) return
@@ -508,21 +531,34 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
       let title = `${parent.title} · 子项`
       let seq = 2
       while (titles.includes(title)) { title = `${parent.title} · 子项 ${seq++}` }
-      const child = await window.workbench.notes.create(title, 'default', 'blank')
-      // 子笔记引用父笔记：父为上游，箭头 parent→child。
-      await window.workbench.graphLayout.connectNodes(child.id, id)
       const pos = at(id)
-      const x = Math.min(diagramWidth - cardWidth / 2 - 8, pos.x + cardWidth + 36)
+      let x = pos.x + cardWidth + 36
+      for (const [key, card] of geometry.placed) {
+        if (key !== id && Math.abs(card.y - pos.y) < (card.height + pos.height) / 2 + 12) {
+          x = Math.max(x, card.x + cardWidth + 36)
+        }
+      }
+      const child = await window.workbench.notes.create(title, parent.projectId, 'blank')
+      const savedParent = await window.workbench.graphLayout.connectNodes(id, child.id, true)
+      noteUpdated(savedParent)
       resolvedLayout.current.add(child.id)
       await window.workbench.graphLayout.saveBatch([{ noteId: child.id, x, y: pos.y, pinned: true }])
+      setMoved(previous => new Map(previous).set(child.id, { x, y: pos.y }))
       setActionError('')
-      if (scope === 'nearby') chooseScope('nearby', id)
+      setScope('all')
+      setNextFocus(child.id)
+      reload()
     } catch (e) { setActionError(String(e)) }
+    finally { deriving.current = false }
   }
 
   async function deleteNode(id: string) {
     try {
-      const result = await window.workbench.notes.delete(id)
+      if (!canChange(id) || (await window.workbench.notes.draftList()).some(draft => draft.id === id)) {
+        throw new Error('请先处理这篇笔记的草稿')
+      }
+      const note = await window.workbench.notes.read(id)
+      const result = await window.workbench.notes.delete(id, note.revision)
       if (result !== 'deleted') setActionError('笔记已被外部修改，请刷新后重试')
       else setActionError('')
     } catch (e) { setActionError(String(e)) }
@@ -537,9 +573,9 @@ export function RelationshipGraph({ nodes, edges, selected, label, open, close, 
     const nodeEl = el instanceof Element ? el.closest('[data-graph-node]') : null
     const targetId = nodeEl?.getAttribute('data-graph-node') ?? null
     if (!targetId || targetId === ld.id) return
-    // 拖拽方向即箭头方向：source→target 表示 target 引用 source。
-    void window.workbench.graphLayout.connectNodes(targetId, ld.id)
-      .then(() => setActionError(''))
+    if (!canChange(ld.id)) { setActionError('请先保存或处理来源笔记的草稿'); return }
+    void window.workbench.graphLayout.connectNodes(ld.id, targetId, true)
+      .then(result => { noteUpdated(result); setActionError(''); reload() })
       .catch(e => setActionError(String(e)))
   }
 

@@ -13,18 +13,21 @@ const CANDIDATES: &[(&str, &str, &[&str])] = &[
     ("opencode", "OpenCode", &["opencode.exe", "opencode.cmd", "opencode.bat", "opencode"]),
 ];
 
-fn search_dirs() -> Vec<std::path::PathBuf> {
-    let mut dirs: Vec<std::path::PathBuf> = std::env::var("PATH")
-        .unwrap_or_default()
-        .split(';')
-        .filter(|entry| !entry.trim().is_empty())
-        .map(std::path::PathBuf::from)
+use std::path::PathBuf;
+
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .filter(|path| path.is_absolute())
         .collect();
     if let Ok(home) = std::env::var("USERPROFILE") {
         let home = std::path::PathBuf::from(home);
         dirs.push(home.join(".local").join("bin"));
         dirs.push(home.join("AppData").join("Roaming").join("npm"));
-        dirs.push(home.join("AppData").join("Local").join("Programs"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let programs = PathBuf::from(local).join("Programs");
+        dirs.push(programs.join("DeepSeek Harness").join("resources").join("runtime").join("cli").join("bin"));
+        dirs.push(programs);
     }
     dirs
 }

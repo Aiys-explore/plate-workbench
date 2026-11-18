@@ -1,0 +1,70 @@
+{
+  "status": "pass",
+  "version": "0.3.0-s7.0",
+  "candidateSha256": "E2200F0FC37B19DA41725627741669768558D8D5BE1766A4223F32C5A90461DF",
+  "workspace": "isolated synthetic fixture",
+  "passed": [
+    {
+      "name": "S7-2 startup, discovery and hidden old entries",
+      "proof": {
+        "version": {
+          "name": "Plate Workbench",
+          "version": "0.3.0-s7.0"
+        },
+        "agents": [
+          "dsh",
+          "codex",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "S7-2 project creation and both deletion paths",
+      "proof": "9c604b96-7e7f-4ad8-ad24-cc7da77c9402"
+    },
+    {
+      "name": "S7-3 multiline task, fenced code and dirty dispatch",
+      "proof": "核对数据\n  - 甲公司 42% & |\n  - 乙公司 31%"
+    },
+    {
+      "name": "S7-3 focus and multiline follow-up",
+      "proof": {
+        "selection": [
+          2,
+          4
+        ],
+        "received": "核对数据\n  - 甲公司 42% & |\n  - 乙公司 31%\n\n补充指令：追问第一行\n后续行 \" & | %"
+      }
+    },
+    {
+      "name": "S7-3 adopt 54 lines, preserve agent selector, then save without a conflict copy",
+      "proof": true
+    },
+    {
+      "name": "S7-3 external edit blocks dispatch and preserves draft",
+      "proof": true
+    },
+    {
+      "name": "S7-4 six-level graph and rename, placement survives restart",
+      "proof": {
+        "positions": [
+          546,
+          774,
+          1002,
+          1230,
+          1434,
+          1638
+        ],
+        "chain": [
+          "7faadfcb-d9f0-4e06-9df7-2afc44d57218",
+          "15af5d04-5079-4d31-8f79-ca420879c112",
+          "815492d3-6d8e-47dd-bfd9-211d6d52c811",
+          "3d95a6cb-f41c-4331-ac2a-71b439a4fc41",
+          "1f2427a4-b2e7-4a34-a51e-5ff1e5e75da1",
+          "85e06779-22dd-4c5f-b943-102cbb4aca6b",
+          "daa41b26-f054-4545-8baf-dd45fe21d2fc"
+        ]
+      }
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Plate Workbench",
-  "version": "0.3.0-s6.0",
-  "identifier": "local.plate.workbench",
+  "productName": "Plate Workbench S7 Preview",
+  "version": "0.3.0-s7.0",
+  "identifier": "local.plate.workbench.s7-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Plate — 笔记 + Agent 工作台",
+        "title": "Plate S7 — 本机试用版",
         "width": 1280,
         "height": 860,
         "minWidth": 860,
@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "targets": ["nsis"],
     "icon": [
       "icons/icon.ico"
     ]

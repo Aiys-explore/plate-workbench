@@ -27,6 +27,7 @@ type Props = {
   session: EditorSession; note: Note; readOnly: boolean; surface: RefObject<EditorSurface | null>
   changed: (raw: string) => void; save: () => void; remove: () => void
   wiki: (ref: string, anchor: HTMLElement) => void
+  commitTaskEdit: (version: number, from: number, to: number, insert: string) => Promise<boolean>
   status: ReactNode; children: ReactNode
 }
 
@@ -45,60 +46,69 @@ export function NoteEditor(props: Props) {
   const open = useRef(new Set<string>())
   const logOpen = useRef<string | null>(null)
   const followDrafts = useRef(new Map<string, string>())
-  const applyTaskEdit = async (from: number, to: number, insert: string) => {
-    const e = surface.current
-    if (!e) return false
-    if (session.composing) { setIssue('请先结束输入法组合'); return false }
-    const base = session.baseRevision
-    const next = session.raw.slice(0, from) + insert + session.raw.slice(to)
-    try {
-      const result = await window.workbench.notes.update(note.id, next, base)
-      if (result.status !== 'saved') { setIssue('磁盘版本已变化，请读取最新版本后重试'); return false }
-      e.outsideEdit(() => { session.adoptResult(base, session.version, result.note, from, to, insert); return true })
-      e.refreshSavedAnchor()
-      redraw()
-      return true
-    } catch (error) { setIssue(String(error)); return false }
+  const taskBusy = useRef(false)
+  const taskRun = (action: () => Promise<void>) => {
+    if (taskBusy.current || current.current.readOnly || session.composing) return
+    taskBusy.current = true
+    setIssue('')
+    void action().catch(error => setIssue(String(error))).finally(() => { taskBusy.current = false })
+  }
+  const applyTaskEdit = (from: number, to: number, insert: string) =>
+    current.current.commitTaskEdit(session.version, from, to, insert)
+  const findTask = (taskId: string) => scanTaskLines(session.raw).markers.find(marker => marker.taskId === taskId)
+  const resetTask = async (taskId: string, agent: string) => {
+    const marker = findTask(taskId)
+    if (marker) await applyTaskEdit(marker.from, marker.to, agent ? 'TODO(@' + agent + ')' : 'TODO')
   }
   const taskAction = useMemo<InlineTaskActions>(() => ({
-    start: (todo: TaskTodo) => { void (async () => {
-      const taskId = 't-' + Math.random().toString(36).slice(2, 8)
+    start: (todo: TaskTodo) => taskRun(async () => {
+      const live = scanTaskLines(session.raw).todos.find(row => row.from === todo.from && row.to === todo.to &&
+        row.content === todo.content && row.agent === todo.agent)
+      if (!live?.content) throw new Error('请输入完整的任务内容')
+      const taskId = 't-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+      if (!await applyTaskEdit(todo.from, todo.to, 'DOING #' + taskId)) return
       try {
-        await window.workbench.tasks.start({ noteId: note.id, taskId, promptText: todo.content || todo.agent, agentSelector: todo.agent || 'dsh' })
-        await applyTaskEdit(todo.from, todo.to, 'DOING #' + taskId)
-      } catch (error) { setIssue(String(error)) }
-    })() },
-    stop: card => { void window.workbench.tasks.stop(card.taskId).then(async () => {
-      const e = surface.current
-      const marker = e && scanTaskLines(e.session.raw).markers.find(m => m.taskId === card.taskId)
-      if (marker) await applyTaskEdit(marker.from, marker.to, 'TODO')
-    }, error => setIssue(String(error))) },
-    adopt: card => { void (async () => {
-      const e = surface.current
-      if (!e) return
-      const scan = scanTaskLines(e.session.raw)
-      const marker = scan.markers.find(m => m.taskId === card.taskId)
-      if (!marker) { setIssue('任务行已不在正文中'); return }
-      const newline = e.session.raw.indexOf('\n', marker.to)
-      const lineEnd = newline === -1 ? e.session.raw.length : newline
-      const rest = e.session.raw.slice(marker.to, lineEnd)
-      const quote = outputQuote(card.outputDraft, '\n')
-      const insert = 'DONE #' + card.taskId + rest + (quote ? '\n' + quote : '')
+        await window.workbench.tasks.start({ noteId: note.id, taskId, promptText: todo.content, agentSelector: todo.agent || 'dsh' })
+      } catch (error) {
+        // Verify state before rolling back: an interrupted receipt may follow a real start.
+        const runs = await window.workbench.tasks.listByNote(note.id)
+        if (!runs.some(run => run.taskId === taskId)) await resetTask(taskId, todo.agent)
+        throw error
+      }
+    }),
+    stop: card => taskRun(async () => {
+      await window.workbench.tasks.stop(card.taskId)
+      await resetTask(card.taskId, card.agentId)
+    }),
+    adopt: card => taskRun(async () => {
+      const marker = findTask(card.taskId)
+      if (!marker) throw new Error('任务行已不在正文中')
+      if (marker.state !== 'DONE') {
+        const { raw } = session
+        const newline = raw.includes('\r\n') ? '\r\n' : '\n'
+        const end = marker.contextEnd
+        const rest = raw.slice(marker.to, end)
+        const quote = outputQuote(card.outputDraft, newline)
+        if (!await applyTaskEdit(marker.from, end, 'DONE #' + card.taskId + rest + (quote ? newline + newline + quote : ''))) return
+      }
       await window.workbench.tasks.markDone(card.taskId)
-      await applyTaskEdit(marker.from, lineEnd, insert)
-    })() },
-    follow: (card, instruction) => { void (async () => {
+    }),
+    follow: (card, instruction) => taskRun(async () => {
       if (!instruction.trim()) { setIssue('请输入修改意见'); return }
-      try {
-        await window.workbench.tasks.followUp(card.taskId, instruction.trim())
-        followDrafts.current.delete(card.taskId)
-      } catch (error) { setIssue(String(error)) }
-    })() },
-    reject: card => { void window.workbench.tasks.reject(card.taskId).then(async () => {
-      const e = surface.current
-      const marker = e && scanTaskLines(e.session.raw).markers.find(m => m.taskId === card.taskId)
-      if (marker) await applyTaskEdit(marker.from, marker.to, 'TODO')
-    }, error => setIssue(String(error))) },
+      if (findTask(card.taskId)?.state === 'DONE') throw new Error('请先完成采纳状态同步')
+      await window.workbench.tasks.followUp(card.taskId, instruction.trim())
+      followDrafts.current.delete(card.taskId)
+    }),
+    reject: card => taskRun(async () => {
+      if (findTask(card.taskId)?.state === 'DONE') throw new Error('请先完成采纳状态同步')
+      await window.workbench.tasks.reject(card.taskId)
+      await resetTask(card.taskId, card.agentId)
+    }),
+    recover: taskId => taskRun(async () => {
+      const runs = await window.workbench.tasks.listByNote(note.id)
+      if (runs.some(run => run.taskId === taskId)) throw new Error('已找到这次运行，请核对状态')
+      await resetTask(taskId, '')
+    }),
     togglePanel: taskId => { logOpen.current = logOpen.current === taskId ? null : taskId; redraw() },
     submitFollow: taskId => { /* Enter 输入框直接走 follow */ void taskId },
     followDraft: (taskId, value) => { followDrafts.current.set(taskId, value) },
