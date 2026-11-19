@@ -11,8 +11,12 @@ import { RelationshipGraph } from './relationship-graph'
 import { noteRelations } from './relation-directions'
 import { NOTE_DRAWER_WIDTH_MAX, NOTE_DRAWER_WIDTH_MIN, useWorkbench } from './store'
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
-  .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+const errorText = (error: unknown) => {
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+  if (/database or disk is full|磁盘空间不足|磁盘已满/i.test(message)) return '磁盘空间不足，无法完成写入。释放空间后重试。'
+  return message
+}
 const DRAFT_DELAY_MS = 700
 const fileName = (path: string) => path.split(/[\\/]/).at(-1)
 
@@ -403,7 +407,7 @@ export function NotesWorkspace({ hudRight }: { hudRight: ReactNode }) {
         if (linkPrompt!==undefined) focusAfterOperation.current = focusSource
         return
       }
-      const next = await api.read(id)
+      const next = await api.read(id, true)
       const prepared = verifyEditable(next)
       await finishLeave(choice)
       show(next, undefined, undefined, prepared)
@@ -731,7 +735,8 @@ export function NotesWorkspace({ hudRight }: { hudRight: ReactNode }) {
     <main className="pane editor notes-editor notes-stage" aria-label="编辑区" onKeyDown={saveShortcut}>
       <RelationshipGraph nodes={visible} edges={visibleEdges} selected={activeId} focusId={focusId} hudLeft={hudLeft} hudRight={hudRight}
         revealOutside={id => { setProject(''); setTag(''); locateNode(id) }}
-        activeProject={writableProject} label={label} open={(id, origin) => select(id, origin)}
+        activeProject={writableProject} projectFilter={project || undefined}
+        projectLabel={projects.find(item => item.id === writableProject)?.name ?? '默认'} label={label} open={(id, origin) => select(id, origin)}
         close={closeNoteDrawer} editorOpen={drawerOpen} rightInset={drawerOpen ? drawerWidth + 16 : 0}
         canChange={id => !inFlight.current && !recoveries.some(draft => draft.id === id) &&
           (id !== note?.id || !dirty && !session?.composing && !external)}

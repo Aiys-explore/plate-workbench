@@ -256,11 +256,6 @@ fn home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-pub fn supports_entry(agent_type: &str, path: &Path) -> bool {
-    !cfg!(windows) || agent_type != "opencode" ||
-        path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
-}
-
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
         .filter(|path| path.is_absolute())
@@ -299,8 +294,7 @@ pub fn discover() -> Vec<DiscoveredAgent> {
 pub fn resolve(agent_type: &str) -> Option<String> {
     // 隔离验收钩子：PLATE_AGENT_<TYPE>=可执行文件路径，仅测试环境注入。
     if let Ok(path) = std::env::var(format!("PLATE_AGENT_{}", agent_type.to_uppercase())) {
-        if Path::new(&path).is_absolute() && Path::new(&path).is_file() &&
-            supports_entry(agent_type, Path::new(&path)) {
+        if Path::new(&path).is_absolute() && Path::new(&path).is_file() {
             return Some(path);
         }
     }
@@ -308,7 +302,7 @@ pub fn resolve(agent_type: &str) -> Option<String> {
     for dir in search_dirs() {
         for file in entry.binary_names {
             let candidate = dir.join(file);
-            if candidate.is_file() && supports_entry(entry.id, &candidate) {
+            if candidate.is_file() {
                 return Some(candidate.to_string_lossy().into_owned());
             }
         }
@@ -491,12 +485,6 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn opencode_keeps_windows_exe_semantics() {
-        assert!(supports_entry("opencode", Path::new("opencode.exe")));
-        assert_eq!(supports_entry("opencode", Path::new("opencode.cmd")), !cfg!(windows));
-        assert!(supports_entry("claude", Path::new("claude.cmd")));
-    }
 
     #[test]
     fn model_parsing_reads_ids_and_skips_sensitive_values() {

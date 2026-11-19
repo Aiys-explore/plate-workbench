@@ -1,3 +1,4 @@
+import type { BrainApi, BrainDelta } from './brain'
 import type { StartupApi } from './startup'
 import type { AgentsApi } from './agents'
 import type { AgentPluginsApi } from './agent-plugins'
@@ -178,6 +179,7 @@ export interface TaskRunCard {
   pendingKind: 'review_ready' | 'approval_needed' | null
   promptText: string
   outputDraft: string
+  memoryDelta?: BrainDelta
   logTail: string
   errorMsg: string | null
   externalSessionId: string | null
@@ -204,7 +206,7 @@ export interface NotesApi {
   create(title: string, projectId: string, template?: NoteTemplate): Promise<Note>
   projects(): Promise<ProjectSummary[]>
   createProject(name: string): Promise<ProjectSummary>
-  read(id: string): Promise<Note>
+  read(id: string, touch?: boolean): Promise<Note>
   update(id: string, content: string, revision?: string, draftVersion?: string): Promise<SaveResult>
   updateStrict?(id: string, content: string, revision: string): Promise<SaveResult>
   delete(id: string, revision?: string): Promise<'deleted' | 'changed'>
@@ -238,6 +240,7 @@ export interface WorkbenchApi {
   startup: StartupApi
   agents: AgentsApi
   agentPlugins: AgentPluginsApi
+  brain: BrainApi
   agentSettings: {
     get(): Promise<AgentSettings>
     save(input: { defaultAgent: string | null; deepseekKey?: string; clearDeepseekKey?: boolean }): Promise<AgentSettings>

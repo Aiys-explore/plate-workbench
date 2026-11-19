@@ -53,7 +53,7 @@ Object.assign(env, {
   CODEX_HOME: codexHome,
   PLATE_AGENT_SETTINGS_DIR: settings, PLATE_WORKSPACE_ROOT: workspace, WEBVIEW2_USER_DATA_FOLDER: profile,
 })
-for (const kind of ['codex', 'claude', 'dsh', 'gemini', 'zcode', 'minimax-code', 'custom']) {
+for (const kind of ['codex', 'claude', 'dsh', 'gemini', 'zcode', 'minimax-code', 'custom', 'opencode']) {
   const shim = join(kind === 'dsh' ? dshBin : run, kind + '.cmd')
   await writeFile(shim, `@echo off\r\n"${process.execPath}" "${fixture}" ${kind} %*\r\n`)
   env['PLATE_AGENT_' + kind.toUpperCase()] = shim
@@ -66,7 +66,7 @@ await writeFile(join(codexHome, 'models_cache.json'), JSON.stringify({ models: [
 let child
 let browser
 let page
-const active = () => page.evaluate(() => window.workbench.agents.list())
+const active = () => page.evaluate(() => window.workbench.agentPlugins.active())
 const snapshot = () => page.evaluate(() => window.workbench.agentPlugins.list())
 
 async function until(fn, title, timeout = 10000) {
@@ -186,6 +186,7 @@ try {
   await claude.click()
   await until(async () => !(await active()).some(agent => agent.id === 'claude'), 'Claude disabled')
   await center().getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: 'Agent 设置 · ' + (await active()).length, exact: true }).waitFor()
   const blocked = await note('停用拦截样本', '- [ ] TODO(@claude): 不应发送')
   await editor().locator('[data-task-pill=todo]').click()
   await drawer().getByText(/该 Agent 插件未启用/).waitFor()
@@ -198,6 +199,14 @@ try {
     } catch (error) { return String(error) }
   }, blocked.id)
   assert.match(directBlock, /该 Agent 插件未启用/)
+  const unready = await page.evaluate(async id => {
+    try {
+      await window.workbench.tasks.start({ taskId: 't-unready', noteId: id, promptText: '禁止', agentSelector: 'dsh' })
+      return false
+    } catch (error) { return String(error) }
+  }, blocked.id)
+  assert.match(unready, /缺少 DeepSeek API Key/)
+  assert.deepEqual(await page.evaluate(id => window.workbench.tasks.listByNote(id), blocked.id), [])
   await editor().locator('[data-task-pill=agent]').click()
   const choices = page.getByRole('dialog', { name: /交给哪个 Agent/ })
   await choices.getByRole('button', { name: /Codex/ }).waitFor()
@@ -275,7 +284,7 @@ try {
   assert.equal(dshInvocation.baseUrl, 'http://127.0.0.1:9578/v1')
   assert.ok(dshCard.logTail.includes('[已隐藏密钥]') && !dshCard.logTail.includes(fakeKey))
   const manifest = { id: 'custom-fixture', name: '自定义验收', executable: env.PLATE_AGENT_CUSTOM,
-    args: ['--plain'], modelFlag: '--model', models: ['test-model'] }
+    args: ['--plain', '{model}', '--', 'positional'], modelFlag: '--model', models: ['test-model'] }
   assert.equal((await page.evaluate(json => window.workbench.agentPlugins.importManifest(json), JSON.stringify(manifest)))
     .installed.find(item => item.id === manifest.id).enabled, false)
   assert.ok(!(await active()).some(item => item.id === manifest.id))
@@ -283,7 +292,7 @@ try {
   const custom = await note('自定义样本', '- [ ] TODO(@custom-fixture): 保留输入的 & | %')
   await editor().locator('[data-task-pill=todo]').click()
   assert.equal((await runCard(custom)).state, 'PENDING')
-  assert.deepEqual((await history()).at(-1).argv, ['--plain', '--model', 'test-model'])
+  assert.deepEqual((await history()).at(-1).argv, ['--plain', '--model', 'test-model', '--', 'positional'])
   assert.equal((await history()).at(-1).input, '保留输入的 & | %')
   record('DeepSeek URL/secret and explicitly enabled custom manifest use isolated stdin')
 
@@ -323,6 +332,28 @@ try {
   assert.equal((await snapshot()).installed.find(item => item.id === 'dsh')?.deepseekKey, 'saved')
   assert.equal((await history()).length, 3)
   record('Restart retains plugin state and dispatch history without replay')
+  await page.evaluate(() => window.workbench.agentPlugins.install('opencode'))
+  await page.evaluate(() => window.workbench.agentPlugins.update({ id: 'opencode', enabled: true }))
+  const openCode = await note('OpenCode 管道样本', 'stdin 验收')
+  const prompt = '第一行 中文\r\n第二行 & | % ! " < > ^ 😀\n'.repeat(500)
+  await page.evaluate(({ noteId, promptText }) => window.workbench.tasks.start({
+    noteId, taskId: 't-opencode', promptText, agentSelector: 'opencode',
+  }), { noteId: openCode.id, promptText: prompt })
+  assert.equal((await runCard(openCode)).state, 'PENDING')
+  const piped = (await history()).at(-1)
+  assert.equal(piped.kind, 'opencode')
+  assert.deepEqual(piped.argv, ['run'])
+  assert.equal(piped.input, prompt)
+  record('OpenCode .cmd preserves exact multiline UTF-8 beyond CMD argv limit', { bytes: Buffer.byteLength(prompt) })
+  await page.evaluate(() => window.workbench.agentPlugins.saveDeepSeek({ clear: true, baseUrl: '' }))
+  const blockedFollow = await page.evaluate(async taskId => {
+    try { await window.workbench.tasks.followUp(taskId, '重新执行'); return false }
+    catch (error) { return String(error) }
+  }, dshCard.taskId)
+  assert.match(blockedFollow, /缺少 DeepSeek API Key/)
+  assert.equal((await runCard(dsh)).state, 'PENDING')
+  assert.equal((await history()).length, 4)
+  record('Explicit start and follow-up share readiness checks and preserve the review on rejection')
   results.status = 'PASS'
 } catch (error) {
   results.status = 'FAIL'

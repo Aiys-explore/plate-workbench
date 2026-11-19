@@ -64,11 +64,19 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
   } })
 
   useEffect(() => {
-    let live = true
-    if (!agentSettings) void window.workbench.agents.list().then(agents => {
-      if (live) setAgentCount(agents.length)
-    }, () => { if (live) setAgentCount(undefined) })
-    return () => { live = false }
+    let sequence = 0
+    const refresh = async () => {
+      const request = ++sequence
+      try {
+        const agents = await window.workbench.agentPlugins.active()
+        if (request === sequence) setAgentCount(agents.length)
+      } catch {
+        if (request === sequence) setAgentCount(undefined)
+      }
+    }
+    const unsubscribe = window.workbench.agentPlugins.onChange(refresh)
+    void refresh()
+    return () => { sequence++; unsubscribe() }
   }, [agentSettings])
 
   const controls = <>

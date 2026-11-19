@@ -262,6 +262,8 @@ export function project(raw: string): Projection {
     if (name === 'LinkReference') return protect('link-definition', a, b)
     if (name === 'CommentBlock' && /^<!-- workbench-result:(?:start|end):[0-9a-f-]{36} -->$/.test(value.trimEnd()))
       return protect('result-boundary', a, b, true)
+    if (name === 'CommentBlock' && /^(?:<!-- plate-brain-write:[0-9a-f-]{36} -->|<!-- \/?plate-evolution -->)$/.test(value.trimEnd()))
+      return protect('brain-metadata', a, b, true)
     if (name === 'CommentBlock') return protect('comment', a, b, /^<!--\s*agent\s*:/i.test(value) || !!taskCommentId(value.trimEnd()))
     return protect('unmapped-' + name, a, b)
   }

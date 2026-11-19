@@ -1,3 +1,4 @@
+import type { BrainActivationWave, BrainApi } from '../../shared/brain'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
@@ -54,7 +55,7 @@ function createNotesApi(): NotesApi {
     create: (title, projectId, template) => invoke<Note>('notes_create', { title, projectId, template }),
     projects: () => invoke<ProjectSummary[]>('projects_list'),
     createProject: (name) => invoke<ProjectSummary>('projects_create', { name }),
-    read: (id) => invoke<Note>('notes_read', { id }),
+    read: (id, touch) => invoke<Note>('notes_read', { id, touch }),
     update: (id, content, revision, draftVersion) => invoke<SaveResult>('notes_update', { id, content, revision, draftVersion }),
     updateStrict: (id, content, revision) => invoke<SaveResult>('notes_update_strict', { id, content, revision }),
     delete: (id, revision) => invoke<'deleted' | 'changed'>('notes_delete', { id, revision }),
@@ -103,8 +104,35 @@ function createAgentsApi(): AgentsApi {
   }
 }
 
+function subscribeBrain<T>(name: string, callback: (value: T) => void) {
+  let live = true
+  const registration = listen<T>(name, event => { if (live) callback(event.payload) })
+  return () => { live = false; void registration.then(unlisten => unlisten()) }
+}
+
+function createBrainApi(): BrainApi {
+  return {
+    status: () => invoke('brain_status'),
+    setContext: enabled => invoke('set_brain_context', { enabled }),
+    metadata: () => invoke('brain_note_metadata'),
+    capture: (projectId, rawText) => invoke('capture_episodic_event', { projectId, rawText }),
+    events: projectId => invoke('list_episodic_events', { projectId }),
+    consolidate: (eventIds, title, targetNoteId) => invoke('consolidate_episodic_to_note', { eventIds, title, targetNoteId }),
+    dream: projectId => invoke('trigger_dream_consolidation', { projectId }),
+    skills: () => invoke('list_procedural_skills'),
+    saveSkill: input => invoke('save_procedural_skill', { input }),
+    history: noteId => invoke('get_note_evolution_history', { noteId }),
+    applyDelta: runId => invoke('apply_memory_delta', { runId }),
+    recalculate: () => invoke('recalculate_brain_vitality'),
+    onChanged: callback => subscribeBrain('brain://changed', callback),
+    onActivation: callback => subscribeBrain<BrainActivationWave>('brain://activation-wave', callback),
+  }
+}
+
 function createAgentPluginsApi(): AgentPluginsApi {
   return {
+    saveDeepSeek: ({ key, clear, baseUrl }) => invoke('agent_plugin_save_deepseek', { key: key ?? null, clear, baseUrl }),
+    active: () => invoke('agent_plugins_active'),
     list: (refresh = false) => invoke('agent_plugins_list', { refresh }),
     install: id => invoke('agent_plugin_install', { id }),
     uninstall: ids => invoke('agent_plugin_uninstall', { ids }),
@@ -167,6 +195,7 @@ export function createTauriBridge(): WorkbenchApi {
     },
     agents: createAgentsApi(),
     agentPlugins: createAgentPluginsApi(),
+    brain: createBrainApi(),
     agentSettings: {
       get: () => invoke<AgentSettings>('agent_settings_get'),
       save: input => invoke<AgentSettings>('agent_settings_save', {

@@ -353,9 +353,9 @@ export function AgentSettingsDialog({ onClose }: { onClose: () => void }) {
                     </label>
                     <div className="plate-agent-detail-actions">
                       <button type="button" className="p13-action" disabled={busy} onClick={() => void run(async api => {
-                        const next = await api.update({
-                          id: plugin.id, deepseekKey: detail.deepseekKey.trim() || undefined,
-                          clearDeepseekKey: detail.clearDeepseekKey, baseUrl: detail.baseUrl.trim(),
+                        const next = await api.saveDeepSeek({
+                          key: detail.deepseekKey.trim() || undefined,
+                          clear: detail.clearDeepseekKey, baseUrl: detail.baseUrl.trim(),
                         })
                         setDetail(current => ({ ...current, deepseekKey: '', clearDeepseekKey: false }))
                         return next

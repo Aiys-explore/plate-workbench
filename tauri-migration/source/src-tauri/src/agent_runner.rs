@@ -1,6 +1,7 @@
 // 任务执行引擎：tokio 异步状态机，stdout/stderr 250ms 节流写入 log_tail，
 // 退出后 PENDING(review_ready) / ERROR，并通过 `task:state-changed` 通知前端。
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use crate::notes::NoteStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -40,6 +41,8 @@ pub struct TaskCard {
     pub prompt_text: String,
     #[serde(rename = "outputDraft")]
     pub output_draft: String,
+    #[serde(rename = "memoryDelta", skip_serializing_if = "Option::is_none")]
+    pub memory_delta: Option<serde_json::Value>,
     #[serde(rename = "logTail")]
     pub log_tail: String,
     #[serde(rename = "errorMsg")]
@@ -79,14 +82,23 @@ const CARD_COLUMNS: &str =
      error_msg, external_session_id, started_at, ended_at, duration_ms, tokens_used, updated_at, follow_context";
 
 fn row_to_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskCard> {
+    let state: String = row.get(3)?;
+    let raw: String = row.get(6)?;
+    let proposal = matches!(state.as_str(), "PENDING" | "DONE")
+        .then(|| crate::memory_consolidator::parse_delta_from_output(&raw)).flatten();
+    let (output_draft, memory_delta) = match proposal {
+        Some((body, delta)) => (body.to_owned(), serde_json::to_value(delta).ok()),
+        None => (raw, None),
+    };
     Ok(TaskCard {
         task_id: row.get(0)?,
         note_id: row.get(1)?,
         agent_id: row.get(2)?,
-        state: row.get(3)?,
+        state,
         pending_kind: row.get(4)?,
         prompt_text: row.get(5)?,
-        output_draft: row.get(6)?,
+        output_draft,
+        memory_delta,
         log_tail: row.get(7)?,
         error_msg: row.get(8)?,
         external_session_id: row.get(9)?,
@@ -182,32 +194,30 @@ fn prepare_follow(previous: &TaskCard, instruction: &str) -> Result<(String, Str
     Ok((prompt, serde_json::to_string(&context).map_err(|error| error.to_string())?))
 }
 
-fn build_command(route: &crate::agent_plugins::Route, prompt: &str) -> Result<(Command, bool), String> {
+fn build_command(route: &crate::agent_plugins::Route) -> Result<Command, String> {
     let mut command = Command::new(&route.executable);
     if let Some(args) = &route.args {
-        crate::agent_plugins::validate_args(&route.executable, args)?;
+        let mut args = args.clone();
+        let placement = args.iter().position(|arg| arg == "{model}");
+        let index = placement.or_else(|| args.iter().position(|arg| arg == "--")).unwrap_or(args.len());
+        let model = route.model_flag.as_ref().filter(|_| !route.selected_model.is_empty())
+            .map(|flag| [flag.clone(), route.selected_model.clone()]);
+        args.splice(index..index + usize::from(placement.is_some()), model.into_iter().flatten());
+        crate::agent_plugins::validate_args(&route.executable, &args)?;
         command.args(args);
+        return Ok(command);
     } else { match route.id.as_str() {
         "dsh" => { command.args(["--profile", "headless"]); }
         "codex" => { command.args(["exec", "--skip-git-repo-check"]); }
         "claude" => { command.args(["-p", "--output-format", "text"]); }
-        "opencode" => {
-            if !crate::agent_store::supports_entry(&route.id, Path::new(&route.executable)) {
-                return Err("OpenCode 后台执行需要原生 .exe 入口".into());
-            }
-            command.arg("run");
-        }
+        "opencode" => { command.arg("run"); }
         _ => return Err(format!("不支持的 Agent：{}", route.id)),
     }}
     if let Some(flag) = route.model_flag.as_deref().filter(|_| !route.selected_model.is_empty()) {
         command.args([flag, &route.selected_model]);
     }
-    match route.id.as_str() {
-        "codex" => { command.arg("-"); }
-        "opencode" => { command.args(["--", prompt]); return Ok((command, false)); }
-        _ => {}
-    };
-    Ok((command, true))
+    if route.id == "codex" { command.arg("-"); }
+    Ok(command)
 }
 
 type RunKey = (PathBuf, String);
@@ -228,22 +238,22 @@ impl TaskEngine {
     pub fn start(
         &self,
         app: AppHandle,
-        root: PathBuf,
+        store: &NoteStore,
         task_id: String,
         note_id: String,
         agent_type: Option<String>,
         prompt: String,
     ) -> Result<TaskCard, String> {
-        self.launch(app, root, task_id, note_id, agent_type, prompt, None)
+        self.launch(app, store, task_id, note_id, agent_type, prompt, None)
     }
 
     fn launch(
-        &self, app: AppHandle, root: PathBuf, task_id: String, note_id: String,
+        &self, app: AppHandle, store: &NoteStore, task_id: String, note_id: String,
         agent_type: Option<String>, prompt: String, follow_context: Option<String>,
     ) -> Result<TaskCard, String> {
         let route = app.state::<crate::agent_plugins::AgentPlugins>().route(&app, agent_type.as_deref())?
             .ok_or("请先在「使用 / Agent」中启用并配置至少一个 Agent 插件")?;
-        let (mut command, piped) = build_command(&route, &prompt)?;
+        let mut command = build_command(&route)?;
         let agent_type = route.id;
         let deepseek_key = if agent_type == "dsh" {
             use crate::agent_settings::{AgentSettings, DSH_KEY_ENV, DSH_URL_ENV};
@@ -254,13 +264,16 @@ impl TaskEngine {
         } else {
             None
         };
+        let root = store.root.clone();
         let key = (root.clone(), task_id.clone());
+        let packet = crate::context_compiler::compile(store, &note_id, &task_id, &agent_type, &prompt)?;
         let mut running = self.running.lock().unwrap();
         if running.contains_key(&key) { return Err("此任务正在执行".into()) }
-        let conn = Connection::open(root.join("index.sqlite")).map_err(|e| e.to_string())?;
+        let conn = store.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let started = now_ms();
         let changed = if follow_context.is_some() {
-            conn.execute(
+            tx.execute(
                 "UPDATE task_runs SET state='DOING', pending_kind=NULL,
                  review_prompt=prompt_text, prompt_text=?4, log_tail='', error_msg=NULL, started_at=?5, ended_at=NULL,
                  duration_ms=NULL, updated_at=?5 WHERE task_id=?1 AND note_id=?2
@@ -268,7 +281,7 @@ impl TaskEngine {
                 rusqlite::params![task_id, note_id, agent_type, prompt, started],
             )
         } else {
-            conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO task_runs (task_id, note_id, agent_id, state, pending_kind,
                  prompt_text, output_draft, log_tail, error_msg, started_at, updated_at)
                  VALUES (?1, ?2, ?3, 'DOING', NULL, ?4, '', '', NULL, ?5, ?5)",
@@ -276,15 +289,36 @@ impl TaskEngine {
             )
         }.map_err(|e| e.to_string())?;
         if changed != 1 { return Err("任务已存在或当前状态不允许续跑".into()) }
-        let card = read_card(&root, &task_id)?;
+        if let Some(packet) = &packet {
+            for id in packet.wave.activated_note_ids.iter().chain(std::iter::once(&note_id)) {
+                crate::vitality_engine::boost(&tx, id, started).map_err(|e| e.to_string())?;
+            }
+            for id in &packet.wave.activated_skill_ids {
+                tx.execute("UPDATE procedural_skills SET usage_count=usage_count+1 WHERE id=?1", [id])
+                    .map_err(|e| e.to_string())?;
+                tx.execute("INSERT OR IGNORE INTO brain_skill_usage(task_id,skill_id) VALUES(?1,?2)", params![task_id,id])
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        let card = tx.query_row(&format!("SELECT {CARD_COLUMNS} FROM task_runs WHERE task_id=?1"), [&task_id], row_to_card)
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         let (cancel, signal) = oneshot::channel();
         let (completed, done) = watch::channel(None);
         running.insert(key.clone(), RunningTask { cancel: Some(cancel), done });
         let _ = app.emit(EVENT_TASK_STATE, &card);
+        let input = match packet {
+            Some(packet) => {
+                let _ = app.emit("brain://activation-wave", &packet.wave);
+                let _ = app.emit("brain://changed", ());
+                packet.compiled_prompt
+            }
+            None => prompt,
+        };
         let registry = self.running.clone();
         async_runtime::spawn(async move {
             let result = run_task(
-                &app, &root, &task_id, command, piped.then_some(prompt), signal,
+                &app, &root, &task_id, command, Some(input), signal,
                 follow_context.as_deref(), &agent_type, deepseek_key.as_deref(),
             ).await;
             let mut running = registry.lock().unwrap();
@@ -321,23 +355,34 @@ impl TaskEngine {
         }
     }
 
-    pub fn follow_up(&self, app: AppHandle, root: &PathBuf, task_id: &str, instruction: &str) -> Result<TaskCard, String> {
-        let previous = read_card(root, task_id)?;
+    pub fn follow_up(&self, app: AppHandle, store: &NoteStore, task_id: &str, instruction: &str) -> Result<TaskCard, String> {
+        let previous = read_card(&store.root, task_id)?;
         let (prompt, context) = prepare_follow(&previous, instruction)?;
-        self.launch(app, root.clone(), task_id.to_string(), previous.note_id, Some(previous.agent_id), prompt, Some(context))
+        self.launch(app, store, task_id.to_string(), previous.note_id, Some(previous.agent_id), prompt, Some(context))
     }
 
     pub fn mark_done(&self, app: AppHandle, root: &PathBuf, task_id: &str) -> Result<TaskCard, String> {
         let conn = Connection::open(root.join("index.sqlite")).map_err(|e| e.to_string())?;
         let ended = now_ms();
-        let changed = conn.execute(
-            "UPDATE task_runs SET state='DONE', pending_kind=NULL, ended_at=?2, updated_at=?2 WHERE task_id=?1 AND state IN ('PENDING','DONE')",
-            rusqlite::params![task_id, ended],
-        )
-        .map_err(|e| e.to_string())?;
-        if changed != 1 { return Err("此任务尚未进入审阅".into()) }
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let changed = tx.execute(
+            "UPDATE task_runs SET state='DONE', pending_kind=NULL, ended_at=?2, updated_at=?2 WHERE task_id=?1 AND state='PENDING'",
+            params![task_id, ended],
+        ).map_err(|e| e.to_string())?;
+        if changed == 1 {
+            tx.execute("UPDATE procedural_skills SET success_count=success_count+1 WHERE id IN
+                (SELECT skill_id FROM brain_skill_usage WHERE task_id=?1)", [task_id]).map_err(|e| e.to_string())?;
+        }
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM task_runs WHERE state='DONE'", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         let card = read_card(root, task_id)?;
+        if card.state != "DONE" { return Err("此任务尚未进入审阅".into()); }
         let _ = app.emit(EVENT_TASK_STATE, &card);
+        if changed == 1 {
+            if count % 10 == 0 { let _ = crate::vitality_engine::recalculate(&conn, ended); }
+            let _ = app.emit("brain://changed", ());
+        }
         Ok(card)
     }
 
@@ -615,15 +660,16 @@ mod tests {
         let fixture = Fixture::new();
         let shim = fixture.shim("process.stdin.pipe(process.stdout); console.error('diagnostic');");
         let input = "任务正文\r\n第二行 & | > < % \"\n\n补充指令：新的一行\n第二条追问 😀";
-        for kind in ["codex", "claude", "dsh"] {
+        let long_input = input.repeat(430);
+        for kind in ["codex", "claude", "dsh", "opencode"] {
+            let input = if kind == "opencode" { &long_input[..] } else { input };
             let (_sender, signal) = oneshot::channel();
             let route = crate::agent_plugins::Route {
                 id: kind.into(), executable: shim.clone(), selected_model: "model-fixture".into(),
                 model_flag: Some(if kind == "codex" { "-m" } else { "--model" }.into()),
                 args: None, base_url: None,
             };
-            let (command, piped) = build_command(&route, input).unwrap();
-            assert!(piped);
+            let command = build_command(&route).unwrap();
             let result = supervise(&fixture.0, command, Some(input.into()), signal, Duration::from_secs(10), |_| {}).await.unwrap();
             assert!(matches!(result.outcome, Outcome::Exit(Ok(status)) if status.success()));
             result.input.unwrap();

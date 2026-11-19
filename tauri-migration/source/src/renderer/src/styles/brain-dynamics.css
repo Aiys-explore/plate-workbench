@@ -1,0 +1,238 @@
+.relationship-flow {
+  --brain-green: #08785b;
+  --brain-gold: #9a5504;
+  --brain-violet: #6832c0;
+  --brain-amber-paper: #fffbeb;
+  --brain-violet-paper: #f5f3ff;
+}
+.theme-dark .relationship-flow {
+  --brain-green: #69e3bb;
+  --brain-gold: #fac06e;
+  --brain-violet: #cdb3ff;
+  --brain-amber-paper: #31291d;
+  --brain-violet-paper: #29223b;
+}
+.brain-hud, .brain-skill-dock, .brain-context-control, .brain-episodic {
+  position: absolute;
+  z-index: 5;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-ui-small);
+}
+.brain-hud, .brain-skill-dock, .brain-context-control {
+  background: var(--color-surface-bar);
+  border: 1px solid var(--color-border-decorative);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-level-2);
+}
+.brain-hud {
+  inset: 64px auto auto 50%;
+  transform: translateX(-50%);
+  min-height: 40px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-radius: 24px;
+}
+.brain-run-status { font-variant-numeric: tabular-nums; }
+.brain-run-status::before {
+  content: '';
+  display: inline-block;
+  margin-inline-end: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brain-green);
+}
+.brain-run-status[data-active='true'] { color: var(--brain-green); }
+.brain-hud-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.brain-hud-actions button[aria-pressed='true'] { color: var(--color-accent-text); background: var(--accent-bg-surface); }
+.brain-zones {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+}
+.brain-probes {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.relationship-flow[data-brain-zones='true'] .relationship-stage .relations-canvas {
+  inset-inline-start: min(240px, 25%);
+}
+.brain-zone-hippocampus {
+  position: absolute;
+  inset: 112px auto 80px 0;
+  width: min(240px, 25%);
+  background: color-mix(in srgb, var(--brain-amber-paper) 60%, transparent);
+  border-inline-end: 1px dashed color-mix(in srgb, var(--brain-gold) 40%, transparent);
+}
+.brain-zone-neocortex {
+  position: absolute;
+  inset: 120px auto auto min(254px, 26%);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-small);
+}
+.brain-episodic {
+  inset: 116px auto 86px 12px;
+  width: min(215px, calc(25% - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.brain-lane-header { display: flex; justify-content: space-between; align-items: center; }
+.brain-lane-header small, .brain-lane-header strong { display: block; }
+.brain-lane-header small { color: var(--brain-gold); }
+.brain-lane-header strong { font-size: 15px; }
+.brain-lane-header button, .brain-event-list { pointer-events: auto; }
+.brain-event-list { overflow: auto; display: grid; align-content: start; gap: 9px; padding: 2px 3px 8px; }
+.brain-episodic-card {
+  padding: 7px 8px;
+  border: 1px dashed var(--brain-gold);
+  border-radius: 12px;
+  background: var(--brain-amber-paper);
+  overflow: hidden;
+}
+.brain-episodic-card p {
+  margin: 0 0 6px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.brain-episodic-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; }
+.brain-episodic-card time, .brain-muted { color: var(--color-text-muted); font-size: var(--font-size-ui-small); }
+.brain-context-control { inset: auto auto 66px 12px; padding: 4px 8px; max-width: min(340px, 46%); }
+.brain-context-control label { display: flex; align-items: center; gap: 4px; }
+.brain-context-control p { margin: 4px 0; }
+.brain-skill-dock {
+  inset: auto 12px 66px auto;
+  padding: 4px 7px;
+  max-width: min(660px, 51%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brain-skill-dock > span, .brain-skill-dock > button { flex: none; }
+.brain-skill-list { display: flex; gap: 6px; overflow: auto; }
+.brain-skill-list button {
+  white-space: nowrap;
+  color: var(--brain-violet);
+  background: var(--brain-violet-paper);
+  border: 1px solid var(--brain-violet);
+  border-radius: 999px;
+}
+.brain-skill-list button[data-attached='true'] { outline: 2px solid var(--brain-green); outline-offset: -2px; }
+.brain-skill-list button small { margin-inline-start: 5px; font-variant-numeric: tabular-nums; }
+.brain-form, .brain-timeline, .brain-delta-review { display: grid; gap: 10px; }
+.brain-form label { display: grid; gap: 4px; }
+.brain-form textarea, .brain-form select, .brain-form input:not([type='checkbox']) {
+  width: 100%;
+  min-height: 30px;
+  color: inherit;
+  font: inherit;
+  background: var(--color-surface-control);
+  border: 1px solid var(--color-border-decorative);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+}
+.brain-form textarea { resize: vertical; }
+.brain-form p, .brain-timeline p { margin: 0; }
+.brain-choice-list { max-height: 240px; overflow: auto; }
+.brain-choice-list label { display: flex; align-items: start; overflow-wrap: anywhere; gap: 7px; padding: 4px; }
+.brain-timeline, .brain-delta-review { max-height: min(58vh, 520px); overflow: auto; }
+.brain-timeline h3, .brain-delta-review h3 { font-size: 13px; margin: 0 0 6px; }
+.brain-timeline article, .brain-delta-review article {
+  padding: 8px;
+  margin-block-end: 6px;
+  border: 1px solid var(--color-border-decorative);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+.brain-timeline article[data-historical='false'] strong { color: var(--brain-green); }
+.brain-timeline article[data-historical='true'] p { text-decoration: line-through; color: var(--color-text-muted); }
+.brain-timeline pre, .brain-delta-review pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+.brain-delta-target { display: block; font-family: var(--font-family-code); font-size: 11px; color: var(--color-text-muted); }
+[data-editor-dialog][data-kind='brain'] { width: min(560px, calc(100% - 28px)); }
+.relationship-flow .brain-edge--synaptic-flowing {
+  fill: none;
+  pointer-events: none;
+  stroke: var(--brain-green);
+  stroke-width: 2.2px;
+  stroke-dasharray: 6 6;
+  animation: brain-synaptic-flow 650ms linear infinite;
+}
+.relationship-flow .relations-node[data-brain-active='true'] .relationship-card-ink > rect,
+.relationship-flow .relations-node[data-brain-probe='true'] .relationship-card-ink > rect {
+  stroke: var(--brain-green);
+  stroke-width: 2px;
+}
+.relationship-flow .brain-node-ripple {
+  fill: none;
+  pointer-events: none;
+  stroke: var(--brain-green);
+  stroke-width: 2px;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brain-ripple 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+.relationship-flow .relations-node[data-brain-crystal='true'] .relationship-card-ink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brain-crystallize 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.brain-episodic-card[data-new='true'] {
+  animation: brain-hippocampal-pulse 2.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.relationship-flow .brain-evolution-badge {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brain-evolution-ring 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.relationship-flow .relations-node .brain-evolution-badge rect { fill: var(--brain-amber-paper); stroke: var(--brain-gold); }
+.relationship-flow .relations-node .brain-evolution-badge text {
+  fill: var(--brain-gold); font-size: 10px; pointer-events: none;
+}
+.relationship-flow[data-brain-vitality='true'] .relationship-card-ink {
+  opacity: calc(.38 + .62 * var(--node-vitality, 1));
+  transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.relationship-flow[data-brain-vitality='true'] .relations-node:is(:hover, :focus-within, [data-brain-active='true']) .relationship-card-ink {
+  opacity: 1;
+}
+.relationship-flow .brain-dormant-dot {
+  fill: #94a3b8;
+  stroke: var(--rf-card);
+  stroke-width: 2px;
+}
+.relationship-flow .relations-node[data-brain-dormant='true']:not(:hover, :focus-within) > :is(.relationship-card-ink, .relationship-port-group, .relationship-collapse, .brain-evolution-badge) {
+  opacity: 0;
+  pointer-events: none;
+}
+.relationship-flow .relations-node[data-brain-dormant='true']:is(:hover, :focus-within) .brain-dormant-dot { opacity: 0; }
+@keyframes brain-synaptic-flow { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes brain-ripple { from { opacity: .8; transform: scale(.97); } to { opacity: 0; transform: scale(1.23); } }
+@keyframes brain-crystallize { 0% { opacity: .45; transform: scale(.94); } 60% { opacity: 1; transform: scale(1.05); } 100% { transform: scale(1); } }
+@keyframes brain-hippocampal-pulse { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 45% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brain-gold) 23%, transparent); } }
+@keyframes brain-evolution-ring { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+@media (max-width: 1100px) {
+  .brain-hud { top: 106px; }
+  .brain-episodic, .brain-zone-hippocampus, .brain-zone-neocortex { top: 154px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .relationship-flow :is(.brain-edge--synaptic-flowing, .brain-node-ripple, .brain-evolution-badge, .brain-episodic-card, .relationship-card-ink) {
+    animation: none !important;
+    transition: none !important;
+  }
+}

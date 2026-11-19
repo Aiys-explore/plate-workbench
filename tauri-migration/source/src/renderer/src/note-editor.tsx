@@ -1,3 +1,4 @@
+import type { TaskRunCard } from '../../shared/ipc'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Note } from '../../shared/ipc'
 import { plateTitle } from '../../shared/plate-title'
@@ -50,6 +51,7 @@ export function NoteEditor(props: Props) {
   const [choosingAgent, setChoosingAgent] = useState<{ todo: TaskTodo; dispatch: boolean; version: number }>()
   const open = useRef(new Set<string>())
   const logOpen = useRef<string | null>(null)
+  const [memoryReview, setMemoryReview] = useState<TaskRunCard>()
   const followDrafts = useRef(new Map<string, string>())
   const taskBusy = useRef(false)
   const taskRun = (action: () => Promise<void>) => {
@@ -72,8 +74,7 @@ export function NoteEditor(props: Props) {
       const live = scanTaskLines(session.raw).todos.find(row => row.from === todo.from && row.to === todo.to &&
         row.content === todo.content && row.agent === todo.agent)
       if (!live?.content) throw new Error('请输入完整的任务内容')
-      const agent = await window.workbench.agentPlugins.resolveTarget(selectedAgent || live.agent || undefined)
-      if (!agent) { setChoosingAgent({ todo: live, dispatch: true, version }); return }
+      const agent = selectedAgent || live.agent || undefined
       const taskId = 't-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12)
       if (!await current.current.commitTaskEdit(version, todo.from, todo.to, 'DOING #' + taskId)) return
       try {
@@ -123,6 +124,7 @@ export function NoteEditor(props: Props) {
       await resetTask(taskId, '')
     }),
     openAgentSettings,
+    reviewMemory: setMemoryReview,
     togglePanel: taskId => { logOpen.current = logOpen.current === taskId ? null : taskId; redraw() },
     submitFollow: taskId => { /* Enter 输入框直接走 follow */ void taskId },
     followDraft: (taskId, value) => { followDrafts.current.set(taskId, value) },
@@ -453,6 +455,8 @@ export function NoteEditor(props: Props) {
     <div data-editor-scroller ref={scroller}>
       <div data-editor-canvas>
         {issue && !form && <p role="alert" data-editor-notice data-tone="error">{issue}</p>}
+        {memoryReview?.memoryDelta && <MemoryReviewDialog card={memoryReview} close={() => setMemoryReview(undefined)}
+          blocked={session.dirty || session.composing}/>}
         {choosingAgent && <TaskAgentDialog onClose={() => setChoosingAgent(undefined)} select={agent => {
           setChoosingAgent(undefined)
           const { todo, dispatch, version } = choosingAgent
@@ -636,6 +640,54 @@ function P10Tasks({noteId,revision,readOnly}:{noteId:string;revision:string;read
   return <section aria-label="P10 任务和会话绑定" className="p11-tasks" data-design-id="P10.binding">
     <h3>任务与会话绑定</h3>{tasks.map((task,i)=><TaskActions key={task.blockId+':'+i} task={task}/>)}
   </section>
+}
+
+function MemoryReviewDialog({ card, close, blocked }: { card: TaskRunCard; close: () => void; blocked: boolean }) {
+  const delta = card.memoryDelta!
+  const [busy, setBusy] = useState(false)
+  const [applied, setApplied] = useState(false)
+  const [error, setError] = useState('')
+  const apply = async () => {
+    setBusy(true)
+    setError('')
+    try { await window.workbench.brain.applyDelta(card.taskId); setApplied(true) }
+    catch (issue) { setError(String(issue)) }
+    finally { setBusy(false) }
+  }
+  return <EditorDialog title="记忆变更提案" close={close} kind="brain" cancelLabel="关闭">
+    <div className="brain-delta-review">
+      {delta.suggested_links.length > 0 && <section>
+        <h3>新增链接</h3>
+        {delta.suggested_links.map((link, index) => <article key={index}>
+          <small className="brain-delta-target">{link.target_note_id}</small>{link.reason}
+        </article>)}
+      </section>}
+      {delta.assertion_updates.length > 0 && <section>
+        <h3>更新事实断言</h3>
+        {delta.assertion_updates.map((item, index) => <article key={index}>
+          <small className="brain-delta-target">{item.note_id}</small><pre>{item.new_claim}</pre>
+          {item.old_claim_id && <small>替换断言 {item.old_claim_id}</small>}
+        </article>)}
+      </section>}
+      {delta.note_evolutions.length > 0 && <section>
+        <h3>追加到笔记</h3>
+        {delta.note_evolutions.map((item, index) => <article key={index}>
+          <small className="brain-delta-target">{item.target_note_id}</small>
+          <strong>{item.delta_summary}</strong><pre>{item.append_insight}</pre>
+        </article>)}
+      </section>}
+      {delta.suggested_skill && <section>
+        <h3>保存为技能</h3>
+        <article><strong>{delta.suggested_skill.title}</strong>
+          <small className="brain-delta-target">{delta.suggested_skill.tags.map(tag => '#' + tag).join(' ')}</small>
+          <pre>{delta.suggested_skill.system_prompt}</pre></article>
+      </section>}
+    </div>
+    {error && <p role="alert">{error}</p>}
+    {applied ? <p role="status">记忆提案已应用。</p> : card.state !== 'DONE' ? <p>采纳任务回执后可应用此提案。</p> :
+      <><button type="button" className="button-primary" disabled={busy || blocked} onClick={apply}>应用记忆提案</button>
+        {blocked && <p>请先保存当前笔记。</p>}</>}
+  </EditorDialog>
 }
 
 export function EditorDialog({ title, close, children, confirm = false, cancelLabel = '取消', kind }: {

@@ -5,6 +5,9 @@ mod agent_plugins;
 mod agent_settings;
 mod agent_store;
 mod db;
+mod context_compiler;
+mod memory_consolidator;
+mod vitality_engine;
 mod graph_layout;
 mod notes;
 #[cfg(windows)]
@@ -44,7 +47,7 @@ fn default_suggest() -> PathBuf {
     }
     let home = std::env::var("USERPROFILE").map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
-    home.join("Documents").join("Plate-Tauri-S7-试用笔记")
+    home.join("Documents").join("Plate-Tauri-S9-试用笔记")
 }
 
 const MARKER: &str = "plate-workbench.json";
@@ -78,9 +81,7 @@ fn tasks_summary(state: State<'_, AppState>) -> Result<serde_json::Value, String
 #[tauri::command]
 fn tasks_start(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: AppHandle,
     task_id: String, note_id: String, prompt_text: String, agent_selector: Option<String>) -> Result<TaskCard, String> {
-    with_engine(&engine, &state, |engine, root| {
-        engine.start(app, root.clone(), task_id, note_id, agent_selector, prompt_text)
-    })
+    with_store(&state, |store| engine.start(app, store, task_id, note_id, agent_selector, prompt_text))
 }
 
 #[tauri::command]
@@ -92,7 +93,7 @@ async fn tasks_stop(engine: State<'_, TaskEngine>, state: State<'_, AppState>, t
 #[tauri::command]
 fn tasks_follow_up(engine: State<'_, TaskEngine>, state: State<'_, AppState>, app: AppHandle,
     task_id: String, instruction: String) -> Result<TaskCard, String> {
-    with_engine(&engine, &state, |engine, root| engine.follow_up(app, root, &task_id, &instruction))
+    with_store(&state, |store| engine.follow_up(app, store, &task_id, &instruction))
 }
 
 #[tauri::command]
@@ -211,13 +212,27 @@ fn notes_create(state: State<'_, AppState>, title: String, project_id: String, t
 }
 
 #[tauri::command]
-fn notes_read(state: State<'_, AppState>, id: String) -> Result<Note, String> {
-    with_store(&state, |s| s.read(&id))
+fn notes_read(app: AppHandle, state: State<'_, AppState>, id: String, touch: Option<bool>) -> Result<Note, String> {
+    with_store(&state, |store| {
+        let note = store.read(&id)?;
+        if touch == Some(true) { boost_note(&app, store, &note.summary.id); }
+        Ok(note)
+    })
+}
+
+fn boost_note(app: &AppHandle, store: &NoteStore, id: &str) {
+    if vitality_engine::boost(&store.conn.lock().unwrap(), id, notes::now_ms()).is_ok() {
+        let _ = app.emit("brain://changed", ());
+    }
 }
 
 #[tauri::command]
-fn notes_update(state: State<'_, AppState>, id: String, content: String, revision: Option<String>, draft_version: Option<String>) -> Result<SaveResult, String> {
-    with_store(&state, |s| s.update(&id, &content, revision, draft_version))
+fn notes_update(app: AppHandle, state: State<'_, AppState>, id: String, content: String, revision: Option<String>, draft_version: Option<String>) -> Result<SaveResult, String> {
+    with_store(&state, |store| {
+        let result = store.update(&id, &content, revision, draft_version)?;
+        if matches!(result, SaveResult::Saved { .. }) { boost_note(&app, store, &id); }
+        Ok(result)
+    })
 }
 
 #[tauri::command]
@@ -392,11 +407,18 @@ fn main() {
             agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
             agent_plugins::agent_plugins_resolve, agent_plugins::agent_plugin_install,
             agent_plugins::agent_plugin_uninstall, agent_plugins::agent_plugin_update,
+            agent_plugins::agent_plugin_save_deepseek,
             agent_plugins::agent_plugins_reorder, agent_plugins::agent_plugins_reset_order,
             agent_plugins::agent_plugin_import, agent_plugins::agent_plugin_browse,
             agent_settings::agent_settings_get, agent_settings::agent_settings_save,
             tasks_list_by_note, tasks_summary, tasks_start, tasks_stop, tasks_follow_up,
-            tasks_mark_done, tasks_reject
+            tasks_mark_done, tasks_reject,
+            memory_consolidator::brain_status, memory_consolidator::set_brain_context,
+            memory_consolidator::brain_note_metadata, memory_consolidator::capture_episodic_event,
+            memory_consolidator::list_episodic_events, memory_consolidator::consolidate_episodic_to_note,
+            memory_consolidator::list_procedural_skills, memory_consolidator::save_procedural_skill,
+            memory_consolidator::apply_memory_delta, memory_consolidator::get_note_evolution_history,
+            memory_consolidator::recalculate_brain_vitality, memory_consolidator::trigger_dream_consolidation
         ])
         .manage(TaskEngine::new())
         .run(tauri::generate_context!())

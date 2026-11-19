@@ -63,7 +63,7 @@ impl Plugin {
     fn executable(&self) -> Option<String> {
         self.custom_executable.as_ref().or_else(|| self.manifest.as_ref().map(|item| &item.executable))
             .map_or_else(|| agent_store::resolve(&self.id), |value| {
-                validate_executable(&self.id, value).ok().map(|()| value.clone())
+                validate_executable(value).ok().map(|()| value.clone())
             })
     }
 
@@ -177,9 +177,9 @@ fn valid_model(value: &str) -> bool {
         value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-._:/@+".contains(&byte))
 }
 
-fn validate_executable(id: &str, value: &str) -> Result<(), String> {
+fn validate_executable(value: &str) -> Result<(), String> {
     let path = Path::new(value);
-    if !path.is_absolute() || !path.is_file() || !agent_store::supports_entry(id, path) ||
+    if !path.is_absolute() || !path.is_file() ||
         (cfg!(windows) && !path.extension().is_some_and(|ext|
             ["exe", "cmd", "bat"].iter().any(|kind| ext.eq_ignore_ascii_case(kind)))) {
         return Err("请选择本机可用的 CLI 可执行文件".into());
@@ -193,7 +193,7 @@ pub fn batch_entry(path: &str) -> bool {
 }
 
 pub fn validate_args(path: &str, args: &[String]) -> Result<(), String> {
-    if batch_entry(path) && args.iter().any(|arg| arg.bytes().any(|byte|
+    if batch_entry(path) && args.iter().any(|arg| arg != "{model}" && arg.bytes().any(|byte|
         !(byte.is_ascii_alphanumeric() || b"-._:/@+= ".contains(&byte)))) {
         return Err("批处理入口的参数只支持模型标识、选项和普通文本。其他参数请使用原生可执行文件".into());
     }
@@ -374,11 +374,7 @@ pub async fn agent_plugin_update(app: AppHandle, input: Update) -> Result<Snapsh
         if input.id != "dsh" || input.enabled.is_some() || input.selected_model.is_some() || path_changed {
             return Err("请单独保存 DeepSeek 凭据和 Base URL".into());
         }
-        let _guard = state.storage.lock().unwrap();
-        if !AgentPlugins::read(&app)?.get_mut(&input.id)?.installed { return Err(NOT_ENABLED.into()); }
-        app.state::<AgentSettings>().set_deepseek(&app, input.deepseek_key,
-            input.clear_deepseek_key.unwrap_or(false), input.base_url)?;
-        let _ = app.emit(CHANGED, ());
+        return agent_plugin_save_deepseek(app, input.deepseek_key, input.clear_deepseek_key.unwrap_or(false), input.base_url);
     } else {
         state.change(&app, |registry| {
             let item = registry.get_mut(&input.id)?;
@@ -392,7 +388,7 @@ pub async fn agent_plugin_update(app: AppHandle, input: Update) -> Result<Snapsh
             }
             if let Some(path) = input.custom_executable {
                 if !path.is_empty() {
-                    validate_executable(&item.id, &path)?;
+                    validate_executable(&path)?;
                     if let Some(manifest) = &item.manifest { validate_args(&path, &manifest.args)?; }
                 }
                 item.custom_executable = (!path.is_empty()).then_some(path);
@@ -401,6 +397,18 @@ pub async fn agent_plugin_update(app: AppHandle, input: Update) -> Result<Snapsh
         })?;
     }
     if path_changed { refresh_versions(&app, Some(&input.id)).await?; }
+    views(&app, true)
+}
+
+#[tauri::command]
+pub fn agent_plugin_save_deepseek(app: AppHandle, key: Option<String>, clear: bool, base_url: Option<String>) -> Result<Snapshot, String> {
+    {
+        let state = app.state::<AgentPlugins>();
+        let _guard = state.storage.lock().unwrap();
+        if !AgentPlugins::read(&app)?.get_mut("dsh")?.installed { return Err(NOT_ENABLED.into()); }
+        app.state::<AgentSettings>().set_deepseek(&app, key, clear, base_url)?;
+    }
+    let _ = app.emit(CHANGED, ());
     views(&app, true)
 }
 
@@ -447,7 +455,11 @@ pub fn agent_plugin_import(app: AppHandle, json: String) -> Result<Snapshot, Str
         manifest.models.len() > 50 || manifest.models.iter().any(|value| value.is_empty() || !valid_model(value)) {
         return Err("插件清单含无效的标识、名称、参数或模型".into());
     }
-    validate_executable(&id, &manifest.executable)?;
+    let placeholders = manifest.args.iter().filter(|arg| *arg == "{model}").count();
+    if placeholders > 1 || (placeholders != 0 && manifest.model_flag.is_none()) {
+        return Err("清单可在 modelFlag 已配置时使用一个独立的 {model} 参数".into());
+    }
+    validate_executable(&manifest.executable)?;
     validate_args(&manifest.executable, &manifest.args)?;
     app.state::<AgentPlugins>().change(&app, |registry| {
         if registry.plugins.iter().any(|item| item.id == id) { return Err("已有相同标识的插件".into()); }

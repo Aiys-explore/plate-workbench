@@ -36,6 +36,7 @@ export interface InlineTaskActions {
   openAgentSettings(): void
   stop(card: TaskRunCard): void
   adopt(card: TaskRunCard): void
+  reviewMemory(card: TaskRunCard): void
   follow(card: TaskRunCard, instruction: string): void
   reject(card: TaskRunCard): void
   restore(card: TaskRunCard): void
@@ -107,6 +108,7 @@ function makePanel(doc: Document, current: () => TaskRunCard, actions: InlineTas
     })
     const send = makeButton(doc, '✎ 追加并续跑', 'follow', () => actions.follow(current(), input.value))
     row.append(input, send)
+    if (card.memoryDelta) panel.append(makeButton(doc, '预览记忆提案', 'memory', () => actions.reviewMemory(current())))
     panel.append(adopt, row, reject)
   }
   return panel
@@ -219,6 +221,9 @@ export function arrangeTaskCapsules(
         group.replaceChildren(badge, pill)
       } else group.replaceChildren(pill)
       if (card && state === 'DOING') group.append(makeButton(doc, '■ 停止', 'stop', () => actions.stop(card)))
+    }
+    if (card?.state === 'DONE' && card.memoryDelta && !group.querySelector('[data-task-pill=memory]')) {
+      group.append(makeButton(doc, '记忆提案', 'memory', () => actions.reviewMemory(card)))
     }
     if (card && state === 'ERROR') {
       if (!group.querySelector('[data-task-pill=retry]')) {

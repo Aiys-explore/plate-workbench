@@ -261,10 +261,17 @@ fn extract_metadata(content: &str, fallback: &str) -> Metadata {
     Metadata { title, tags, references, downstream_refs, body }
 }
 
+pub fn is_brain_metadata(line: &str) -> bool {
+    let line = line.trim();
+    matches!(line, "<!-- plate-evolution -->" | "<!-- /plate-evolution -->")
+        || line.strip_prefix("<!-- plate-brain-write:").and_then(|id| id.strip_suffix(" -->"))
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
 fn preview_of(body: &str) -> Option<String> {
     for line in body.lines() {
         let t = line.trim();
-        if t.is_empty() || t.starts_with('#') || t.starts_with("```") { continue; }
+        if t.is_empty() || t.starts_with('#') || t.starts_with("```") || is_brain_metadata(t) { continue; }
         let chars: Vec<char> = t.chars().collect();
         return Some(if chars.len() > 113 { chars[..112].iter().collect::<String>() + "…" } else { t.to_string() });
     }
@@ -333,6 +340,9 @@ impl NoteStore {
         store.ensure_project(DEFAULT_PROJECT, "默认")?;
         store.scan()?;
         crate::agent_runner::recover_interrupted(&store.conn.lock().unwrap())?;
+        // A conflicting draft can leave an approved write queued for user retry.
+        let _ = crate::memory_consolidator::flush_note_writes(&store);
+        crate::vitality_engine::recalculate(&store.conn.lock().unwrap(), now_ms()).map_err(|e| e.to_string())?;
         Ok(store)
     }
 
@@ -399,7 +409,7 @@ impl NoteStore {
         conn.execute(
             "INSERT INTO note (id, path, title, project_id, kind, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3, kind=?5, updated_at=?7",
+             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3, kind=?5, project_id=?4, updated_at=?7",
             params![id, path.to_string_lossy(), meta.title, project_id, kind, created_at, updated_at],
         ).map_err(|e| e.to_string())?;
         Ok(())
@@ -486,6 +496,23 @@ impl NoteStore {
         write_new_file(&path, &content)?;
         self.scan()?;
         self.read(&id)
+    }
+
+    pub fn has_unsaved_draft(&self, note: &Note) -> Result<bool, String> {
+        Ok(self.draft_row(&note.summary.id)?.is_some_and(|draft| draft.content != note.content))
+    }
+
+    pub fn create_memory_note(&self, id: &str, project: &str, title: &str, body: &str, marker: &str) -> Result<Note, String> {
+        check_note_id(id)?;
+        check_project(project)?;
+        let path = self.projects_dir.join(project).join(format!("{id}.md"));
+        match snapshot(&path)? {
+            Some(disk) if disk.content.lines().any(|line| line == marker) => {}
+            Some(_) => return Err("闪念固化目标文件已存在".into()),
+            None => write_new_file(&path, &format!("# {title}{body}"))?,
+        }
+        self.scan()?;
+        self.read(id)
     }
 
     pub fn read(&self, id: &str) -> Result<Note, String> {

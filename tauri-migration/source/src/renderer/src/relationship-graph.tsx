@@ -1,3 +1,6 @@
+import type { BrainSkill, EpisodicEvent } from '../../shared/brain'
+import { BrainHudBar, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionTimelineModal,
+  QuickCaptureBar, SkillDialog, SkillDock, useBrainWorkbench } from './brain-workbench'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
@@ -63,7 +66,7 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
 
 export function RelationshipGraph({
   nodes, edges, selected, focusId, label, open, close, state, reload, editorOpen, rightInset,
-  canChange, noteUpdated, activeProject, hudLeft, hudRight, revealOutside,
+  canChange, noteUpdated, activeProject, projectFilter, projectLabel, hudLeft, hudRight, revealOutside,
 }: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
   focusId?: string
@@ -73,10 +76,71 @@ export function RelationshipGraph({
   canChange: (id: string) => boolean
   noteUpdated: (note: Note) => void
   activeProject: string
+  projectFilter?: string
+  projectLabel: string
   hudLeft?: ReactNode
   hudRight?: ReactNode
   revealOutside?: (id: string) => void
 }) {
+  const [brainOpen, setBrainOpen] = useState(false)
+  const [brainZones, setBrainZones] = useState(true)
+  const [brainVitality, setBrainVitality] = useState(false)
+  const [capture, setCapture] = useState(false)
+  const [probeLines, setProbeLines] = useState<{ id: string; path: string }[]>([])
+  const [fresh, setFresh] = useState<{ id: string; probe: string[] }>()
+  const [crystal, setCrystal] = useState<string>()
+  const [consolidation, setConsolidation] = useState<EpisodicEvent[]>()
+  const [timeline, setTimeline] = useState<RelationshipNote>()
+  const [skill, setSkill] = useState<BrainSkill | 'new'>()
+  const [brainError, setBrainError] = useState('')
+  const brain = useBrainWorkbench(projectFilter, brainOpen)
+  const activeNodes = useMemo(() => new Set(brain.wave ?
+    [brain.wave.seedNoteId, ...brain.wave.activatedNoteIds, ...brain.wave.edgePairs.flat()] : []), [brain.wave])
+  const activeEdges = useMemo(() => new Set(brain.wave?.edgePairs.map(pair => [...pair].sort().join('|'))), [brain.wave])
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'Space' &&
+        !event.isComposing && !event.repeat && !document.querySelector('dialog[open]')) {
+        event.preventDefault()
+        setBrainOpen(true)
+        setCapture(true)
+      }
+    }
+    window.addEventListener('keydown', shortcut)
+    return () => window.removeEventListener('keydown', shortcut)
+  }, [])
+  useEffect(() => {
+    if (!fresh) return
+    const timer = window.setTimeout(() => setFresh(undefined), 2_600)
+    return () => window.clearTimeout(timer)
+  }, [fresh])
+  useEffect(() => {
+    if (!crystal) return
+    const timer = window.setTimeout(() => setCrystal(undefined), 4_000)
+    return () => window.clearTimeout(timer)
+  }, [crystal])
+  useLayoutEffect(() => {
+    const root = section.current
+    const capture = fresh && root?.querySelector('[data-event-id="' + CSS.escape(fresh.id) + '"]')
+    if (!root || !capture || !fresh?.probe.length || !brainOpen) { setProbeLines([]); return }
+    const bounds = root.getBoundingClientRect()
+    const source = capture.getBoundingClientRect()
+    const start = { x: source.right - bounds.left, y: source.top + source.height / 2 - bounds.top }
+    setProbeLines(fresh.probe.flatMap(id => {
+      const target = root.querySelector('[data-graph-node="' + CSS.escape(id) + '"] .relationship-card-ink')
+      const rect = target?.getBoundingClientRect()
+      if (!rect || rect.left <= source.right || rect.left > bounds.right || rect.bottom < bounds.top || rect.top > bounds.bottom) return []
+      const end = { x: rect.left - bounds.left, y: rect.top + rect.height / 2 - bounds.top }
+      const bend = (start.x + end.x) / 2
+      return [{ id, path: 'M ' + start.x + ',' + start.y + ' C ' + bend + ',' + start.y + ' ' +
+        bend + ',' + end.y + ' ' + end.x + ',' + end.y }]
+    }))
+  }, [brain.events, brainOpen, fresh])
+  const runBrain = async (work: () => Promise<void>) => {
+    setBrainError('')
+    try { await work() } catch (error) { setBrainError(String(error)) }
+  }
+
   const [scope, setScope] = useState<'nearby' | 'all'>(() => selected ? 'nearby' : 'all')
   const [anchor, setAnchor] = useState(selected)
   const [style, setStyle] = useState<Style>(initialStyle)
@@ -715,7 +779,8 @@ export function RelationshipGraph({
     <button type="button" onClick={resetLayout}>重置布局</button>
     <button type="button" aria-disabled={!undoMove} onClick={()=>{if (undoMove) { restoreMovement(undoMove); setUndoMove(undefined) }}}>撤销移动</button></>
   return <section ref={section} className="relations relationship-flow" data-flow-style={style} data-wide="true"
-    data-motion={live?'live':'still'} aria-label="笔记关系图" onKeyDown={event => {
+    data-motion={live?'live':'still'} data-brain-open={brainOpen} data-brain-zones={brainOpen && brainZones}
+    data-brain-vitality={brainOpen && brainVitality} aria-label="笔记关系图" onKeyDown={event => {
     if (event.key.toLowerCase() === 'n' && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.repeat &&
         !nodeAction && !event.ctrlKey && !event.altKey && !event.metaKey &&
         !(event.target instanceof HTMLElement && event.target.closest('select,input,textarea,[contenteditable]'))) {
@@ -765,8 +830,49 @@ export function RelationshipGraph({
         </div>}
       </div>
       <button type="button" aria-expanded={legend} onClick={() => setLegend(!legend)}>图例</button>
+      <button type="button" aria-pressed={brainOpen} onClick={() => setBrainOpen(value => !value)}>大脑</button>
       {hudRight}
     </div>
+    {brainOpen && <>
+      <BrainHudBar wave={brain.wave} notes={nodes.length} events={brain.events.length} zones={brainZones} vitality={brainVitality}
+        toggleZones={() => setBrainZones(value => !value)}
+        toggleVitality={() => {
+          setBrainVitality(value => !value)
+          if (!brainVitality) void runBrain(() => window.workbench.brain.recalculate())
+        }}
+        dream={() => void runBrain(async () => setConsolidation(await window.workbench.brain.dream(projectFilter)))}/>
+      {brainZones && <CorticalZonesLayer/>}
+      {probeLines.length > 0 && <svg className="brain-probes" aria-hidden="true">
+        {probeLines.map(line => <path key={line.id} d={line.path} className="brain-edge--synaptic-flowing"/>)}
+      </svg>}
+      <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}/>
+      <div className="brain-context-control">
+        <label title="启用后，任务会把当前项目的相关笔记、闪念与匹配技能交给选定的 Agent。">
+          <input type="checkbox" checked={!!brain.status?.contextEnabled} disabled={!brain.status}
+            onChange={event => {
+              const enabled = event.target.checked
+              void runBrain(() => window.workbench.brain.setContext(enabled))
+            }}/>任务使用大脑上下文
+        </label>
+        {brain.status?.pendingWrites ? <p role="status">待写入 {brain.status.pendingWrites} 条 · 在「做梦整理」中重试</p> : null}
+        {(brain.error || brainError) && <p role="alert">{brainError || brain.error}</p>}
+      </div>
+      <SkillDock skills={brain.skills} wave={brain.wave} inspect={setSkill} create={() => setSkill('new')}/>
+    </>}
+    {capture && <QuickCaptureBar project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
+      captured={(id, text) => {
+        const lower = text.toLowerCase()
+        setFresh({ id, probe: nodes.filter(note => note.projectId === activeProject &&
+          [note.title, ...(note.tags ?? [])].some(label => label.length > 1 && lower.includes(label.toLowerCase())))
+          .slice(0, 5).map(note => note.id) })
+      }}/>}
+    {consolidation && (consolidation.length ? <ConsolidationDialog events={consolidation} nodes={nodes}
+      close={() => setConsolidation(undefined)} saved={id => { setCrystal(id); reload() }}/> :
+      <EditorDialog title="做梦整理" close={() => setConsolidation(undefined)} kind="brain" cancelLabel="关闭">
+        <p>当前范围没有可整理的闪念。</p>
+      </EditorDialog>)}
+    {timeline && <EvolutionTimelineModal id={timeline.id} title={timeline.title} close={() => setTimeline(undefined)}/>}
+    {skill && <SkillDialog skill={skill === 'new' ? undefined : skill} close={() => setSkill(undefined)}/>}
     <div className="plate-map-hud plate-map-hud--dock">
       <button type="button" onClick={() => void createNoteAt()} disabled={state.busy || !!state.error}>＋ 新建主节点 <kbd>N</kbd></button>
       <button type="button" onClick={() => { if (active) void deriveChild(active) }} disabled={!active || state.busy || !!state.error}>子节点 <kbd>Tab</kbd></button>
@@ -852,6 +958,8 @@ export function RelationshipGraph({
               data-exit={wire.exit} data-members={wire.sources.join(' ')} data-trunk={wire.id.endsWith(':trunk')} data-spine={!!wire.spine}
               className="relations-edge" data-active={hot}
               data-muted={!!details && !hot} d={wire.d} markerEnd={wire.arrow?`url(#${arrowId})`:undefined}/>
+            {wire.sources.some(source => activeEdges.has([source, wire.target].sort().join('|'))) &&
+              <path className="brain-edge--synaptic-flowing" d={wire.d}/>}
             {live && hot && index < 160 && <path key={highlighted} className="relationship-signal" d={wire.d}
               style={{
                 '--rf-signal-start':wire.period-wire.length-wire.tail,
@@ -865,8 +973,15 @@ export function RelationshipGraph({
           const top = -card.height/2
           const role = note.id===center ? 'center' : local && vicinity.upstream.some(n=>n.id===note.id) ? 'up' : local?'down':'note'
           const childCount = graph.children.get(note.id)?.length ?? 0
+          const memory = brain.notes[note.id]
+          const activated = activeNodes.has(note.id)
+          const dormant = brainOpen && brainVitality && !!memory?.dormant && !activated
           return <g key={note.id} data-graph-node={note.id} transform={`translate(${p.x} ${p.y})`}
-            className="relations-node" role="button" aria-label={label(note)} aria-pressed={note.id === (active ?? center)}
+            className="relations-node" role="button" aria-label={label(note)}
+            data-brain-active={activated} data-brain-seed={brain.wave?.seedNoteId === note.id}
+            data-brain-probe={fresh?.probe.includes(note.id) || undefined}
+            data-brain-dormant={dormant} data-brain-crystal={crystal === note.id}
+            style={{ '--node-vitality': memory?.vitality ?? 1 } as CSSProperties} aria-pressed={note.id === (active ?? center)}
             tabIndex={note.id===rovingId?0:-1}
             data-selected={note.id === (active ?? center)} data-center={local && note.id === center} data-kind={role}
             data-muted={!!details && !neighborhood.has(note.id)} data-hovered={hovered===note.id}
@@ -904,6 +1019,9 @@ export function RelationshipGraph({
             }}
             onContextMenu={event => { event.preventDefault(); showMenu(note.id,event.currentTarget,{x:event.clientX,y:event.clientY}) }}>
             <title>{label(note)}</title>
+            {dormant && <circle className="brain-dormant-dot" r="6"/>}
+            {brain.wave?.seedNoteId === note.id && <rect className="brain-node-ripple" x={-cardWidth / 2 - 3}
+              y={top - 3} width={cardWidth + 6} height={card.height + 6} rx="10"/>}
             <g className="relationship-card-ink"><rect x={-cardWidth / 2} y={top} width={cardWidth} height={card.height} rx="8"
               data-pulse={taskSummary[note.id]?.doing ? 'doing' : taskSummary[note.id]?.pending ? 'pending' : undefined} />
             {(() => {
@@ -920,6 +1038,17 @@ export function RelationshipGraph({
             <text className="relationship-card-preview">{card.preview.map((line,i)=><tspan key={i} x="-56" y={top+19+card.title.length*14+i*12}>{line}</tspan>)}</text>
             {card.tag.length>0 && <text className="relationship-card-tags" x="-56" y={top+19+card.title.length*14+card.preview.length*12}>{card.tag[0]}</text>}
             </g>
+            {brainOpen && memory && memory.version > 1 && <g className="brain-evolution-badge"
+              key={memory.version} role="button" tabIndex={0} aria-label={'认知年轮 v' + memory.version}
+              onPointerDown={event => event.stopPropagation()}
+              onClick={event => { event.stopPropagation(); setTimeline(note) }}
+              onKeyDown={event => {
+                event.stopPropagation()
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setTimeline(note) }
+              }}>
+              <rect x={-cardWidth / 2 - 6} y={top - 14} width="28" height="17" rx="8"/>
+              <text x={-cardWidth / 2 + 8} y={top - 2} textAnchor="middle">v{memory.version}</text>
+            </g>}
             {childCount > 0 && (() => {
               const collapsedNow = collapsed.has(note.id)
               const shown = childCount
@@ -964,6 +1093,7 @@ export function RelationshipGraph({
       <div className="relationship-detail-actions">
         <button type="button" className="button-primary" onClick={event=>activate(detailNote.id,event.currentTarget)}>打开笔记</button>
         <button type="button" onClick={()=>{chooseScope('nearby',detailNote.id);requestAnimationFrame(()=>first.current?.focus())}}>以此为中心</button>
+        {brainOpen && <button type="button" onClick={() => setTimeline(detailNote)}>认知年轮</button>}
       </div>
       {detailNote.preview && <p className="relationship-detail-preview">{detailNote.preview}</p>}
       <p className="relationship-detail-identity">{label(detailNote).slice(detailNote.title.length+3)}</p>
