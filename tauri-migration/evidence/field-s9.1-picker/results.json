@@ -1,0 +1,17 @@
+{
+  "mode": "picker",
+  "checks": [
+    {
+      "name": "native file picker Chinese path",
+      "status": "PASS",
+      "details": {
+        "pathExactlyMatched": true,
+        "unicodeDirectory": true,
+        "unicodeFilename": true,
+        "spaces": true
+      }
+    }
+  ],
+  "status": "PASS",
+  "version": "0.5.0-s9.1"
+}

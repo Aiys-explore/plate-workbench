@@ -1,0 +1,104 @@
+{
+  "mode": "agents",
+  "checks": [
+    {
+      "name": "dsh",
+      "status": "BLOCKED",
+      "details": {
+        "id": "dsh",
+        "installed": true,
+        "enabled": true,
+        "status": "setup",
+        "cliVersion": "0.2.2-rc.3",
+        "binary": "dsh.cmd",
+        "deepseekKey": "unset",
+        "missingCredentialRejected": true
+      }
+    },
+    {
+      "name": "opencode",
+      "status": "BLOCKED",
+      "details": {
+        "id": "opencode",
+        "installed": false,
+        "enabled": false,
+        "status": "available",
+        "cliVersion": null,
+        "binary": null
+      }
+    },
+    {
+      "name": "codex",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "exactDerivedAnswer": true,
+        "activatedSource": true,
+        "durationMs": 15439,
+        "multilineReceipt": false
+      }
+    },
+    {
+      "name": "claude",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "exactDerivedAnswer": true,
+        "activatedSource": true,
+        "durationMs": 11335,
+        "multilineReceipt": false
+      }
+    },
+    {
+      "name": "codex adoption",
+      "status": "PASS",
+      "details": {
+        "markdownAndSqlite": true
+      }
+    },
+    {
+      "name": "claude adoption",
+      "status": "PASS",
+      "details": {
+        "markdownAndSqlite": true
+      }
+    }
+  ],
+  "status": "PARTIAL",
+  "version": "0.5.0-s9.1",
+  "discovery": [
+    {
+      "id": "codex",
+      "installed": true,
+      "enabled": true,
+      "status": "connected",
+      "cliVersion": "0.170.0",
+      "binary": "codex.cmd"
+    },
+    {
+      "id": "dsh",
+      "installed": true,
+      "enabled": true,
+      "status": "setup",
+      "cliVersion": "0.2.2-rc.3",
+      "binary": "dsh.cmd",
+      "deepseekKey": "unset"
+    },
+    {
+      "id": "claude",
+      "installed": true,
+      "enabled": true,
+      "status": "connected",
+      "cliVersion": "2.1.327",
+      "binary": "claude.exe"
+    },
+    {
+      "id": "opencode",
+      "installed": false,
+      "enabled": false,
+      "status": "available",
+      "cliVersion": null,
+      "binary": null
+    }
+  ]
+}

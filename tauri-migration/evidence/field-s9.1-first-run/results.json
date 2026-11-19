@@ -1,0 +1,48 @@
+{
+  "mode": "first-run",
+  "checks": [
+    {
+      "name": "NSIS install on existing Windows host",
+      "status": "PASS",
+      "details": {
+        "customUnicodeInstallDir": true,
+        "exe": "plate-workbench.exe"
+      }
+    },
+    {
+      "name": "default startup suggestion uses a new S9 workspace",
+      "status": "PASS",
+      "details": {
+        "s9Workspace": true,
+        "showsChooser": true
+      }
+    },
+    {
+      "name": "first launch with new workspace, settings and WebView2 profile",
+      "status": "PASS",
+      "details": {
+        "status": {
+          "contextEnabled": false,
+          "pendingWrites": 0
+        },
+        "notes": 0,
+        "plugins": [
+          {
+            "id": "codex",
+            "status": "connected"
+          },
+          {
+            "id": "dsh",
+            "status": "setup"
+          },
+          {
+            "id": "claude",
+            "status": "connected"
+          }
+        ]
+      }
+    }
+  ],
+  "status": "PASS",
+  "version": "0.5.0-s9.1"
+}

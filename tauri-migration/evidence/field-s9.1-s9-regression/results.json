@@ -1,0 +1,60 @@
+{
+  "checks": [
+    {
+      "name": "S8 SQLite upgrade preserves Markdown and initializes five semantic nodes",
+      "details": true
+    },
+    {
+      "name": "Global capture persists isolated episodic data without a note",
+      "details": true
+    },
+    {
+      "name": "TODO sends four contextual sections and emits two-hop activation within the current project",
+      "details": {
+        "seedNoteId": "00000000-0000-4000-8000-000000000001",
+        "runId": "t-c410f7dbed21",
+        "activatedNoteIds": [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "activatedSkillIds": [],
+        "edgePairs": [
+          [
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003"
+          ]
+        ],
+        "pprElapsedMs": 0.1408
+      }
+    },
+    {
+      "name": "Disk-full message retains the pending receipt and allows adoption to be retried",
+      "details": true
+    },
+    {
+      "name": "Review gates changes; adoption writes assertion, Markdown, link and skill once",
+      "details": true
+    },
+    {
+      "name": "Matching skill and facts are reused on follow-up; superseded facts remain in the timeline",
+      "details": true
+    },
+    {
+      "name": "Dream review consolidates a selected capture to indexed Markdown and archives the source",
+      "details": true
+    },
+    {
+      "name": "Vitality decays; dormant card expands on keyboard focus and respects reduced motion",
+      "details": true
+    },
+    {
+      "name": "Restart preserves memory history, context settings and skill counts",
+      "details": true
+    }
+  ],
+  "status": "PASS"
+}
