@@ -2,12 +2,14 @@
 span[data-task-pill-group] {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0;
   margin-inline-start: 8px;
   border-radius: var(--radius-pill, 6px);
   overflow: hidden;
   border: 1px solid var(--color-border-decorative, #d9d9df);
 }
+[data-editor-role='task'] > span[data-task-pill-group] { margin-inline-start: 0; }
 button[data-task-pill] {
   white-space: nowrap;
   display: inline-flex;
@@ -25,6 +27,8 @@ button[data-task-pill] {
 }
 span[data-task-pill-group] button + button { border-inline-start: 1px solid var(--color-border-decorative, transparent); }
 button[data-task-pill='agent'] {
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: var(--agent-bg, var(--color-surface-control, #f1f3f5));
   color: var(--agent-text, var(--color-text-secondary));
 }
@@ -141,6 +145,7 @@ span[data-task-placeholder] {
 }
 div[data-task-panel] {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   margin: 6px 0;
   padding: 8px 10px;
@@ -155,6 +160,7 @@ div[data-task-panel] pre[data-task-log] {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: var(--color-text-secondary);
 }
 div[data-task-panel] div[data-task-follow-row] { display: flex; gap: 6px; }

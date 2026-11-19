@@ -49,6 +49,8 @@
   background: var(--color-surface-editor);
 }
 [data-editor-meta-title] {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-ui-title);
@@ -73,7 +75,7 @@
   padding-inline: var(--spacing-2);
   font-size: var(--font-size-ui-small);
 }
-[data-editor-meta-actions] { display: flex; align-items: center; gap: var(--spacing-2); margin-inline-start: auto; }
+[data-editor-meta-actions] { display: flex; flex: none; align-items: center; gap: var(--spacing-2); white-space: nowrap; }
 
 /* P03.tools · 48px；14 个位置各 32px（标题 72px），相邻 4px，总宽 540px */
 [data-editor-toolbar] {
@@ -344,6 +346,7 @@
   border-inline-start: var(--border-width-divider) solid var(--color-border-decorative);
   color: var(--color-text-secondary);
 }
+[data-editor-role='quote'] [data-editor-role='paragraph'] { white-space: pre-wrap; }
 
 /* 列表 */
 [data-editor-role='ul'],
@@ -355,7 +358,23 @@
 [data-editor-role='ul'] > [data-editor-role='li']:has(> [data-editor-role='task']:first-child) {
   list-style-type: none;
 }
-[data-editor-role='task'] { display: flex; align-items: flex-start; gap: var(--spacing-2); }
+[data-editor-role='task'] {
+  display: grid;
+  grid-template-columns: 32px auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--spacing-2);
+}
+[data-editor-task-body] {
+  grid-column: 3;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-editor-role='task'] > :is([data-task-pill-group], [data-editor-delegation], [data-p10-slot]) {
+  grid-column: 3;
+  justify-self: start;
+  max-width: 100%;
+}
 
 /* 任务框：32×32 命中区，16×16 可见方框 */
 [data-editor-task] {

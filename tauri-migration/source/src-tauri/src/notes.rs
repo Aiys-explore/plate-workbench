@@ -178,10 +178,10 @@ fn snapshot(path: &Path) -> Result<Option<Disk>, String> {
 }
 
 fn plate_title_line(content: &str) -> Option<(usize, usize, String)> {
-    let start = if content.starts_with('\u{FEFF}') { 1 } else { 0 };
+    let start = if content.starts_with('\u{FEFF}') { '\u{FEFF}'.len_utf8() } else { 0 };
     let rest = &content[start..];
     let end = rest.find('\n')?;
-    let line = &rest[..end];
+    let line = rest[..end].trim_end_matches('\r');
     let inner = line.strip_prefix("<!-- plate-title:")?.strip_suffix(" -->")?;
     let title = percent_decode(inner)?;
     Some((start, start + end + 1, title))
@@ -488,11 +488,7 @@ impl NoteStore {
         let dir = self.projects_dir.join(project_id);
         let id = uuid::Uuid::new_v4().to_string();
         let path = dir.join(format!("{id}.md"));
-        let content = if !title.trim().is_empty() {
-            format!("# {}\n\n{}", title.trim(), body)
-        } else {
-            format!("<!-- plate-title:{} -->\n{}", urlencoding_min(title.trim()), body)
-        };
+        let content = format!("<!-- plate-title:{} -->\n{}", urlencoding_min(title.trim()), body);
         write_new_file(&path, &content)?;
         self.scan()?;
         self.read(&id)
@@ -509,7 +505,7 @@ impl NoteStore {
         match snapshot(&path)? {
             Some(disk) if disk.content.lines().any(|line| line == marker) => {}
             Some(_) => return Err("闪念固化目标文件已存在".into()),
-            None => write_new_file(&path, &format!("# {title}{body}"))?,
+            None => write_new_file(&path, &format!("<!-- plate-title:{} -->\n{body}", urlencoding_min(title.trim())))?,
         }
         self.scan()?;
         self.read(id)

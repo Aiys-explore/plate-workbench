@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
 
 const { chromium } = createRequire(new URL('../source/package.json', import.meta.url))('playwright')
 const [mode, inputExe, output, openCodeEntry] = process.argv.slice(2)
@@ -199,7 +200,8 @@ async function openCodeTask() {
     if (saved.status !== 'saved') throw new Error('Could not save source fixture')
     await wb.brain.setContext(true)
     const note = await wb.notes.create('OpenCode 多行中文现场验收', 'default', 'blank')
-    const body = [note.content, '- [[' + source.id + '|合成来源]]',
+    if (!note.content.startsWith('<!-- plate-title:')) throw new Error('New note stored its title as a body heading')
+    const body = [note.content, '# 正文章节', '- [[' + source.id + '|合成来源]]',
       '- [ ] TODO(@opencode): ' + lines.join('\n  ')].join('\n\n') + '\n'
     const updated = await wb.notes.update(note.id, body, note.revision)
     if (updated.status !== 'saved') throw new Error('Could not save task fixture')
@@ -210,9 +212,51 @@ async function openCodeTask() {
   const expected = ['总和：' + (operands[0] + operands[1]), '标记：' + marker, '来源：' + seeded.sourceId]
   await page.locator('[data-graph-node="' + seeded.noteId + '"]').dispatchEvent('dblclick', { detail: 2 })
   const editor = page.locator('[data-editor-host=render]')
+  const title = page.getByRole('textbox', { name: '笔记标题' })
+  await poll(async () => await title.inputValue() === 'OpenCode 多行中文现场验收', 'OpenCode note loaded')
+  assert.deepEqual(await editor.locator('h1').allTextContents(), ['正文章节'])
+  const separator = page.getByRole('separator', { name: '调整抽屉宽度' })
+  const minWidth = Number(await separator.getAttribute('aria-valuemin'))
+  for (let width = Number(await separator.getAttribute('aria-valuenow')); width > minWidth; width -= 16)
+    await separator.press('ArrowRight')
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), minWidth)
+  const drawerFits = await page.locator('.note-drawer-body').evaluate(el => el.scrollWidth <= el.clientWidth)
+  assert.ok(drawerFits, 'The note drawer has horizontal overflow')
   const dispatch = editor.locator('[data-task-capsule][data-task-agent="opencode"] [data-task-pill=todo]')
   await dispatch.waitFor({ state: 'visible' })
-  await dispatch.dispatchEvent('click')
+  const taskBody = editor.locator('[data-editor-task-body]')
+  async function measureLines(locator, prefixes) {
+    return locator.evaluate((element, prefixes) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      const textNodes = []
+      while (walker.nextNode()) textNodes.push(walker.currentNode)
+      const source = textNodes.map(node => node.data).join('')
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const bounds = document.querySelector('[data-editor-canvas]').getBoundingClientRect()
+      const textWithinColumn = Array.from(range.getClientRects()).every(rect =>
+        rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1)
+      const lineStarts = prefixes.map(prefix => {
+        let at = source.indexOf(prefix)
+        if (at < 0) return null
+        for (const node of textNodes) {
+          if (at < node.length) {
+            range.setStart(node, at)
+            range.setEnd(node, at + 1)
+            return range.getBoundingClientRect().top
+          }
+          at -= node.length
+        }
+        return null
+      })
+      return { textWithinColumn, orderedLines: lineStarts.every((top, index) =>
+        top !== null && (!index || top > lineStarts[index - 1])) }
+    }, prefixes)
+  }
+  const taskLayout = await measureLines(taskBody, ['只根据', '第一行', '第二行', '第三行'])
+  assert.deepEqual(taskLayout, { textWithinColumn: true, orderedLines: true })
+  await page.screenshot({ path: join(evidence, 'narrow-todo.png') })
+  await dispatch.click()
   const task = async () => (await page.evaluate(id => window.workbench.tasks.listByNote(id), seeded.noteId))
     .find(card => card.agentId === 'opencode')
   const card = await poll(async () => {
@@ -232,21 +276,94 @@ async function openCodeTask() {
   }
   const passed = card.state === 'PENDING' && actual.length === 3 && details.promptLinesPreserved &&
     details.exactSum && details.exactMarker && details.exactSource && activatedSource
-  record('S9.2 OpenCode multiline Chinese task', passed ? 'PASS' : 'FAIL', {
-    ...details, diagnostic: passed ? undefined : safeDiagnostic(card),
+  record('OpenCode multiline Chinese task', passed ? 'PASS' : 'FAIL', {
+    ...details, minDrawerWidth: minWidth, drawerFits, taskLayout, diagnostic: passed ? undefined : safeDiagnostic(card),
   })
   assert.ok(passed, 'OpenCode task did not produce the expected three-line receipt')
   const panel = editor.locator('[data-task-panel][data-task-id="' + card.taskId + '"]')
   const adopt = panel.locator('[data-task-pill=adopt]')
   await adopt.waitFor({ state: 'visible' })
+  await adopt.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(evidence, 'pending.png') })
-  await adopt.dispatchEvent('click')
+  await adopt.click()
   await poll(async () => (await task())?.state === 'DONE', 'OpenCode receipt adoption')
-  const markdown = await page.evaluate(async id => (await window.workbench.notes.read(id)).content, seeded.noteId)
+  const adopted = await page.evaluate(id => window.workbench.notes.read(id), seeded.noteId)
+  const markdown = await readFile(adopted.path, 'utf8')
   assert.ok(markdown.includes('DONE #' + card.taskId))
   assert.ok(markdown.replace(/\r\n/g, '\n').includes(expected.map(line => '> ' + line).join('\n')))
-  record('S9.2 OpenCode receipt adoption', 'PASS', { state: 'DONE', exactMarkdownReceipt: true, receipt: expected })
+  const database = new DatabaseSync(join(notes, 'index.sqlite'), { readOnly: true })
+  try {
+    const row = database.prepare('SELECT state, agent_id, output_draft FROM task_runs WHERE task_id = ?').get(card.taskId)
+    assert.equal(row.state, 'DONE')
+    assert.equal(row.agent_id, 'opencode')
+    assert.deepEqual(row.output_draft.trim().split(/\r?\n/), expected)
+  } finally {
+    database.close()
+  }
+  const quote = editor.locator('blockquote').filter({ hasText: expected[0] })
+  await quote.waitFor({ state: 'visible' })
+  const receiptLayout = await measureLines(quote, ['总和：', '标记：', '来源：'])
+  assert.deepEqual(receiptLayout, { textWithinColumn: true, orderedLines: true })
+  record('OpenCode receipt adoption', 'PASS', {
+    state: 'DONE', exactMarkdownReceipt: true, sqliteVerified: true, receiptLayout, receipt: expected,
+    syntheticSource: { id: seeded.sourceId, operands },
+  })
+  await quote.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(evidence, 'adopted.png') })
+}
+async function titleAndBody() {
+  const id = await page.evaluate(async () => {
+    const api = window.workbench.notes
+    const note = await api.create('占位标题', 'default', 'blank')
+    const result = await api.update(note.id, '\uFEFF# 旧笔记标题\r\n\r\n# 原有一级章节\r\n\r\n现有正文\r\n', note.revision)
+    if (result.status !== 'saved') throw new Error('Legacy fixture could not be saved')
+    return note.id
+  })
+  await page.locator('[data-graph-node="' + id + '"]').dispatchEvent('dblclick', { detail: 2 })
+  const editor = page.locator('[data-editor-host=render]')
+  const title = page.getByRole('textbox', { name: '笔记标题' })
+  await editor.waitFor()
+  assert.equal(await title.inputValue(), '旧笔记标题')
+  assert.deepEqual(await editor.locator('h1').allTextContents(), ['原有一级章节'])
+  await page.locator('[data-editor-tool=more]').click()
+  await page.getByText('编辑 Markdown 原文', { exact: true }).click()
+  const source = page.getByRole('textbox', { name: 'Markdown 正文原文' })
+  assert.equal(await source.inputValue(), '\n# 原有一级章节\n\n现有正文\n')
+  await source.fill('\n# 原有一级章节\n\n正文独立编辑\n')
+  assert.equal(await title.inputValue(), '旧笔记标题')
+  await title.fill('改名后的笔记')
+  assert.equal(await source.inputValue(), '\n# 原有一级章节\n\n正文独立编辑\n')
+  await page.getByRole('button', { name: '返回渲染编辑' }).click()
+  await page.locator('[data-editor-meta-actions]').getByRole('button', { name: '保存', exact: true }).click()
+  const stored = await poll(async () => {
+    const note = await page.evaluate(id => window.workbench.notes.read(id), id)
+    return note.title === '改名后的笔记' ? note : null
+  }, 'edited title saved')
+  const markdown = await readFile(stored.path, 'utf8')
+  assert.equal(markdown, '\uFEFF<!-- plate-title:' + encodeURIComponent('改名后的笔记') +
+    ' -->\r\n\r\n# 原有一级章节\r\n\r\n正文独立编辑\r\n')
+  assert.deepEqual(await editor.locator('h1').allTextContents(), ['原有一级章节'])
+  const titleOnlyId = await page.evaluate(async () => {
+    const api = window.workbench.notes
+    const note = await api.create('占位标题', 'default', 'blank')
+    const result = await api.update(note.id, '# 仅有标题', note.revision)
+    if (result.status !== 'saved') throw new Error('Title-only fixture could not be saved')
+    return note.id
+  })
+  await page.locator('[data-graph-node="' + titleOnlyId + '"]').dispatchEvent('dblclick', { detail: 2 })
+  await poll(async () => await title.inputValue() === '仅有标题', 'legacy title-only note loaded')
+  assert.equal(await editor.locator('h1').count(), 0)
+  await editor.press('End')
+  await page.keyboard.insertText('首段正文')
+  await page.locator('[data-editor-meta-actions]').getByRole('button', { name: '保存', exact: true }).click()
+  await poll(async () => {
+    const note = await page.evaluate(id => window.workbench.notes.read(id), titleOnlyId)
+    return note.title === '仅有标题' && note.content === '# 仅有标题\n首段正文'
+  }, 'first body paragraph preserved the legacy title')
+  record('Legacy and new note title separated from Markdown body', 'PASS', {
+    legacyTitleHidden: true, bodyHeadingVisible: true, sourceAndTitleEditedIndependently: true,
+    bomAndCrlfPreserved: true, titleOnlyNoteSupportsBodyEntry: true,
+  })
 }
 async function agents() {
   if (deepseekKeyFile) {
@@ -409,7 +526,10 @@ try {
   const info = await page.evaluate(() => window.workbench.getAppInfo())
   result.version = info.version
   if (mode === 'agents') await agents()
-  if (mode === 'opencode') await openCodeTask()
+  if (mode === 'opencode') {
+    await titleAndBody()
+    await openCodeTask()
+  }
   if (mode === 'picker') await picker()
   if (mode === 'first-run') {
     const state = await page.evaluate(async () => ({

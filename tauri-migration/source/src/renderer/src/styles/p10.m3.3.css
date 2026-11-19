@@ -259,8 +259,6 @@
 
 [data-editor-host] [data-p10-collapsed] { display: none; }
 [data-editor-role=task] [data-p10-slot=status] { display: inline-flex; vertical-align: middle; }
-[data-editor-role=task][data-p10-line] { flex-wrap: wrap; }
-[data-editor-role=task][data-p10-line] > [data-p10-slot=status] { flex: 0 0 calc(100% - var(--spacing-6)); margin-inline-start: var(--spacing-6); }
 [data-p10-slot=detail] { margin-block: var(--spacing-1) var(--spacing-2); min-width: 0; }
 [data-editor-role=li] > [data-p10-slot=detail] { margin-inline-start: var(--spacing-6); }
 [data-p10-slot=detail]:focus-within { scroll-margin: var(--spacing-2); }

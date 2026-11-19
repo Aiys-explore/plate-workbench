@@ -173,6 +173,7 @@
   background-color: var(--state-selected); box-shadow: inset 0 -2px var(--color-border-focus);
 }
 .plate-ui .view-switch button[aria-pressed='true']:hover { background-color: var(--state-selected-hover); }
+.plate-ui .note-drawer { --plate-gutter: var(--spacing-4); }
 .plate-ui [data-editor-meta], .plate-ui [data-editor-toolbar] {
   width: min(var(--plate-doc-width), calc(100% - 2 * var(--plate-gutter)));
   margin-inline: auto; padding-inline: 0;

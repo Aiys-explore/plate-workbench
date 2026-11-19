@@ -1,0 +1,78 @@
+{
+  "mode": "opencode",
+  "checks": [
+    {
+      "name": "OpenCode DeepSeek API preflight",
+      "status": "PASS",
+      "details": {
+        "cliVersion": "1.19.6",
+        "entry": "opencode.cmd",
+        "model": "deepseek/deepseek-flash",
+        "exactReply": true
+      }
+    },
+    {
+      "name": "Legacy and new note title separated from Markdown body",
+      "status": "PASS",
+      "details": {
+        "legacyTitleHidden": true,
+        "bodyHeadingVisible": true,
+        "sourceAndTitleEditedIndependently": true,
+        "bomAndCrlfPreserved": true,
+        "titleOnlyNoteSupportsBodyEntry": true
+      }
+    },
+    {
+      "name": "OpenCode multiline Chinese task",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "durationMs": 3647,
+        "promptLinesPreserved": true,
+        "outputLines": 3,
+        "exactSum": true,
+        "exactMarker": true,
+        "exactSource": true,
+        "activatedSource": true,
+        "minDrawerWidth": 380,
+        "drawerFits": true,
+        "taskLayout": {
+          "textWithinColumn": true,
+          "orderedLines": true
+        }
+      }
+    },
+    {
+      "name": "OpenCode receipt adoption",
+      "status": "PASS",
+      "details": {
+        "state": "DONE",
+        "exactMarkdownReceipt": true,
+        "sqliteVerified": true,
+        "receiptLayout": {
+          "textWithinColumn": true,
+          "orderedLines": true
+        },
+        "receipt": [
+          "总和：1175",
+          "标记：甲&乙|丙%54681f2f",
+          "来源：ed1ed221-af71-4818-89b0-18b67b99806e"
+        ],
+        "syntheticSource": {
+          "id": "ed1ed221-af71-4818-89b0-18b67b99806e",
+          "operands": [
+            434,
+            741
+          ]
+        }
+      }
+    }
+  ],
+  "status": "PASS",
+  "openCode": {
+    "cliVersion": "1.19.6",
+    "entry": "opencode.cmd",
+    "model": "deepseek/deepseek-flash"
+  },
+  "version": "0.5.0-s9.3"
+}

@@ -95,7 +95,8 @@ export class EditorSurface {
   }
   caretAt(point: number): { left: number; top: number; height: number } | undefined {
     if (this.source) {
-      const index = this.session.projection.rawPoints.indexOf(point)
+      const { rawPoints, titleEnd } = this.session.projection
+      const index = rawPoints.indexOf(point) - titleEnd
       if (index < 0) return undefined
       const css = getComputedStyle(this.source)
       const mirror = document.createElement('div')
@@ -402,9 +403,10 @@ export class EditorSurface {
   restoreSelection() {
     const { anchor, head } = this.session.selection
     if (this.source) {
-      const pts = this.session.projection.rawPoints
-      const a = pts.indexOf(anchor), b = pts.indexOf(head)
-      if (a >= 0 && b >= 0) this.source.setSelectionRange(Math.min(a, b), Math.max(a, b), a > b ? 'backward' : 'forward')
+      const { rawPoints, titleEnd } = this.session.projection
+      const a = rawPoints.indexOf(anchor), b = rawPoints.indexOf(head)
+      if (a >= 0 && b >= 0) this.source.setSelectionRange(
+        Math.max(0, Math.min(a, b) - titleEnd), Math.max(0, Math.max(a, b) - titleEnd), a > b ? 'backward' : 'forward')
       return a >= 0 && b >= 0
     }
     const a = this.endpoint(anchor, true), b = this.endpoint(head, true)
@@ -430,7 +432,7 @@ export class EditorSurface {
       if (!this.source) this.installSource()
       this.root = undefined
       const source = this.source!
-      if (source.value !== this.session.projection.normalized) source.value = this.session.projection.normalized
+      if (source.value !== this.session.markdownBody) source.value = this.session.markdownBody
     } else {
       if (!this.root) this.installRender()
       this.source = undefined
@@ -536,6 +538,11 @@ export class EditorSurface {
       wrapper.append(element)
       this.spans.set(wrapper, n)
       return wrapper
+    } else if (n.role === 'task') {
+      const body = doc.createElement('span')
+      body.dataset.editorTaskBody = ''
+      body.append(...children)
+      element.append(body)
     } else element.append(...children)
     return element
   }
@@ -659,8 +666,11 @@ export class EditorSurface {
     if (this.root) return this.readSelection(true)
     if (this.source) {
       const { selectionStart: a, selectionEnd: b, selectionDirection: d } = this.source
-      const points = this.session.projection.rawPoints
-      this.session.select({ anchor: points[d === 'backward' ? b : a], head: points[d === 'backward' ? a : b] })
+      const { rawPoints, titleEnd } = this.session.projection
+      this.session.select({
+        anchor: rawPoints[titleEnd + (d === 'backward' ? b : a)],
+        head: rawPoints[titleEnd + (d === 'backward' ? a : b)],
+      })
     }
   }
   private activate(n: Box, anchor: HTMLElement, mod: boolean) {
@@ -850,7 +860,7 @@ export class EditorSurface {
   private installSource() {
     const source = this.host.ownerDocument.createElement('textarea')
     source.dataset.editorHost = 'source'
-    source.setAttribute('aria-label', 'Markdown 全文原文')
+    source.setAttribute('aria-label', 'Markdown 正文原文')
     source.spellcheck = false
     this.source = source
     const signal = this.abort.signal
@@ -871,7 +881,7 @@ export class EditorSurface {
     }
     source.addEventListener('keydown', e => { if (!compositionKeyLock && this.source === source) this.key(e) }, { signal })
     source.addEventListener('select', () => {
-      if (this.source === source && !compositionKeyLock && source.value === this.session.projection.normalized) this.run(() => this.capture(), false)
+      if (this.source === source && !compositionKeyLock && source.value === this.session.markdownBody) this.run(() => this.capture(), false)
     }, { signal })
     source.addEventListener('compositionstart', () => {
       if (this.source !== source) return

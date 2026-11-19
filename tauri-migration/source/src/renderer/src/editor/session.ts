@@ -115,7 +115,7 @@ function formatCoverage(unit: Box) {
   })))
 }
 
-import { plateTitle, plateTitleLine } from '../../../shared/plate-title'
+import { noteTitle, plateTitleLine } from '../../../shared/plate-title'
 
 export class EditorSession {
   readonly identity = Symbol('EditorSession')
@@ -154,7 +154,7 @@ export class EditorSession {
   changeTitle(value: string) {
     this.writable()
     if (value.length > 240 || /[\r\n\u0000]/.test(value)) return deny('标题必须是一行且最多 240 个字符')
-    const title = plateTitle(this.raw)
+    const title = noteTitle(this.raw)
     const start = this.raw.startsWith('\uFEFF') ? 1 : 0
     return this.one({ from: start, to: title?.end ?? start, insert: plateTitleLine(value, this.projection.newline) },
       this.selection, { guard: 'raw' })
@@ -169,6 +169,11 @@ export class EditorSession {
   }
   get selection() { return { ...this.state.selection } }
   get projection() { return this._projection }
+  get markdownBody() { return this.projection.normalized.slice(this.projection.titleEnd) }
+  private get titleNeedsNewline() {
+    const { normalized, titleEnd } = this.projection
+    return titleEnd > Number(normalized.startsWith('\uFEFF')) && normalized[titleEnd - 1] !== '\n'
+  }
   get baseRevision() { return this._baseRevision }
   get draftEpoch() { return this._draftEpoch }
   get version() { return this._version }
@@ -535,7 +540,8 @@ export class EditorSession {
       closing = mark.length
     }
     let prefix = ''
-    if (left.box.from === left.box.to && left.box.from === this.raw.length && this.raw.slice(this.raw.startsWith('\uFEFF') ? 1 : 0).trim() &&
+    if (insert && this.titleNeedsNewline && left.box.from === this.raw.length) prefix = newline
+    else if (left.box.from === left.box.to && left.box.from === this.raw.length && this.markdownBody.trim() &&
         !/\n[ \t]*\n$/.test(this.projection.normalized))
       prefix = newline + newline
     const pendingBlock = this.pendingBlock?.point === s.from && s.from === s.to && /\S/.test(normalized)
@@ -1245,11 +1251,14 @@ export class EditorSession {
   sourceEdit(value: string, selection: Selection) {
     if (this.mode !== 'source') return deny('当前未进入原文模式')
     const old = this.projection
-    const e = diff(old.normalized, value)
-    const from = old.rawPoints[e.from], to = old.rawPoints[e.to]
-    const insert = e.insert.replaceAll('\n', this.newline(from))
-    const candidate = project(this.raw.slice(0, from) + insert + this.raw.slice(to))
-    const a = candidate.rawPoints[selection.anchor], b = candidate.rawPoints[selection.head]
+    const e = diff(this.markdownBody, value)
+    const from = old.rawPoints[old.titleEnd + e.from], to = old.rawPoints[old.titleEnd + e.to]
+    const newline = this.newline(from)
+    const titleSeparator = this.titleNeedsNewline && value ? newline : ''
+    const insert = titleSeparator + e.insert.replaceAll('\n', newline)
+    const candidate = normalize(this.raw.slice(0, from) + insert + this.raw.slice(to))
+    const bodyStart = old.titleEnd + Number(Boolean(titleSeparator))
+    const a = candidate.rawPoints[bodyStart + selection.anchor], b = candidate.rawPoints[bodyStart + selection.head]
     if (a === undefined || b === undefined) return deny('无效的原文选区')
     return this.one({ from, to, insert }, this.selection, { guard: 'raw', after: { anchor: a, head: b } })
   }

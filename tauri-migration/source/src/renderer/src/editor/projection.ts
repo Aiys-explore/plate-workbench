@@ -1,7 +1,7 @@
 import { markdownLanguage } from '@codemirror/lang-markdown'
 import type { SyntaxNode } from '@lezer/common'
 import { parseDocument } from 'yaml'
-import { plateTitle } from '../../../shared/plate-title'
+import { noteTitle } from '../../../shared/plate-title'
 import { scanWiki, wikiParser, type WikiLink } from '../../../shared/wiki-markdown'
 import { taskCommentId } from '../../../shared/task-anchor'
 
@@ -21,7 +21,7 @@ export type Box = Span & {
 export type Node = Leaf | Box
 export type Projection = {
   root: Box; protected: Box[]; lines: number[]; newline: string; errors: string[]
-  rawPoints: number[]; normalized: string; syntax: string
+  rawPoints: number[]; normalized: string; titleEnd: number; syntax: string
 }
 const parser = wikiParser()
 const entities = parser.utils
@@ -48,7 +48,7 @@ export function project(raw: string): Projection {
   const lines = [0]
   for (let i = 0; i < normalized.length; i++) if (normalized[i] === '\n') lines.push(rawPoints[i + 1])
   const bom = normalized.startsWith('\uFEFF') ? 1 : 0
-  const titleEnd = plateTitle(normalized)?.end ?? bom
+  const titleEnd = noteTitle(normalized)?.end ?? bom
   const fm = /^---[ \t]*\n([\s\S]*?)^(?:---|\.\.\.)[ \t]*(?=\n|$)/m.exec(normalized.slice(titleEnd))
   const yaml = fm?.index === 0 ? fm : null
   const unterminated = !yaml && /^---[ \t]*\n(?:[ \t]*#[^\n]*\n)*[ \t]*[\w-]+[ \t]*:/.test(normalized.slice(titleEnd))
@@ -269,7 +269,7 @@ export function project(raw: string): Projection {
   }
 
   const root = box('document', 0, normalized.length)
-  if (titleEnd > bom) protect('plate-title', bom, titleEnd, true)
+  if (titleEnd > bom) protect('plate-title', bom, titleEnd - Number(normalized[titleEnd - 1] === '\n'), true)
   if (yaml || unterminated) root.children.push(protect('yaml', titleEnd, yamlEnd))
   // One blank line separates Markdown blocks. Extra empty lines at the
   // document level are editable paragraph positions (including after Enter).
@@ -291,5 +291,5 @@ export function project(raw: string): Projection {
   if (!root.children.some(n => n.kind === 'box' && n.from !== n.to) || /\n[ \t]*\n$/.test(normalized)) root.children.push(box('paragraph', normalized.length, normalized.length,
     [leaf(normalized.length, normalized.length)], { content: span(normalized.length, normalized.length) }))
   return { root, protected: protectedNodes, lines, newline: raw.match(/\r\n|\n|\r/)?.[0] ?? '\n', errors,
-    rawPoints, normalized, syntax: tree.toString() }
+    rawPoints, normalized, titleEnd, syntax: tree.toString() }
 }
