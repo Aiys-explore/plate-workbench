@@ -125,8 +125,48 @@ try {
   await page.keyboard.press('Control+Shift+Space')
   await dialog('捕获闪念').getByRole('textbox', { name: '闪念内容' }).fill('闪念：研究桥梁有待补充依据')
   await page.keyboard.press('Enter')
-  await page.getByText('闪念：研究桥梁有待补充依据', { exact: true }).waitFor()
+  const captured = page.locator('.brain-episodic-card').filter({ hasText: '闪念：研究桥梁有待补充依据' })
+  await captured.waitFor()
   assert.equal(sql(db => db.prepare('SELECT count(*) AS n FROM note').get().n), 5)
+  const probe = page.locator('.brain-probes path[d]:not([d=""])')
+  const target = noteNode(ids.bridge)
+  await probe.waitFor()
+  assert.equal(await probe.count(), 1)
+  assert.equal(await page.locator('[data-brain-probe=true]').getAttribute('data-graph-node'), ids.bridge)
+  const eventId = await captured.getAttribute('data-event-id')
+  const measureProbe = () => probe.evaluate((path, { eventId, targetId }) => {
+    const bubble = document.querySelector(`[data-event-id="${CSS.escape(eventId)}"]`).getBoundingClientRect()
+    const card = document.querySelector(`[data-graph-node="${CSS.escape(targetId)}"] .relationship-card-ink`).getBoundingClientRect()
+    const screen = distance => path.getPointAtLength(distance).matrixTransform(path.getScreenCTM())
+    const start = screen(0)
+    const end = screen(path.getTotalLength())
+    return {
+      startError: Math.hypot(start.x - bubble.right, start.y - (bubble.top + bubble.height / 2)),
+      endError: Math.hypot(end.x - card.left, end.y - (card.top + card.height / 2)),
+      length: path.getTotalLength(),
+      animation: getComputedStyle(path).animationName,
+      stroke: getComputedStyle(path).stroke,
+      hitTesting: getComputedStyle(path.closest('svg')).pointerEvents,
+    }
+  }, { eventId, targetId: ids.bridge })
+  const endpoints = await measureProbe()
+  assert.ok(endpoints.length > 12 && endpoints.startError < 3 && endpoints.endError < 3, JSON.stringify(endpoints))
+  assert.equal(endpoints.animation, 'brain-synaptic-flow')
+  assert.notEqual(endpoints.stroke, 'none')
+  assert.equal(endpoints.hitTesting, 'none')
+  await page.screenshot({ path: join(evidence, 'capture-probe.png') })
+  const canvas = page.locator('.relations-canvas')
+  const beforeZoom = await canvas.getAttribute('data-camera')
+  await page.getByRole('button', { name: '放大', exact: true }).click()
+  await until(async () => (await canvas.getAttribute('data-camera')) !== beforeZoom &&
+    (await canvas.getAttribute('data-camera-moving')) === null, 'canvas zoom finished')
+  const zoomed = await measureProbe()
+  await page.screenshot({ path: join(evidence, 'capture-probe-zoom.png') })
+  assert.ok(zoomed.startError < 3 && zoomed.endError < 3, 'probe endpoints after zoom: ' + JSON.stringify(zoomed))
+  await probe.waitFor({ state: 'detached', timeout: 5000 })
+  assert.equal(await target.getAttribute('data-brain-probe'), null)
+  pass('Capture previews an animated probe that stays attached during zoom, then clears it', { initial: endpoints, zoomed })
+  await page.getByRole('button', { name: '适合画布', exact: true }).click()
   await page.evaluate(() => window.workbench.brain.capture('other', 'XX-FOREIGN-EVENT-XX'))
   pass('Global capture persists isolated episodic data without a note')
 
@@ -279,8 +319,29 @@ try {
   pass('A capture flies from the episodic lane to the semantic card before crystallizing', motion)
 
   sql(db => db.prepare('UPDATE note SET last_accessed_at=?,access_count=1 WHERE id=?').run(Date.now() - 90 * 86_400_000, ids.cold))
-  await page.getByRole('button', { name: '活力热力', exact: true }).click()
+  const vitality = page.getByRole('button', { name: '活力热力', exact: true })
+  await vitality.click()
   await page.locator('[data-graph-node="' + ids.cold + '"][data-brain-dormant=true]').waitFor({ state: 'attached' })
+  const dormant = noteNode(ids.cold)
+  const dot = dormant.locator('.brain-dormant-dot')
+  const ink = dormant.locator('.relationship-card-ink')
+  const opacity = locator => locator.evaluate(el => getComputedStyle(el).opacity)
+  await until(async () => (await opacity(ink)) === '0', 'dormant card initially collapsed')
+  const dotBox = await dot.boundingBox()
+  assert.ok(dotBox && dotBox.width > 0 && dotBox.height > 0)
+  await page.screenshot({ path: join(evidence, 'dormant-collapsed.png') })
+  await dot.hover()
+  assert.equal(await dormant.evaluate(node => node.matches(':hover') && !node.matches(':focus-within')), true)
+  await until(async () => (await opacity(ink)) === '1', 'mouse hover expands dormant card')
+  assert.equal(await opacity(dot), '0')
+  assert.match(await ink.textContent(), /休眠样本/)
+  await page.screenshot({ path: join(evidence, 'dormant-hover.png') })
+  await vitality.hover()
+  await until(async () => (await opacity(ink)) === '0', 'pointer exit collapses dormant card')
+  assert.equal(await opacity(dot), '1')
+  pass('Hovering the dormant dot reveals its card without keyboard focus, and leaving restores the dot', {
+    dotWidth: dotBox.width, dotHeight: dotBox.height,
+  })
   await noteNode(ids.cold).focus()
   await until(async () => (await noteNode(ids.cold).locator('.relationship-card-ink').evaluate(node => getComputedStyle(node).opacity)) === '1', 'dormant focus expansion')
   await page.screenshot({ path: join(evidence, 'brain-light.png') })

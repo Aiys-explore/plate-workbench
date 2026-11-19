@@ -87,7 +87,7 @@ export function RelationshipGraph({
   const [brainZones, setBrainZones] = useState(true)
   const [brainVitality, setBrainVitality] = useState(false)
   const [capture, setCapture] = useState(false)
-  const [probeLines, setProbeLines] = useState<{ id: string; path: string }[]>([])
+  const probeOverlay = useRef<SVGSVGElement>(null)
   const [fresh, setFresh] = useState<{ id: string; probe: string[] }>()
   const [crystal, setCrystal] = useState<string>()
   const [migration, setMigration] = useState<MemoryMigration>()
@@ -138,20 +138,33 @@ export function RelationshipGraph({
   }, [migration])
   useLayoutEffect(() => {
     const root = section.current
-    const capture = fresh && root?.querySelector('[data-event-id="' + CSS.escape(fresh.id) + '"]')
-    if (!root || !capture || !fresh?.probe.length || !brainOpen) { setProbeLines([]); return }
-    const bounds = root.getBoundingClientRect()
-    const source = capture.getBoundingClientRect()
-    const start = { x: source.right - bounds.left, y: source.top + source.height / 2 - bounds.top }
-    setProbeLines(fresh.probe.flatMap(id => {
-      const target = root.querySelector('[data-graph-node="' + CSS.escape(id) + '"] .relationship-card-ink')
-      const rect = target?.getBoundingClientRect()
-      if (!rect || rect.left <= source.right || rect.left > bounds.right || rect.bottom < bounds.top || rect.top > bounds.bottom) return []
-      const end = { x: rect.left - bounds.left, y: rect.top + rect.height / 2 - bounds.top }
-      const bend = (start.x + end.x) / 2
-      return [{ id, path: 'M ' + start.x + ',' + start.y + ' C ' + bend + ',' + start.y + ' ' +
-        bend + ',' + end.y + ' ' + end.x + ',' + end.y }]
+    const overlay = probeOverlay.current
+    if (!root || !overlay || !fresh || !brainOpen) return
+    const captureSelector = `[data-event-id="${CSS.escape(fresh.id)}"]`
+    const paths = Array.from(overlay.querySelectorAll('path[data-probe-note]')).map(path => ({
+      path, targetSelector: `[data-graph-node="${CSS.escape(path.getAttribute('data-probe-note')!)}"] .relationship-card-ink`,
     }))
+    let frame = 0
+    const followProbeTargets = () => {
+      const bounds = overlay.getBoundingClientRect()
+      const source = root.querySelector(captureSelector)?.getBoundingClientRect()
+      const positions = paths.map(({ path, targetSelector }) => {
+        const rect = root.querySelector(targetSelector)?.getBoundingClientRect()
+        if (!source || !rect || rect.left <= source.right || rect.left > bounds.right ||
+          rect.bottom < bounds.top || rect.top > bounds.bottom) return { path, d: '' }
+        const start = { x: source.right - bounds.left, y: source.top + source.height / 2 - bounds.top }
+        const end = { x: rect.left - bounds.left, y: rect.top + rect.height / 2 - bounds.top }
+        const bend = (start.x + end.x) / 2
+        return { path, d: `M ${start.x},${start.y} C ${bend},${start.y} ${bend},${end.y} ${end.x},${end.y}` }
+      })
+      for (const { path, d } of positions) {
+        if (path.getAttribute('d') !== d) path.setAttribute('d', d)
+      }
+      // The camera transforms the graph directly, so sample the endpoints while the short preview is visible.
+      frame = requestAnimationFrame(followProbeTargets)
+    }
+    followProbeTargets()
+    return () => cancelAnimationFrame(frame)
   }, [brain.events, brainOpen, fresh])
   const runBrain = async (work: () => Promise<void>) => {
     setBrainError('')
@@ -895,8 +908,8 @@ export function RelationshipGraph({
         }}
         dream={() => void runBrain(async () => setConsolidation(await window.workbench.brain.dream(projectFilter)))}/>
       {brainZones && <CorticalZonesLayer/>}
-      {probeLines.length > 0 && <svg className="brain-probes" aria-hidden="true">
-        {probeLines.map(line => <path key={line.id} d={line.path} className="brain-edge--synaptic-flowing"/>)}
+      {!!fresh?.probe.length && <svg ref={probeOverlay} className="brain-probes" aria-hidden="true">
+        {fresh.probe.map(id => <path key={id} data-probe-note={id} className="brain-edge--synaptic-flowing"/>)}
       </svg>}
       <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}/>
       {flight && <div className="brain-memory-flight" aria-hidden="true"
