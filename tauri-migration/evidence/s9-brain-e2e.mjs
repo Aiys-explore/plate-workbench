@@ -115,6 +115,7 @@ const activeClaim = () => sql(db => db.prepare('SELECT * FROM semantic_assertion
 
 try {
   await open()
+  results.version = await page.evaluate(async () => (await window.workbench.getAppInfo()).version)
   const migration = sql(db => db.prepare('SELECT memory_zone,vitality_score,evolution_version FROM note').all())
   assert.equal(migration.length, 5)
   assert.ok(migration.every(note => note.memory_zone === 'semantic' && note.vitality_score === 1 && note.evolution_version === 1))
@@ -165,6 +166,20 @@ try {
   assert.equal(await dialog('记忆变更提案').getByRole('button', { name: '应用记忆提案' }).count(), 0)
   await dialog('记忆变更提案').getByRole('button', { name: '关闭' }).click()
   await page.evaluate(() => {
+    window.__s9Motion = []
+    document.addEventListener('animationstart', event => {
+      const node = event.target
+      if (event.animationName === 'brain-evolution-ring' && node.matches('.brain-evolution-pulse')) {
+        window.__s9Motion.push({ name: event.animationName, stroke: getComputedStyle(node).stroke })
+      }
+      if (event.animationName === 'brain-memory-migrate' && node.matches('.brain-memory-flight')) {
+        const css = getComputedStyle(node)
+        window.__s9Motion.push({ name: event.animationName, distanceX: parseFloat(css.getPropertyValue('--flight-x')) })
+      }
+      if (event.animationName === 'brain-crystallize') window.__s9Motion.push({ name: event.animationName })
+    })
+  })
+  await page.evaluate(() => {
     const notes = window.workbench.notes
     const existing = notes.updateStrict
     notes.updateStrict = async () => {
@@ -190,6 +205,9 @@ try {
   assert.equal((await readFile(files.fact, 'utf8')).match(/第一轮补充说明/g).length, 1)
   assert.equal(await page.evaluate(async () => (await window.workbench.brain.skills()).length), 1)
   pass('Review gates changes; adoption writes assertion, Markdown, link and skill once')
+  await until(() => page.evaluate(() => window.__s9Motion.some(motion =>
+    motion.name === 'brain-evolution-ring' && motion.stroke === 'rgb(154, 85, 4)')), 'gold evolution ring')
+  pass('A new note revision triggers the gold evolution ring')
 
   await writeFile(replyFile, reply('复核完成。', {
     assertion_updates: [{ note_id: ids.fact, old_claim_id: claim.id, new_claim: '修订事实 1730' }],
@@ -205,6 +223,7 @@ try {
   const followed = await readFile(inputFile, 'utf8')
   assert.match(followed, /\[ACTIVE_TASK_INSTRUCTION\][\s\S]*复核新数值[\s\S]*复核完成。[\s\S]*追加追问，保持来源/)
   assert.ok(followed.includes('初始事实 1729'))
+  await page.getByRole('button', { name: '关闭编辑抽屉', exact: true }).click()
   await page.evaluate(async (runId) => {
     await window.workbench.tasks.markDone(runId)
     await window.workbench.brain.applyDelta(runId)
@@ -219,7 +238,13 @@ try {
   assert.equal(skill.successCount, 1)
   pass('Matching skill and facts are reused on follow-up; superseded facts remain in the timeline')
 
-  await page.getByRole('button', { name: '关闭编辑抽屉', exact: true }).click()
+  const ring = noteNode(ids.fact).locator('.brain-evolution-badge[aria-label="认知年轮 v3"] .brain-evolution-pulse')
+  await ring.waitFor({ state: 'attached' })
+  await ring.evaluate(node => {
+    const animation = node.getAnimations()[0]
+    if (animation) animation.currentTime = 210
+  })
+  await page.screenshot({ path: join(evidence, 'evolution-pulse.png') })
   await noteNode(ids.fact).locator('.brain-evolution-badge[aria-label="认知年轮 v3"]').dispatchEvent('click')
   await dialog(/认知年轮/).getByText('修订事实 1730', { exact: true }).waitFor()
   await dialog(/认知年轮/).getByText('历史断言').waitFor()
@@ -231,6 +256,13 @@ try {
   await dialog('固化闪念').getByLabel('笔记标题').fill('固化的闪念')
   await dialog('固化闪念').getByRole('button', { name: '确认固化' }).click()
   await dialog('固化闪念').waitFor({ state: 'hidden' })
+  const flying = page.locator('.brain-memory-flight')
+  await flying.waitFor({ state: 'attached' })
+  await flying.evaluate(node => {
+    const animation = node.getAnimations()[0]
+    if (animation) animation.currentTime = 145
+  })
+  await page.screenshot({ path: join(evidence, 'migration.png') })
   const consolidated = sql(db => db.prepare("SELECT * FROM episodic_events WHERE project_id='default' AND archived_at IS NOT NULL").get())
   assert.ok(consolidated.consolidated_note_id)
   assert.match(await readFile(join(workspace, 'projects', 'default', consolidated.consolidated_note_id + '.md'), 'utf8'), /研究桥梁有待补充依据/)
@@ -238,6 +270,13 @@ try {
   await noteNode(consolidated.consolidated_note_id).waitFor({ state: 'attached' })
   assert.ok(!(await noteNode(consolidated.consolidated_note_id).textContent()).includes('plate-brain-write'))
   pass('Dream review consolidates a selected capture to indexed Markdown and archives the source')
+  const motion = await until(() => page.evaluate(() => {
+    const start = window.__s9Motion.findIndex(item => item.name === 'brain-memory-migrate')
+    if (start < 0 || !window.__s9Motion.slice(start + 1).some(item => item.name === 'brain-crystallize')) return null
+    return window.__s9Motion[start]
+  }), 'flight into the semantic area followed by crystallization')
+  assert.ok(motion.distanceX > 0, JSON.stringify(motion))
+  pass('A capture flies from the episodic lane to the semantic card before crystallizing', motion)
 
   sql(db => db.prepare('UPDATE note SET last_accessed_at=?,access_count=1 WHERE id=?').run(Date.now() - 90 * 86_400_000, ids.cold))
   await page.getByRole('button', { name: '活力热力', exact: true }).click()
@@ -250,6 +289,19 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   assert.equal(await noteNode(ids.cold).locator('.relationship-card-ink').evaluate(el => getComputedStyle(el).transitionDuration), '0s')
   pass('Vitality decays; dormant card expands on keyboard focus and respects reduced motion')
+  await page.getByRole('button', { name: '活力热力', exact: true }).click()
+  await page.keyboard.press('Control+Shift+Space')
+  await dialog('捕获闪念').getByRole('textbox', { name: '闪念内容' }).fill('减少动态效果验收')
+  await page.keyboard.press('Enter')
+  await page.locator('.brain-episodic-card').filter({ hasText: '减少动态效果验收' })
+    .getByRole('button', { name: '固化', exact: true }).click()
+  await dialog('固化闪念').getByLabel('保存位置').selectOption(consolidated.consolidated_note_id)
+  await dialog('固化闪念').getByRole('button', { name: '确认固化' }).click()
+  const highlighted = noteNode(consolidated.consolidated_note_id).and(page.locator('[data-brain-crystal=true]'))
+  await highlighted.waitFor({ state: 'attached' })
+  assert.equal(await highlighted.locator('.relationship-card-ink').evaluate(el => getComputedStyle(el).animationName), 'none')
+  assert.equal(await page.locator('.brain-memory-flight').count(), 0)
+  pass('Reduced motion consolidates into an existing note with a static highlight')
 
   // Simulate an interruption between the atomic Markdown rename and the SQLite acknowledgement.
   const writeId = '00000000-0000-4000-8000-000000000099'

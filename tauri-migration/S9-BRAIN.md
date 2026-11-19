@@ -1,4 +1,4 @@
-# Plate 0.5.0-s9.1 大脑工作台
+# Plate 0.5.0-s9.2 大脑工作台
 
 首次打开会建议使用 Plate-Tauri-S9-试用笔记。可手动选择已有工作区。打开关系图右上角的「大脑」。按 Ctrl+Shift+Space 呼出闪念输入，按 Enter 保存，按 Shift+Enter 换行。闪念保存在当前导图分区，选择「固化」可新建 Markdown 笔记或追加到本分区现有笔记。「做梦整理」按显著度和记录时间列出候选，可一次选取同一分区的多条闪念。
 
@@ -7,6 +7,8 @@
 任务回执可附带结构化记忆提案。先在「待审阅」预览，采纳回执后再点「记忆提案」并确认应用。修改事实时会写入原断言的截止时间和继任断言。笔记的「认知年轮」显示当前事实、历史断言和修订前片段。SQLite 记录已批准的 Markdown 写入，重启时可继续落盘。目标笔记存在草稿时，先保存或丢弃草稿，再用「做梦整理」重试待写入项。
 
 「活力热力」根据访问次数、关系度数和时间衰减显示卡片。休眠点在悬停或键盘聚焦时展开。由 S8 迁移的笔记初始为语义记忆，活力值为 1；用户打开、保存或任务唤醒后进入衰减计算。
+
+固化成功后，画面中可见的闪念气泡移向语义卡片，目标卡片随即结晶回弹。笔记演化版本增加时，年轮徽章显示一次金色旋转脉冲。系统启用「减少动态效果」时，固化与演化以静态描边提示。
 
 ## S8 评审改动
 
@@ -26,4 +28,10 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml
 npm run tauri build -- --bundles nsis
 node ../evidence/s8-agent-e2e.mjs ./src-tauri/target/release/plate-workbench.exe
 node ../evidence/s9-brain-e2e.mjs ./src-tauri/target/release/plate-workbench.exe
+```
+
+现场 Agent 用例读取 CLI 的现有登录状态，只发送合成笔记。需要同时验收 DeepSeek Harness 时，将 `PLATE_S9_FIELD_DEEPSEEK_KEY_FILE` 指向仅含密钥的文本文件。脚本把密钥保存至临时应用配置，验收后清除。
+
+```powershell
+node ../evidence/s9-field-e2e.mjs agents ./src-tauri/target/release/plate-workbench.exe ./field-results
 ```

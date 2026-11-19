@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { copyFile, mkdir, mkdtemp, writeFile, access } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, access } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -25,10 +25,12 @@ const record = (name, status, details) => {
   console.log(status, name, JSON.stringify(details))
 }
 let processHandle, browser, page
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(PLATE_AGENT_|CODEX_HOME$|WEBVIEW2_|PLATE_WORKSPACE_ROOT$|CODEX_SANDBOX|CODEX_THREAD_ID$)/i.test(key)))
+const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(PLATE_AGENT_|CODEX_HOME$|WEBVIEW2_|PLATE_WORKSPACE_ROOT$|CODEX_SANDBOX|CODEX_THREAD_ID$|PLATE_S9_FIELD_DEEPSEEK_KEY_FILE$|DEEPSEEK_(API_KEY|BASE_URL)$)/i.test(key)))
 Object.assign(env, {
   PLATE_WORKSPACE_ROOT: notes, PLATE_AGENT_SETTINGS_DIR: agentSettings, WEBVIEW2_USER_DATA_FOLDER: profile,
 })
+const deepseekKeyFile = mode === 'agents' && process.env.PLATE_S9_FIELD_DEEPSEEK_KEY_FILE
+if (deepseekKeyFile) env.DSH_HOME = join(run, 'deepseek-harness')
 async function poll(fn, description, millis = 15_000) {
   const deadline = Date.now() + millis
   do {
@@ -45,13 +47,12 @@ async function launch() {
   await new Promise(done => portLease.close(done))
   const address = 'http://127.0.0.1:' + port
   const appEnv = { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + port }
-  const expectedSuggestion = mode === 'first-run'
-    ? join(process.env.USERPROFILE, 'Documents', 'Plate-Tauri-S9-试用笔记') : notes
-  if (mode === 'first-run') {
-    assert.equal(await access(join(expectedSuggestion, 'plate-workbench.json')).then(() => true, () => false), false,
-      'will not open an existing default S9 workspace during first-run tests')
-    delete appEnv.PLATE_WORKSPACE_ROOT
-  }
+  const defaultSuggestion = join(process.env.USERPROFILE, 'Documents', 'Plate-Tauri-S9-试用笔记')
+  const defaultWorkspaceExists = mode === 'first-run' &&
+    await access(join(defaultSuggestion, 'plate-workbench.json')).then(() => true, () => false)
+  const testDefaultSuggestion = mode === 'first-run' && !defaultWorkspaceExists
+  const expectedSuggestion = testDefaultSuggestion ? defaultSuggestion : notes
+  if (testDefaultSuggestion) delete appEnv.PLATE_WORKSPACE_ROOT
   processHandle = spawn(exe, [], {
     cwd: run, stdio: 'ignore', windowsHide: mode !== 'picker', env: appEnv,
   })
@@ -70,7 +71,10 @@ async function launch() {
     const selected = await page.evaluate(path => window.__TAURI_INTERNALS__.invoke('startup_submit', { token: path }), notes)
     assert.equal(selected.path, notes)
     await page.reload()
-    record('default startup suggestion uses a new S9 workspace', 'PASS', { s9Workspace: true, showsChooser: true })
+    record(testDefaultSuggestion ? 'default startup suggestion uses a new S9 workspace'
+      : 'first launch uses an isolated workspace with an existing S9 workspace present', 'PASS', {
+      defaultSuggestionTested: testDefaultSuggestion, showsChooser: true,
+    })
   } else {
     await page.getByRole('button', { name: '打开笔记', exact: true }).click()
   }
@@ -96,6 +100,22 @@ const safeDiagnostic = card => {
   return card.errorMsg ? 'adapter-error' : 'no-exact-answer'
 }
 async function agents() {
+  if (deepseekKeyFile) {
+    let saved = false
+    try {
+      const key = (await readFile(deepseekKeyFile, 'utf8')).trim()
+      if (!key || /\s/.test(key)) throw new Error('Unexpected DeepSeek key file format')
+      saved = await page.evaluate(async value => {
+        try {
+          await window.workbench.agentPlugins.saveDeepSeek({ key: value, clear: false, baseUrl: '' })
+          return true
+        } catch { return false }
+      }, key)
+    } catch { throw new Error('Unable to load the isolated DeepSeek credential') }
+    assert.ok(saved, 'Unable to save the isolated DeepSeek credential')
+    await page.evaluate(() => window.workbench.agentPlugins.list(true))
+    result.deepseekCredentialConfigured = true
+  }
   const plugins = await page.evaluate(() => window.workbench.agentPlugins.list(true))
   result.discovery = [...plugins.installed, ...plugins.available].filter(p => ['codex', 'claude', 'dsh', 'opencode'].includes(p.id))
     .map(({ id, installed, enabled, status, cliVersion, executable, deepseekKey }) =>
@@ -115,8 +135,8 @@ async function agents() {
     const body = [
       note.content,
       '- [[' + source.id + '|合成来源]]',
-      ...ready.map(id => '- [ ] TODO(@' + id + '): 根据关联笔记「合成来源」中的两个整数计算总和。只输出一行 S9-FIELD-' +
-        nonce + ' 加一个空格及计算结果（不要输出其他内容）。仅使用本次标准输入，不读取文件，不调用工具，不执行命令。'),
+      ...ready.map(id => '- [ ] TODO(@' + id + '): 根据关联笔记「合成来源」中的两个整数计算总和。输出一行：S9-FIELD-' +
+        nonce + ' <总和> 来源: <提供两个整数的笔记 note_id>。将尖括号占位符替换为实际值，从 GLOBAL_SOURCE_OF_TRUTH 抄写来源 UUID。仅使用本次标准输入，不读取文件，不调用工具，不执行命令。'),
     ].join('\n\n') + '\n'
     const update = await wb.notes.update(note.id, body, note.revision)
     if (update.status !== 'saved') throw new Error('Could not save task note')
@@ -161,13 +181,16 @@ async function agents() {
       if (running) await page.evaluate(taskId => window.workbench.tasks.stop(taskId), running.taskId)
       return { plugin, status: 'FAIL', details: { reason: 'task-timeout' } }
     }
-    const matches = card.outputDraft.split(/\r?\n/).some(line => line.trim() === answer)
+    const receipt = card.outputDraft.split(/\r?\n/).map(line => line.trim())
+      .find(line => line.startsWith(answer + ' '))
+    const citedId = receipt?.slice(answer.length).trim().match(/^来源\s*[:：]\s*([0-9a-f-]{36})$/i)?.[1]
+    const exactSourceCitation = citedId?.toLowerCase() === seeded.sourceId.toLowerCase()
     const associated = await page.evaluate(({ taskId, sourceId }) =>
       window.__s9FieldWaves.some(w => w.runId === taskId && w.activatedNoteIds.includes(sourceId)),
     { taskId: card.taskId, sourceId: seeded.sourceId })
-    const status = card.state === 'PENDING' && matches && associated ? 'PASS' : 'FAIL'
-    return { plugin, card, status, details: {
-      state: card.state, exactDerivedAnswer: matches, activatedSource: associated,
+    const status = card.state === 'PENDING' && !!receipt && exactSourceCitation && associated ? 'PASS' : 'FAIL'
+    return { plugin, card, receipt, status, details: {
+      state: card.state, exactDerivedAnswer: !!receipt, exactSourceCitation, activatedSource: associated,
       durationMs: card.durationMs, multilineReceipt: card.outputDraft.trim().split(/\r?\n/).length > 1,
       diagnostic: status === 'PASS' ? undefined : safeDiagnostic(card),
     } }
@@ -181,8 +204,10 @@ async function agents() {
       const adopted = await poll(async () => (await page.evaluate(id => window.workbench.tasks.listByNote(id), seeded.noteId))
         .find(card => card.taskId === entry.card.taskId && card.state === 'DONE'), entry.plugin.id + ' adoption')
       const markdown = await page.evaluate(async id => (await window.workbench.notes.read(id)).content, seeded.noteId)
-      assert.ok(markdown.includes('DONE #' + adopted.taskId) && markdown.includes('> ' + answer))
-      record(entry.plugin.id + ' adoption', 'PASS', { markdownAndSqlite: true })
+      assert.ok(markdown.includes('DONE #' + adopted.taskId))
+      assert.ok(markdown.split(/\r?\n/).some(line => line.trim() === '> ' + entry.receipt),
+        'Adopted Markdown did not preserve the cited receipt')
+      record(entry.plugin.id + ' adoption', 'PASS', { markdownAndSqlite: true, sourceCitationPreserved: true })
     } catch (err) {
       const drawer = page.locator('.note-drawer')
       const alerts = await drawer.locator('[role=alert], .editor-error').allTextContents()
@@ -257,6 +282,17 @@ try {
   console.log('FAIL', result.error)
   process.exitCode = 1
 } finally {
+  if (result.deepseekCredentialConfigured && page) {
+    result.deepseekCredentialCleared = await page.evaluate(async () => {
+      await window.workbench.agentPlugins.saveDeepSeek({ clear: true, baseUrl: '' })
+      const plugins = await window.workbench.agentPlugins.list()
+      return plugins.installed.find(plugin => plugin.id === 'dsh')?.deepseekKey === 'unset'
+    }).catch(() => false)
+    if (!result.deepseekCredentialCleared) {
+      result.status = 'FAIL'
+      process.exitCode = 1
+    }
+  }
   await writeFile(join(evidence, 'results.json'), JSON.stringify(result, null, 2))
   await shutdown()
 }

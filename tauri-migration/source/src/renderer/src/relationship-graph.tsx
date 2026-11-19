@@ -1,5 +1,5 @@
 import type { BrainSkill, EpisodicEvent } from '../../shared/brain'
-import { BrainHudBar, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionTimelineModal,
+import { BrainHudBar, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionBadge, EvolutionTimelineModal,
   QuickCaptureBar, SkillDialog, SkillDock, useBrainWorkbench } from './brain-workbench'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
@@ -21,6 +21,7 @@ const styles = [
   ['blueprint', '蓝图', '网格与工程图线'],
 ] as const
 type Style = typeof styles[number][0]
+type MemoryMigration = { id: string; from: Point; width: number; text: string }
 const styleStorage = 'plate.relationship-flow.style'
 const initialStyle = () => {
   try { return styles.find(([id]) => id === localStorage.getItem(styleStorage))?.[0] ?? 'editorial' }
@@ -89,6 +90,8 @@ export function RelationshipGraph({
   const [probeLines, setProbeLines] = useState<{ id: string; path: string }[]>([])
   const [fresh, setFresh] = useState<{ id: string; probe: string[] }>()
   const [crystal, setCrystal] = useState<string>()
+  const [migration, setMigration] = useState<MemoryMigration>()
+  const [flight, setFlight] = useState<(MemoryMigration & { to: Point })>()
   const [consolidation, setConsolidation] = useState<EpisodicEvent[]>()
   const [timeline, setTimeline] = useState<RelationshipNote>()
   const [skill, setSkill] = useState<BrainSkill | 'new'>()
@@ -116,9 +119,23 @@ export function RelationshipGraph({
   }, [fresh])
   useEffect(() => {
     if (!crystal) return
-    const timer = window.setTimeout(() => setCrystal(undefined), 4_000)
+    const timer = window.setTimeout(() => setCrystal(undefined), 500)
     return () => window.clearTimeout(timer)
   }, [crystal])
+  const finishFlight = (id: string) => {
+    setFlight(undefined)
+    setCrystal(id)
+  }
+  useEffect(() => {
+    if (!flight) return
+    const timer = window.setTimeout(() => finishFlight(flight.id), 600)
+    return () => window.clearTimeout(timer)
+  }, [flight])
+  useEffect(() => {
+    if (!migration) return
+    const timer = window.setTimeout(() => setMigration(undefined), 1_500)
+    return () => window.clearTimeout(timer)
+  }, [migration])
   useLayoutEffect(() => {
     const root = section.current
     const capture = fresh && root?.querySelector('[data-event-id="' + CSS.escape(fresh.id) + '"]')
@@ -139,6 +156,26 @@ export function RelationshipGraph({
   const runBrain = async (work: () => Promise<void>) => {
     setBrainError('')
     try { await work() } catch (error) { setBrainError(String(error)) }
+  }
+  const consolidate = async (ids: string[], title: string, target?: string) => {
+    const root = section.current
+    const bounds = root?.getBoundingClientRect()
+    const visible = ids.map(id => root?.querySelector('[data-event-id="' + CSS.escape(id) + '"]'))
+      .find(card => {
+        const rect = card?.getBoundingClientRect()
+        const lane = card?.parentElement?.getBoundingClientRect()
+        return rect && lane && rect.top >= lane.top && rect.bottom <= lane.bottom
+      })
+    const origin = visible?.getBoundingClientRect()
+    const text = visible?.querySelector('p')?.textContent ?? ''
+    const id = await window.workbench.brain.consolidate(ids, title, target)
+    if (origin && bounds) {
+      setMigration({ id, text, width: origin.width,
+        from: { x: origin.left + origin.width / 2 - bounds.left, y: origin.top + origin.height / 2 - bounds.top } })
+    } else {
+      setCrystal(id)
+    }
+    reload()
   }
 
   const [scope, setScope] = useState<'nearby' | 'all'>(() => selected ? 'nearby' : 'all')
@@ -645,6 +682,22 @@ export function RelationshipGraph({
     node.focus({ preventScroll: true })
     setNextFocus(undefined)
   }, [nextFocus, geometry, state.busy, rightInset])
+  useLayoutEffect(() => {
+    if (!migration || !brainOpen || !section.current) return
+    const target = world.current?.querySelector(
+      '[data-graph-node="' + CSS.escape(migration.id) + '"] .relationship-card-ink')
+    if (!target) return
+    setMigration(undefined)
+    const bounds = section.current.getBoundingClientRect()
+    const rect = target.getBoundingClientRect()
+    const to = { x: rect.left + rect.width / 2 - bounds.left, y: rect.top + rect.height / 2 - bounds.top }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      to.x < 0 || to.x > bounds.width || to.y < 0 || to.y > bounds.height) {
+      setCrystal(migration.id)
+      return
+    }
+    setFlight({ ...migration, to })
+  }, [brainOpen, migration, nodes])
   useEffect(() => {
     if (focusId && !state.busy) revealNode(focusId)
   }, [focusId, state.busy])
@@ -846,6 +899,12 @@ export function RelationshipGraph({
         {probeLines.map(line => <path key={line.id} d={line.path} className="brain-edge--synaptic-flowing"/>)}
       </svg>}
       <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}/>
+      {flight && <div className="brain-memory-flight" aria-hidden="true"
+        style={{
+          left: flight.from.x, top: flight.from.y, width: flight.width,
+          '--flight-x': `${flight.to.x - flight.from.x}px`, '--flight-y': `${flight.to.y - flight.from.y}px`,
+        } as CSSProperties}
+        onAnimationEnd={() => finishFlight(flight.id)}>{flight.text}</div>}
       <div className="brain-context-control">
         <label title="启用后，任务会把当前项目的相关笔记、闪念与匹配技能交给选定的 Agent。">
           <input type="checkbox" checked={!!brain.status?.contextEnabled} disabled={!brain.status}
@@ -867,7 +926,7 @@ export function RelationshipGraph({
           .slice(0, 5).map(note => note.id) })
       }}/>}
     {consolidation && (consolidation.length ? <ConsolidationDialog events={consolidation} nodes={nodes}
-      close={() => setConsolidation(undefined)} saved={id => { setCrystal(id); reload() }}/> :
+      close={() => setConsolidation(undefined)} consolidate={consolidate}/> :
       <EditorDialog title="做梦整理" close={() => setConsolidation(undefined)} kind="brain" cancelLabel="关闭">
         <p>当前范围没有可整理的闪念。</p>
       </EditorDialog>)}
@@ -1038,17 +1097,8 @@ export function RelationshipGraph({
             <text className="relationship-card-preview">{card.preview.map((line,i)=><tspan key={i} x="-56" y={top+19+card.title.length*14+i*12}>{line}</tspan>)}</text>
             {card.tag.length>0 && <text className="relationship-card-tags" x="-56" y={top+19+card.title.length*14+card.preview.length*12}>{card.tag[0]}</text>}
             </g>
-            {brainOpen && memory && memory.version > 1 && <g className="brain-evolution-badge"
-              key={memory.version} role="button" tabIndex={0} aria-label={'认知年轮 v' + memory.version}
-              onPointerDown={event => event.stopPropagation()}
-              onClick={event => { event.stopPropagation(); setTimeline(note) }}
-              onKeyDown={event => {
-                event.stopPropagation()
-                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setTimeline(note) }
-              }}>
-              <rect x={-cardWidth / 2 - 6} y={top - 14} width="28" height="17" rx="8"/>
-              <text x={-cardWidth / 2 + 8} y={top - 2} textAnchor="middle">v{memory.version}</text>
-            </g>}
+            {brainOpen && memory && <EvolutionBadge version={memory.version}
+              x={-cardWidth / 2 + 8} y={top - 5.5} open={() => setTimeline(note)}/>}
             {childCount > 0 && (() => {
               const collapsedNow = collapsed.has(note.id)
               const shown = childCount

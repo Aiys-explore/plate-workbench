@@ -51,7 +51,8 @@ export function NoteEditor(props: Props) {
   const [choosingAgent, setChoosingAgent] = useState<{ todo: TaskTodo; dispatch: boolean; version: number }>()
   const open = useRef(new Set<string>())
   const logOpen = useRef<string | null>(null)
-  const [memoryReview, setMemoryReview] = useState<TaskRunCard>()
+  const [memoryReviewId, setMemoryReviewId] = useState<string>()
+  const memoryReview = taskCards.find(card => card.taskId === memoryReviewId)
   const followDrafts = useRef(new Map<string, string>())
   const taskBusy = useRef(false)
   const taskRun = (action: () => Promise<void>) => {
@@ -124,7 +125,7 @@ export function NoteEditor(props: Props) {
       await resetTask(taskId, '')
     }),
     openAgentSettings,
-    reviewMemory: setMemoryReview,
+    reviewMemory: card => setMemoryReviewId(card.taskId),
     togglePanel: taskId => { logOpen.current = logOpen.current === taskId ? null : taskId; redraw() },
     submitFollow: taskId => { /* Enter 输入框直接走 follow */ void taskId },
     followDraft: (taskId, value) => { followDrafts.current.set(taskId, value) },
@@ -455,7 +456,8 @@ export function NoteEditor(props: Props) {
     <div data-editor-scroller ref={scroller}>
       <div data-editor-canvas>
         {issue && !form && <p role="alert" data-editor-notice data-tone="error">{issue}</p>}
-        {memoryReview?.memoryDelta && <MemoryReviewDialog card={memoryReview} close={() => setMemoryReview(undefined)}
+        {memoryReview?.memoryDelta && <MemoryReviewDialog key={memoryReview.taskId} card={memoryReview}
+          close={() => setMemoryReviewId(undefined)}
           blocked={session.dirty || session.composing}/>}
         {choosingAgent && <TaskAgentDialog onClose={() => setChoosingAgent(undefined)} select={agent => {
           setChoosingAgent(undefined)

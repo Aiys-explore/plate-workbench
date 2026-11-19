@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, EpisodicEvent } from '../../shared/brain'
 import type { RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
@@ -123,8 +123,9 @@ export function EpisodicLane({ events, fresh, openCapture, consolidate }: {
   </aside>
 }
 
-export function ConsolidationDialog({ events, nodes, close, saved }: {
-  events: EpisodicEvent[]; nodes: RelationshipNote[]; close: () => void; saved: (id: string) => void
+export function ConsolidationDialog({ events, nodes, close, consolidate }: {
+  events: EpisodicEvent[]; nodes: RelationshipNote[]; close: () => void
+  consolidate: (ids: string[], title: string, target?: string) => Promise<void>
 }) {
   const [selected, setSelected] = useState<string[]>(events.length === 1 ? [events[0].id] : [])
   const [title, setTitle] = useState(events.length === 1 ? events[0].rawText.split(/\r?\n/)[0].slice(0, 60) : '')
@@ -136,7 +137,7 @@ export function ConsolidationDialog({ events, nodes, close, saved }: {
     event.preventDefault()
     setBusy(true)
     setError('')
-    try { saved(await api().consolidate(selected, title, target || undefined)); close() }
+    try { await consolidate(selected, title, target || undefined); close() }
     catch (issue) { setError(message(issue)); setBusy(false) }
   }
   return <EditorDialog title="固化闪念" close={close} kind="brain">
@@ -162,6 +163,35 @@ export function ConsolidationDialog({ events, nodes, close, saved }: {
       <button type="submit" className="button-primary" disabled={busy || !selected.length || !target && !title.trim()}>确认固化</button>
     </form>
   </EditorDialog>
+}
+
+export function EvolutionBadge({ version, x, y, open }: {
+  version: number; x: number; y: number; open: () => void
+}) {
+  const previous = useRef(version)
+  const [pulse, setPulse] = useState<number>()
+  useLayoutEffect(() => {
+    const changed = version > previous.current
+    previous.current = version
+    if (!changed) return
+    setPulse(version)
+    const timeout = window.setTimeout(() => setPulse(undefined), 780)
+    return () => window.clearTimeout(timeout)
+  }, [version])
+
+  if (version <= 1) return null
+  return <g className="brain-evolution-badge" role="button" tabIndex={0} aria-label={'认知年轮 v' + version}
+    onPointerDown={event => event.stopPropagation()}
+    onClick={event => { event.stopPropagation(); open() }}
+    onKeyDown={event => {
+      event.stopPropagation()
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open() }
+    }}>
+    {pulse === version && <ellipse key={version} className="brain-evolution-pulse" aria-hidden="true"
+      cx={x} cy={y} rx="18" ry="13"/>}
+    <rect x={x - 14} y={y - 8.5} width="28" height="17" rx="8"/>
+    <text x={x} y={y + 3.5} textAnchor="middle">v{version}</text>
+  </g>
 }
 
 export function SkillDock({ skills, wave, inspect, create }: {
