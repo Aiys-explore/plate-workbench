@@ -1,0 +1,22 @@
+{
+  "releaseTag": "v0.5.0-s9.2",
+  "installerSha256": "341ECEC0DA3814DF82F6F867BACAA5AC524261B47F9621022ABDE5E07A49A50D",
+  "testedPayloadSha256": "6EC32DFBD3C0642859794630FF2EFBB45196ED38CEAC65DF76B0C5569D287F4B",
+  "sqlite": {
+    "agentId": "opencode",
+    "taskId": "t-01ac6697b261",
+    "state": "DONE",
+    "exactOutput": true
+  },
+  "markdown": {
+    "doneMarkerPersisted": true,
+    "exactThreeLineQuote": true
+  },
+  "syntheticSource": {
+    "id": "bff1bcef-8e9c-4437-b659-27b7f2e58a47",
+    "operands": [
+      253,
+      700
+    ]
+  }
+}

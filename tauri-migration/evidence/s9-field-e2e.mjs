@@ -10,8 +10,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
 
 const { chromium } = createRequire(new URL('../source/package.json', import.meta.url))('playwright')
-const [mode, inputExe, output] = process.argv.slice(2)
-assert.ok(['agents', 'picker', 'first-run'].includes(mode))
+const [mode, inputExe, output, openCodeEntry] = process.argv.slice(2)
+assert.ok(['agents', 'picker', 'first-run', 'opencode'].includes(mode))
 const evidence = resolve(output)
 await mkdir(evidence, { recursive: true })
 const run = await mkdtemp(join(tmpdir(), 'plate-s9-field-' + mode + '-'))
@@ -31,6 +31,8 @@ Object.assign(env, {
 })
 const deepseekKeyFile = mode === 'agents' && process.env.PLATE_S9_FIELD_DEEPSEEK_KEY_FILE
 if (deepseekKeyFile) env.DSH_HOME = join(run, 'deepseek-harness')
+const openCodeModel = 'deepseek/deepseek-flash'
+let openCodeKey
 async function poll(fn, description, millis = 15_000) {
   const deadline = Date.now() + millis
   do {
@@ -98,6 +100,153 @@ const safeDiagnostic = card => {
   if (/model.*not.*available|invalid.*model|模型.*无效/i.test(content)) return 'model'
   if (/command not found|not recognized|CLI.*失败|无法启动/i.test(content)) return 'launch'
   return card.errorMsg ? 'adapter-error' : 'no-exact-answer'
+}
+async function openCodePreflight() {
+  assert.ok(openCodeEntry, 'Specify the absolute path to the npm-generated opencode.cmd')
+  assert.equal(basename(openCodeEntry).toLowerCase(), 'opencode.cmd')
+  await access(openCodeEntry)
+  const keyFile = process.env.PLATE_S9_FIELD_DEEPSEEK_KEY_FILE
+  assert.ok(keyFile, 'Set PLATE_S9_FIELD_DEEPSEEK_KEY_FILE')
+  openCodeKey = (await readFile(keyFile, 'utf8')).trim()
+  assert.ok(openCodeKey && !/\s/.test(openCodeKey), 'Unexpected DeepSeek key file format')
+
+  for (const name of Object.keys(env)) {
+    if (/^OPENCODE_/i.test(name)) delete env[name]
+  }
+  const configDir = join(run, 'opencode-config')
+  const probeDir = join(run, 'opencode-probe')
+  await mkdir(configDir)
+  await mkdir(probeDir)
+  Object.assign(env, {
+    PLATE_AGENT_OPENCODE: resolve(openCodeEntry),
+    XDG_CONFIG_HOME: join(run, 'config'),
+    XDG_DATA_HOME: join(run, 'data'),
+    XDG_CACHE_HOME: join(run, 'cache'),
+    XDG_STATE_HOME: join(run, 'state'),
+    OPENCODE_CONFIG_DIR: configDir,
+    OPENCODE_CONFIG: join(configDir, 'opencode.json'),
+    OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+    DEEPSEEK_API_KEY: openCodeKey,
+  })
+  await writeFile(env.OPENCODE_CONFIG, JSON.stringify({
+    enabled_providers: ['deepseek'],
+    autoupdate: false,
+    share: 'disabled',
+    permission: { '*': 'deny' },
+    provider: {
+      deepseek: {
+        options: { baseURL: 'https://api.deepseek.com/v1' },
+        models: { 'deepseek-flash': { name: 'DeepSeek Flash' } },
+      },
+    },
+  }))
+  const invoke = (args, input = '') => new Promise((resolve, reject) => {
+    const command = `"${env.PLATE_AGENT_OPENCODE}" ${args.join(' ')}`
+    const child = execFile(process.env.ComSpec, ['/d', '/s', '/c', `"${command}"`], {
+      cwd: probeDir, env, windowsHide: true, windowsVerbatimArguments: true, timeout: 90_000,
+    }, (error, stdout, stderr) => {
+      if (error?.killed) reject(new Error('OpenCode preflight timed out'))
+      else resolve({ code: error?.code ?? 0, stdout, stderr })
+    })
+    child.on('error', () => reject(new Error('OpenCode could not launch')))
+    child.stdin.on('error', () => {})
+    child.stdin.end(input, 'utf8')
+  })
+  const version = await invoke(['--version'])
+  const cliVersion = version.stdout.trim().match(/^\d+\.\d+\.\d+(?:[-.][0-9a-z.-]+)?$/i)?.[0]
+  assert.ok(version.code === 0 && cliVersion, 'OpenCode version probe failed')
+  result.openCode = { cliVersion, entry: basename(openCodeEntry), model: openCodeModel }
+  const probe = 'PLATE-OPEN-CODE-' + randomBytes(5).toString('hex')
+  const response = await invoke(['run', '--model', openCodeModel, '--format', 'json'],
+    '仅原样回复这一行，不要调用工具：' + probe + '\n')
+  const events = response.stdout.split(/\r?\n/).flatMap(line => {
+    try { return [JSON.parse(line)] } catch { return [] }
+  })
+  const returned = events.filter(event => event.type === 'text').map(event => event.part?.text ?? '').join('').trim()
+  const connected = response.code === 0 && returned === probe && !events.some(event => event.type === 'error')
+  record('OpenCode DeepSeek API preflight', connected ? 'PASS' : 'FAIL', {
+    ...result.openCode, exactReply: returned === probe,
+    diagnostic: connected ? undefined : safeDiagnostic({ logTail: response.stdout + response.stderr }),
+  })
+  assert.ok(connected, 'OpenCode did not complete the DeepSeek API preflight')
+}
+async function openCodeTask() {
+  const model = openCodeModel
+  const plugin = await page.evaluate(async ({ executable, model }) => {
+    const api = window.workbench.agentPlugins
+    const snapshot = await api.list(true)
+    if (!snapshot.installed.some(item => item.id === 'opencode')) await api.install('opencode')
+    const updated = await api.update({ id: 'opencode', enabled: true, customExecutable: executable, selectedModel: model })
+    const item = updated.installed.find(item => item.id === 'opencode')
+    return { status: item?.status, selectedModel: item?.selectedModel, exactExecutable: item?.executable === executable }
+  }, { executable: env.PLATE_AGENT_OPENCODE, model })
+  assert.deepEqual(plugin, { status: 'connected', selectedModel: model, exactExecutable: true })
+
+  const operands = Array.from(randomBytes(2), (byte, index) => 200 + byte + index * 500)
+  const marker = '甲&乙|丙%' + randomBytes(4).toString('hex')
+  const lines = [
+    '只根据本次标准输入中的关联笔记「合成来源」作答。不读取文件，不调用工具。',
+    '第一行写「总和：」后面加两个整数的总和。',
+    '第二行写「标记：' + marker + '」，保留 & | % 原样。',
+    '第三行写「来源：」后面加提供整数的合成来源笔记 note_id，从 GLOBAL_SOURCE_OF_TRUTH 抄写 UUID。只输出所要求的三行。',
+  ]
+  const seeded = await page.evaluate(async ({ operands, lines }) => {
+    const wb = window.workbench
+    const source = await wb.notes.create('合成来源', 'default', 'blank')
+    const saved = await wb.notes.update(source.id, source.content +
+      '本次验收的两个整数是 ' + operands[0] + ' 和 ' + operands[1] + '。\n', source.revision)
+    if (saved.status !== 'saved') throw new Error('Could not save source fixture')
+    await wb.brain.setContext(true)
+    const note = await wb.notes.create('OpenCode 多行中文现场验收', 'default', 'blank')
+    const body = [note.content, '- [[' + source.id + '|合成来源]]',
+      '- [ ] TODO(@opencode): ' + lines.join('\n  ')].join('\n\n') + '\n'
+    const updated = await wb.notes.update(note.id, body, note.revision)
+    if (updated.status !== 'saved') throw new Error('Could not save task fixture')
+    window.__s9FieldWaves = []
+    wb.brain.onActivation(wave => window.__s9FieldWaves.push(wave))
+    return { noteId: note.id, sourceId: source.id }
+  }, { operands, lines })
+  const expected = ['总和：' + (operands[0] + operands[1]), '标记：' + marker, '来源：' + seeded.sourceId]
+  await page.locator('[data-graph-node="' + seeded.noteId + '"]').dispatchEvent('dblclick', { detail: 2 })
+  const editor = page.locator('[data-editor-host=render]')
+  const dispatch = editor.locator('[data-task-capsule][data-task-agent="opencode"] [data-task-pill=todo]')
+  await dispatch.waitFor({ state: 'visible' })
+  await dispatch.dispatchEvent('click')
+  const task = async () => (await page.evaluate(id => window.workbench.tasks.listByNote(id), seeded.noteId))
+    .find(card => card.agentId === 'opencode')
+  const card = await poll(async () => {
+    const value = await task()
+    return ['PENDING', 'ERROR'].includes(value?.state) ? value : null
+  }, 'OpenCode task completion', 140_000)
+  const actual = card.outputDraft.trim().split(/\r?\n/).map(line => line.trim())
+  const activatedSource = await page.evaluate(({ taskId, sourceId }) =>
+    window.__s9FieldWaves.some(wave => wave.runId === taskId && wave.activatedNoteIds.includes(sourceId)),
+  { taskId: card.taskId, sourceId: seeded.sourceId })
+  const promptLines = card.promptText.split(/\r?\n/).map(line => line.trim())
+  const details = {
+    state: card.state, durationMs: card.durationMs, promptLinesPreserved: promptLines.length === lines.length &&
+      lines.every((line, index) => promptLines[index] === line),
+    outputLines: actual.length, exactSum: actual[0] === expected[0], exactMarker: actual[1] === expected[1],
+    exactSource: actual[2] === expected[2], activatedSource,
+  }
+  const passed = card.state === 'PENDING' && actual.length === 3 && details.promptLinesPreserved &&
+    details.exactSum && details.exactMarker && details.exactSource && activatedSource
+  record('S9.2 OpenCode multiline Chinese task', passed ? 'PASS' : 'FAIL', {
+    ...details, diagnostic: passed ? undefined : safeDiagnostic(card),
+  })
+  assert.ok(passed, 'OpenCode task did not produce the expected three-line receipt')
+  const panel = editor.locator('[data-task-panel][data-task-id="' + card.taskId + '"]')
+  const adopt = panel.locator('[data-task-pill=adopt]')
+  await adopt.waitFor({ state: 'visible' })
+  await page.screenshot({ path: join(evidence, 'pending.png') })
+  await adopt.dispatchEvent('click')
+  await poll(async () => (await task())?.state === 'DONE', 'OpenCode receipt adoption')
+  const markdown = await page.evaluate(async id => (await window.workbench.notes.read(id)).content, seeded.noteId)
+  assert.ok(markdown.includes('DONE #' + card.taskId))
+  assert.ok(markdown.replace(/\r\n/g, '\n').includes(expected.map(line => '> ' + line).join('\n')))
+  record('S9.2 OpenCode receipt adoption', 'PASS', { state: 'DONE', exactMarkdownReceipt: true, receipt: expected })
+  await page.screenshot({ path: join(evidence, 'adopted.png') })
 }
 async function agents() {
   if (deepseekKeyFile) {
@@ -238,6 +387,7 @@ async function picker() {
 
 }
 try {
+  if (mode === 'opencode') await openCodePreflight()
   if (mode === 'first-run') {
     const destination = join(run, '安装目录 中文')
     const args = '/S /D=' + destination
@@ -259,6 +409,7 @@ try {
   const info = await page.evaluate(() => window.workbench.getAppInfo())
   result.version = info.version
   if (mode === 'agents') await agents()
+  if (mode === 'opencode') await openCodeTask()
   if (mode === 'picker') await picker()
   if (mode === 'first-run') {
     const state = await page.evaluate(async () => ({
@@ -277,8 +428,9 @@ try {
     result.checks.some(x => x.status === 'BLOCKED') ? 'PARTIAL' : 'PASS'
 } catch (error) {
   result.status = 'FAIL'
-  result.error = String(error).split('\n').slice(0, 12).join('\n')
-  if (page) await page.screenshot({ path: join(evidence, 'failure.png'), timeout: 2_500 }).catch(() => {})
+  const diagnostic = String(error).split('\n').slice(0, 12).join('\n')
+  result.error = openCodeKey ? diagnostic.replaceAll(openCodeKey, '[redacted]') : diagnostic
+  if (page && mode !== 'opencode') await page.screenshot({ path: join(evidence, 'failure.png'), timeout: 2_500 }).catch(() => {})
   console.log('FAIL', result.error)
   process.exitCode = 1
 } finally {
@@ -293,6 +445,8 @@ try {
       process.exitCode = 1
     }
   }
-  await writeFile(join(evidence, 'results.json'), JSON.stringify(result, null, 2))
+  if (mode === 'opencode') delete result.run
+  const serialized = JSON.stringify(result, null, 2)
+  await writeFile(join(evidence, 'results.json'), openCodeKey ? serialized.replaceAll(openCodeKey, '[redacted]') : serialized)
   await shutdown()
 }

@@ -1,0 +1,49 @@
+{
+  "mode": "opencode",
+  "checks": [
+    {
+      "name": "OpenCode DeepSeek API preflight",
+      "status": "PASS",
+      "details": {
+        "cliVersion": "1.19.6",
+        "entry": "opencode.cmd",
+        "model": "deepseek/deepseek-flash",
+        "exactReply": true
+      }
+    },
+    {
+      "name": "S9.2 OpenCode multiline Chinese task",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "durationMs": 3593,
+        "promptLinesPreserved": true,
+        "outputLines": 3,
+        "exactSum": true,
+        "exactMarker": true,
+        "exactSource": true,
+        "activatedSource": true
+      }
+    },
+    {
+      "name": "S9.2 OpenCode receipt adoption",
+      "status": "PASS",
+      "details": {
+        "state": "DONE",
+        "exactMarkdownReceipt": true,
+        "receipt": [
+          "总和：953",
+          "标记：甲&乙|丙%1b0060a5",
+          "来源：bff1bcef-8e9c-4437-b659-27b7f2e58a47"
+        ]
+      }
+    }
+  ],
+  "status": "PASS",
+  "openCode": {
+    "cliVersion": "1.19.6",
+    "entry": "opencode.cmd",
+    "model": "deepseek/deepseek-flash"
+  },
+  "version": "0.5.0-s9.2"
+}
