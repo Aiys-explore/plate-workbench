@@ -1,0 +1,58 @@
+{
+  "checks": [
+    {
+      "name": "AC-M1 rows, detected CLI version, local model metadata, presence distinct from installation",
+      "evidence": true
+    },
+    {
+      "name": "AC-M2 disabled CLI absent from autocomplete and picker, marker preserved, backend rejected",
+      "evidence": true
+    },
+    {
+      "name": "AC-M3 uninstall and reinstall, live activation, DeepSeek key protected and UI cleared",
+      "evidence": true
+    },
+    {
+      "name": "AC-M4 drag default and Codex subprocess argv / stdin",
+      "evidence": [
+        "exec",
+        "--skip-git-repo-check",
+        "-m",
+        "gpt-6.2-sol",
+        "-"
+      ]
+    },
+    {
+      "name": "DeepSeek URL/secret and explicitly enabled custom manifest use isolated stdin",
+      "evidence": true
+    },
+    {
+      "name": "Installed-row expansion and batch management keep unconfigured catalog entries out of dispatch",
+      "evidence": true
+    },
+    {
+      "name": "Light, dark and 620 px layout",
+      "evidence": {
+        "viewport": 620,
+        "width": 587,
+        "scrollWidth": 585,
+        "clientWidth": 585
+      }
+    },
+    {
+      "name": "Restart retains plugin state and dispatch history without replay",
+      "evidence": true
+    },
+    {
+      "name": "OpenCode .cmd preserves exact multiline UTF-8 beyond CMD argv limit",
+      "evidence": {
+        "bytes": 24500
+      }
+    },
+    {
+      "name": "Explicit start and follow-up share readiness checks and preserve the review on rejection",
+      "evidence": true
+    }
+  ],
+  "status": "PASS"
+}

@@ -1,0 +1,116 @@
+{
+  "mode": "agents",
+  "checks": [
+    {
+      "name": "opencode",
+      "status": "BLOCKED",
+      "details": {
+        "id": "opencode",
+        "installed": false,
+        "enabled": false,
+        "status": "available",
+        "cliVersion": null,
+        "binary": null
+      }
+    },
+    {
+      "name": "codex",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "exactDerivedAnswer": true,
+        "exactSourceCitation": true,
+        "activatedSource": true,
+        "durationMs": 12242,
+        "multilineReceipt": false
+      }
+    },
+    {
+      "name": "dsh",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "exactDerivedAnswer": true,
+        "exactSourceCitation": true,
+        "activatedSource": true,
+        "durationMs": 5106,
+        "multilineReceipt": false
+      }
+    },
+    {
+      "name": "claude",
+      "status": "PASS",
+      "details": {
+        "state": "PENDING",
+        "exactDerivedAnswer": true,
+        "exactSourceCitation": true,
+        "activatedSource": true,
+        "durationMs": 21474,
+        "multilineReceipt": true
+      }
+    },
+    {
+      "name": "codex adoption",
+      "status": "PASS",
+      "details": {
+        "markdownAndSqlite": true,
+        "sourceCitationPreserved": true
+      }
+    },
+    {
+      "name": "dsh adoption",
+      "status": "PASS",
+      "details": {
+        "markdownAndSqlite": true,
+        "sourceCitationPreserved": true
+      }
+    },
+    {
+      "name": "claude adoption",
+      "status": "PASS",
+      "details": {
+        "markdownAndSqlite": true,
+        "sourceCitationPreserved": true
+      }
+    }
+  ],
+  "status": "PARTIAL",
+  "version": "0.5.0-s9.2",
+  "deepseekCredentialConfigured": true,
+  "discovery": [
+    {
+      "id": "codex",
+      "installed": true,
+      "enabled": true,
+      "status": "connected",
+      "cliVersion": "0.170.0",
+      "binary": "codex.cmd"
+    },
+    {
+      "id": "dsh",
+      "installed": true,
+      "enabled": true,
+      "status": "connected",
+      "cliVersion": "0.2.2-rc.3",
+      "binary": "dsh.cmd",
+      "deepseekKey": "saved"
+    },
+    {
+      "id": "claude",
+      "installed": true,
+      "enabled": true,
+      "status": "connected",
+      "cliVersion": "2.1.327",
+      "binary": "claude.exe"
+    },
+    {
+      "id": "opencode",
+      "installed": false,
+      "enabled": false,
+      "status": "available",
+      "cliVersion": null,
+      "binary": null
+    }
+  ],
+  "deepseekCredentialCleared": true
+}
