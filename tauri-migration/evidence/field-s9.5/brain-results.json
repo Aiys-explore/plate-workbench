@@ -1,0 +1,142 @@
+{
+  "checks": [
+    {
+      "name": "S8 SQLite upgrade preserves Markdown and initializes five semantic nodes",
+      "details": true
+    },
+    {
+      "name": "The first capture appears after saving even if the canvas misses the change broadcast",
+      "details": true
+    },
+    {
+      "name": "Capture previews an animated probe that stays attached during zoom, then clears it",
+      "details": {
+        "initial": {
+          "startError": 0,
+          "endError": 0,
+          "length": 489.3908996582031,
+          "animation": "brain-synaptic-flow",
+          "stroke": "rgb(8, 120, 91)",
+          "hitTesting": "none"
+        },
+        "zoomed": {
+          "startError": 0,
+          "endError": 1.52587890625E-05,
+          "length": 466.2519226074219,
+          "animation": "brain-synaptic-flow",
+          "stroke": "rgb(8, 120, 91)",
+          "hitTesting": "none"
+        }
+      }
+    },
+    {
+      "name": "Global capture persists isolated episodic data without a note",
+      "details": true
+    },
+    {
+      "name": "TODO sends four contextual sections and emits two-hop activation within the current project",
+      "details": {
+        "seedNoteId": "00000000-0000-4000-8000-000000000001",
+        "runId": "t-adf2dd9e9cab",
+        "activatedNoteIds": [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "activatedSkillIds": [],
+        "edgePairs": [
+          [
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003"
+          ]
+        ],
+        "pprElapsedMs": 0.7715000000000001,
+        "dispatchToReceivedMs": 14.399999976158142
+      }
+    },
+    {
+      "name": "Disk-full message retains the pending receipt and allows adoption to be retried",
+      "details": true
+    },
+    {
+      "name": "Review gates changes; adoption writes assertion, Markdown, link and skill once",
+      "details": true
+    },
+    {
+      "name": "A new note revision triggers the gold evolution ring",
+      "details": true
+    },
+    {
+      "name": "Matching skill and facts are reused on follow-up; superseded facts remain in the timeline",
+      "details": true
+    },
+    {
+      "name": "Dream review consolidates a selected capture to indexed Markdown and archives the source",
+      "details": true
+    },
+    {
+      "name": "A capture flies from the episodic lane to the semantic card before crystallizing",
+      "details": {
+        "name": "brain-memory-migrate",
+        "distanceX": 843.699951171875
+      }
+    },
+    {
+      "name": "Low-vitality non-dormant card fades through intermediate opacity values and stays a card",
+      "details": {
+        "vitality": 0.12582492510348842,
+        "dormant": 0,
+        "initialOpacity": 1,
+        "finalOpacity": 0.45801145356416284,
+        "sampledFrames": 8,
+        "samples": [
+          {
+            "elapsedMs": 57.29999999999927,
+            "opacity": 0.95448,
+            "vitality": 0.12582492510348842,
+            "active": false,
+            "dormant": false
+          },
+          {
+            "elapsedMs": 124.10000000000036,
+            "opacity": 0.585912,
+            "vitality": 0.12582492510348842,
+            "active": false,
+            "dormant": false
+          },
+          {
+            "elapsedMs": 174.20000000000073,
+            "opacity": 0.480934,
+            "vitality": 0.12582492510348842,
+            "active": false,
+            "dormant": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hovering the dormant dot reveals its card without keyboard focus, and leaving restores the dot",
+      "details": {
+        "dotWidth": 12.4771728515625,
+        "dotHeight": 12.477203369140625
+      }
+    },
+    {
+      "name": "Vitality decays; dormant card expands on keyboard focus and respects reduced motion",
+      "details": true
+    },
+    {
+      "name": "Reduced motion consolidates into an existing note with a static highlight",
+      "details": true
+    },
+    {
+      "name": "Restart preserves memory history, context settings and skill counts",
+      "details": true
+    }
+  ],
+  "version": "0.5.0-s9.5",
+  "status": "PASS"
+}

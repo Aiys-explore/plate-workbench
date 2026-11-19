@@ -1,0 +1,164 @@
+[
+  {
+    "run": 1,
+    "activation": {
+      "seedNoteId": "00000000-0000-4000-8000-000000000001",
+      "runId": "t-adf2dd9e9cab",
+      "activatedNoteIds": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "activatedSkillIds": [],
+      "edgePairs": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ]
+      ],
+      "pprElapsedMs": 0.7715000000000001,
+      "dispatchToReceivedMs": 14.399999976158142
+    },
+    "fade": {
+      "vitality": 0.12582492510348842,
+      "dormant": 0,
+      "initialOpacity": 1,
+      "finalOpacity": 0.45801145356416284,
+      "sampledFrames": 8,
+      "samples": [
+        {
+          "elapsedMs": 57.29999999999927,
+          "opacity": 0.95448,
+          "vitality": 0.12582492510348842,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 124.10000000000036,
+          "opacity": 0.585912,
+          "vitality": 0.12582492510348842,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 174.20000000000073,
+          "opacity": 0.480934,
+          "vitality": 0.12582492510348842,
+          "active": false,
+          "dormant": false
+        }
+      ]
+    }
+  },
+  {
+    "run": 2,
+    "activation": {
+      "seedNoteId": "00000000-0000-4000-8000-000000000001",
+      "runId": "t-e84fa7c614c5",
+      "activatedNoteIds": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "activatedSkillIds": [],
+      "edgePairs": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ]
+      ],
+      "pprElapsedMs": 0.1478,
+      "dispatchToReceivedMs": 8
+    },
+    "fade": {
+      "vitality": 0.1258249250535806,
+      "dormant": 0,
+      "initialOpacity": 1,
+      "finalOpacity": 0.45801145353322,
+      "sampledFrames": 8,
+      "samples": [
+        {
+          "elapsedMs": 71.39999999999964,
+          "opacity": 0.95448,
+          "vitality": 0.1258249250535806,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 138.20000000000073,
+          "opacity": 0.585912,
+          "vitality": 0.1258249250535806,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 188.20000000000073,
+          "opacity": 0.481043,
+          "vitality": 0.1258249250535806,
+          "active": false,
+          "dormant": false
+        }
+      ]
+    }
+  },
+  {
+    "run": 3,
+    "activation": {
+      "seedNoteId": "00000000-0000-4000-8000-000000000001",
+      "runId": "t-f114db7851a2",
+      "activatedNoteIds": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "activatedSkillIds": [],
+      "edgePairs": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ]
+      ],
+      "pprElapsedMs": 0.11069999999999999,
+      "dispatchToReceivedMs": 9.600000023841858
+    },
+    "fade": {
+      "vitality": 0.1258249251484055,
+      "dormant": 0,
+      "initialOpacity": 1,
+      "finalOpacity": 0.4580114535920114,
+      "sampledFrames": 8,
+      "samples": [
+        {
+          "elapsedMs": 53.700000095366704,
+          "opacity": 0.954916,
+          "vitality": 0.1258249251484055,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 120.60000009536816,
+          "opacity": 0.585912,
+          "vitality": 0.1258249251484055,
+          "active": false,
+          "dormant": false
+        },
+        {
+          "elapsedMs": 170.60000009536816,
+          "opacity": 0.481043,
+          "vitality": 0.1258249251484055,
+          "active": false,
+          "dormant": false
+        }
+      ]
+    }
+  }
+]
