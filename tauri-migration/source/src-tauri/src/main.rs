@@ -42,6 +42,7 @@ fn with_store<T>(state: &State<'_, AppState>, f: impl FnOnce(&NoteStore) -> Resu
 const MARKER: &str = "plate-workbench.json";
 const WORKSPACE_DIRECTORY: &str = "Plate Workbench";
 const LEGACY_WORKSPACE_DIRECTORY: &str = "Plate-Tauri-S9-试用笔记";
+const PLATE_IDENTIFIER: &str = "local.plate.workbench.s7-preview";
 
 fn workspace_override() -> Option<PathBuf> {
     std::env::var_os("PLATE_WORKSPACE_ROOT")
@@ -173,7 +174,7 @@ fn startup_state(app: AppHandle, state: State<'_, AppState>) -> Result<serde_jso
         Err(error) => return Ok(serde_json::json!({ "phase": "blocked", "error": error })),
     }
     // Preserve an initialized S9 workspace at the former default path.
-    if let Some(home) = std::env::var_os("USERPROFILE") {
+    if let Some(home) = std::env::var_os("USERPROFILE").filter(|_| app.config().identifier == PLATE_IDENTIFIER) {
         let legacy = PathBuf::from(home).join("Documents").join(LEGACY_WORKSPACE_DIRECTORY);
         if is_registered_workspace(&legacy) {
             return Ok(reopen_workspace(&app, &state, &legacy, false));
@@ -277,6 +278,12 @@ async fn startup_browse(window: tauri::WebviewWindow) -> Result<Option<serde_jso
 #[tauri::command]
 fn startup_exit() -> Result<(), String> {
     std::process::exit(0);
+}
+
+#[tauri::command]
+fn update_can_install(state: State<'_, AppState>, engine: State<'_, TaskEngine>) -> bool {
+    let workspace = state.workspace.lock().unwrap();
+    !workspace.as_ref().is_some_and(|current| engine.has_running(&current.store.root))
 }
 
 #[tauri::command]
@@ -486,12 +493,13 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState { workspace: Mutex::new(None) })
         .manage(agent_settings::AgentSettings::default())
         .manage(agent_plugins::AgentPlugins::default())
         .invoke_handler(tauri::generate_handler![
             startup_state, startup_browse, startup_submit, startup_rebuild, startup_exit,
-            app_info, db_tables,
+            app_info, db_tables, update_can_install,
             notes_create, notes_read, notes_update, notes_update_strict, notes_delete, notes_list,
             notes_links, notes_search, notes_tags, notes_open_link,
             projects_list, projects_create,

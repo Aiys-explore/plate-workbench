@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Plate Workbench S9 Preview",
-  "version": "0.5.0-s9.5",
+  "version": "0.5.0-s9.6",
   "identifier": "local.plate.workbench.s7-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -25,7 +25,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/icon.ico"
     ],
@@ -33,6 +36,15 @@
       "nsis": {
         "installerIcon": "icons/icon.ico"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFQTczQ0ZCM0NGNkY0RkYKUldULzlQWTgrenluWGpLNzNMSjBlbWNUS0gyck5CbXEvTzlHdzB0Qmp5Z0VFQkxDUW9DTzF6RUUK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/fundops-notes/plate-workbench/checkpoint/tauri-s9/tauri-migration/updates/windows-x64.json"
+      ],
+      "requireSignedVersion": true
     }
   }
 }

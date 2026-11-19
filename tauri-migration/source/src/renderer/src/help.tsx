@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { AppInfo } from '../../shared/ipc'
+import { UpdateControls } from './update-controls'
 
 const prefix = 'P13.modal.body.'
 const sections = [
@@ -146,7 +147,8 @@ export function HelpDialog({ restore, paletteBound, readAppInfo, notePath, onClo
             {version.state === 'failed' && <p className="p13-error" data-element={prefix+'version.error'}>无法读取版本。{version.reason}</p>}
           </div>
           {notePath && <p>本机笔记位置：{notePath}</p>}
-          <p className="p13-note" data-element={prefix+'version.unknown'}>安装方式未提供</p>
+          {('__TAURI_INTERNALS__' in window) ? <UpdateControls /> :
+            <p className="p13-note" data-element={prefix+'version.unknown'}>安装方式未提供</p>}
           {(version.state === 'failed' || retried) && <button type="button" className="p13-action"
             data-element={prefix+'version.retry'} aria-disabled={version.state === 'loading'} onClick={() => {
               setRetried(true)

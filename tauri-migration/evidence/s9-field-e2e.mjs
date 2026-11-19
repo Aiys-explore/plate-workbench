@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { copyFile, mkdir, mkdtemp, readFile, writeFile, access, unlink, rmdir } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, access, unlink, rmdir, readdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 const { chromium } = createRequire(new URL('../source/package.json', import.meta.url))('playwright')
 const [mode, inputExe, output, openCodeEntry] = process.argv.slice(2)
-assert.ok(['agents', 'picker', 'first-run', 'opencode', 'workspace-startup'].includes(mode))
+assert.ok(['agents', 'picker', 'first-run', 'opencode', 'workspace-startup', 'update-check'].includes(mode))
 const evidence = resolve(output)
 await mkdir(evidence, { recursive: true })
 const run = await mkdtemp(join(tmpdir(), 'plate-s9-field-' + mode + '-'))
@@ -26,6 +26,7 @@ const record = (name, status, details) => {
   console.log(status, name, JSON.stringify(details))
 }
 let processHandle, browser, page
+let testUninstaller
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(PLATE_AGENT_|CODEX_HOME$|WEBVIEW2_|PLATE_WORKSPACE_ROOT$|CODEX_SANDBOX|CODEX_THREAD_ID$|PLATE_S9_FIELD_DEEPSEEK_KEY_FILE$|DEEPSEEK_(API_KEY|BASE_URL)$)/i.test(key)))
 Object.assign(env, {
   PLATE_WORKSPACE_ROOT: notes, PLATE_AGENT_SETTINGS_DIR: agentSettings, WEBVIEW2_USER_DATA_FOLDER: profile,
@@ -96,33 +97,36 @@ async function workspaceStartup() {
   const exists = path => access(path).then(() => true, () => false)
   assert.equal(await exists(registration), false)
   const suggestion = join(expectedDocuments, 'Plate Workbench')
-  const legacy = join(process.env.USERPROFILE, 'Documents', 'Plate-Tauri-S9-试用笔记')
-  const existingWorkspace = await exists(join(legacy, 'plate-workbench.json')) ||
-    await exists(join(suggestion, 'plate-workbench.json'))
+  assert.equal(await exists(suggestion), false, 'Run on a Windows account without an existing default workspace')
   const appSettings = { ...env }
   delete appSettings.PLATE_WORKSPACE_ROOT
   const missing = join(run, '不可用 工作区')
+  let createdDefault = false
   try {
-    // Keep startup away from existing workspaces on the acceptance host.
-    if (existingWorkspace) {
-      await mkdir(dirname(registration), { recursive: true })
-      await writeFile(registration, JSON.stringify(missing), { flag: 'wx' })
-    }
     await connect(appSettings)
     const identifier = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:app|identifier'))
     assert.equal(identifier, basename(dirname(registration)))
     result.version = (await page.evaluate(() => window.workbench.getAppInfo())).version
-    result.defaultSuggestionTested = !existingWorkspace
     const startup = await page.evaluate(() => window.workbench.startup.state())
-    assert.equal(await exists(join(notes, 'index.sqlite')), false)
-    if (existingWorkspace) {
-      assert.equal(startup.phase, 'blocked')
-      assert.equal(startup.path, missing)
-    } else {
-      assert.equal(startup.phase, 'choose')
-      assert.equal(startup.suggested.toLowerCase(), suggestion.toLowerCase())
-      record('Windows Documents matches the first-launch suggestion', 'PASS', { noInitialDatabase: true })
-    }
+    assert.equal(startup.phase, 'choose')
+    assert.equal(startup.suggested.toLowerCase(), suggestion.toLowerCase())
+    assert.equal(await exists(suggestion), false)
+    await page.getByRole('button', { name: '打开笔记', exact: true }).click()
+    await page.getByRole('region', { name: '笔记关系图' }).waitFor()
+    assert.equal(JSON.parse(await readFile(registration, 'utf8')).toLowerCase(), suggestion.toLowerCase())
+    createdDefault = true
+    const index = join(suggestion, 'index.sqlite')
+    const db = new DatabaseSync(index, { readOnly: true })
+    assert.equal(db.prepare('SELECT count(*) AS n FROM project').get().n, 1)
+    db.close()
+    record('First launch initializes SQLite in Windows Documents after confirmation', 'PASS', { noInitialDatabase: true })
+
+    await shutdown()
+    await connect(appSettings)
+    const defaultReopened = await page.evaluate(() => window.workbench.startup.state())
+    assert.equal(defaultReopened.phase, 'ready')
+    assert.equal(defaultReopened.path.toLowerCase(), suggestion.toLowerCase())
+    record('Default Documents workspace reopens after process restart', 'PASS', { databaseExists: await exists(index) })
 
     const ready = await page.evaluate(path => window.workbench.startup.submit(path), notes)
     assert.equal(ready.path, notes)
@@ -149,6 +153,18 @@ async function workspaceStartup() {
     await rmdir(dirname(registration)).catch(error => {
       if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error
     })
+    if (createdDefault) {
+      const files = ['.plate-runtime.lock', 'plate-workbench.json', 'index.sqlite', 'index.sqlite-wal', 'index.sqlite-shm']
+      const entries = await readdir(suggestion)
+      assert.ok(entries.every(entry => entry === 'projects' || files.includes(entry)), 'Unexpected files in test workspace')
+      await rmdir(join(suggestion, 'projects', 'default'))
+      await rmdir(join(suggestion, 'projects'))
+      for (const file of files) {
+        const path = join(suggestion, file)
+        if (await exists(path)) await unlink(path)
+      }
+      await rmdir(suggestion)
+    }
   }
 }
 const safeDiagnostic = card => {
@@ -563,7 +579,7 @@ async function picker() {
 }
 try {
   if (mode === 'opencode') await openCodePreflight()
-  if (mode === 'first-run') {
+  if (mode === 'first-run' || (mode === 'workspace-startup' && /-setup\.exe$/i.test(exe))) {
     const destination = join(run, '安装目录 中文')
     const args = '/S /D=' + destination
     assert.equal(await access(agentSettings).then(() => true, () => false), false)
@@ -574,6 +590,7 @@ try {
     }, error => error ? reject(error) : resolve()))
     exe = join(destination, 'plate-workbench.exe')
     await access(exe)
+    if (mode === 'workspace-startup') testUninstaller = join(destination, 'uninstall.exe')
     record('NSIS install on existing Windows host', 'PASS', { customUnicodeInstallDir: true, exe: basename(exe) })
   } else if (mode === 'picker') {
     const standalone = join(run, 'Plate-S9-Native-Field.exe')
@@ -585,6 +602,36 @@ try {
   } else {
     await launch()
     result.version = (await page.evaluate(() => window.workbench.getAppInfo())).version
+  }
+  if (mode === 'update-check') {
+    await page.getByRole('button', { name: '帮助', exact: true }).click()
+    await page.getByRole('button', { name: '版本与安装', exact: true }).click()
+    await page.getByRole('button', { name: '检查更新', exact: true }).click()
+    const message = process.env.PLATE_TEST_EXPECTED_UPDATE ?
+      '发现新版本 ' + process.env.PLATE_TEST_EXPECTED_UPDATE + '。请先保存正在编辑的笔记。' : '当前已是最新版本。'
+    await page.getByText(message, { exact: true }).waitFor({ timeout: 22_000 })
+    record('GitHub update check returns the expected version status', 'PASS', { message })
+    if (process.env.PLATE_TEST_EXPECTED_UPDATE) {
+      const downloaded = await page.evaluate(async () => {
+        const { invoke, transformCallback, unregisterCallback } = window.__TAURI_INTERNALS__
+        const update = await invoke('plugin:updater|check', { timeout: 15_000 })
+        let bytes = 0
+        const channel = transformCallback(({ message }) => {
+          if (message?.event === 'Progress') bytes += message.data.chunkLength
+        })
+        try {
+          await invoke('plugin:updater|download', {
+            rid: update.rid, onEvent: '__CHANNEL__:' + channel, timeout: 120_000,
+          })
+          return { version: update.version, bytes }
+        } finally {
+          unregisterCallback(channel)
+        }
+      })
+      assert.equal(downloaded.version, process.env.PLATE_TEST_EXPECTED_UPDATE)
+      assert.ok(downloaded.bytes > 0)
+      record('Tauri downloads and validates the signed GitHub update', 'PASS', downloaded)
+    }
   }
   if (mode === 'agents') await agents()
   if (mode === 'opencode') {
@@ -627,7 +674,13 @@ try {
     }
   }
   if (mode === 'opencode') delete result.run
+  await shutdown()
+  if (testUninstaller) {
+    await new Promise((resolve, reject) => execFile(testUninstaller, ['/S'], {
+      windowsHide: true, timeout: 60_000,
+    }, error => error ? reject(error) : resolve()))
+    record('Temporary NSIS installation removed', 'PASS', {})
+  }
   const serialized = JSON.stringify(result, null, 2)
   await writeFile(join(evidence, 'results.json'), openCodeKey ? serialized.replaceAll(openCodeKey, '[redacted]') : serialized)
-  await shutdown()
 }
