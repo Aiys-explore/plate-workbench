@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, io::ErrorKind, path::PathBuf, sync::Mutex};
 use tauri::{AppHandle, Manager, State};
+use crate::write_json;
 
 pub const DSH_KEY_ENV: &str = "DEEPSEEK_API_KEY";
 pub const DSH_URL_ENV: &str = "DEEPSEEK_BASE_URL";
@@ -123,18 +124,6 @@ fn update_key(settings: &mut StoredSettings, key: Option<String>, clear: bool) -
         settings.deepseek_protected = Some(protect(key.as_bytes(), true)?);
     } else if clear {
         settings.deepseek_protected = None;
-    }
-    Ok(())
-}
-
-pub fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), String> {
-    let directory = path.parent().ok_or("找不到本地 Agent 设置目录")?;
-    fs::create_dir_all(directory).map_err(|error| format!("无法创建 Agent 设置目录：{error}"))?;
-    let temporary = directory.join(format!("agent-state-{}.tmp", uuid::Uuid::new_v4()));
-    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
-    if let Err(error) = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, &path)) {
-        let _ = fs::remove_file(&temporary);
-        return Err(format!("无法保存 Agent 设置：{error}"));
     }
     Ok(())
 }

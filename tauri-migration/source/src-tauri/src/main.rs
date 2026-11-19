@@ -39,18 +39,67 @@ fn with_store<T>(state: &State<'_, AppState>, f: impl FnOnce(&NoteStore) -> Resu
     }
 }
 
-fn default_suggest() -> PathBuf {
-    if let Ok(isolated) = std::env::var("PLATE_WORKSPACE_ROOT") {
-        if !isolated.trim().is_empty() {
-            return PathBuf::from(isolated);
-        }
-    }
-    let home = std::env::var("USERPROFILE").map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
-    home.join("Documents").join("Plate-Tauri-S9-试用笔记")
+const MARKER: &str = "plate-workbench.json";
+const WORKSPACE_DIRECTORY: &str = "Plate Workbench";
+const LEGACY_WORKSPACE_DIRECTORY: &str = "Plate-Tauri-S9-试用笔记";
+
+fn workspace_override() -> Option<PathBuf> {
+    std::env::var_os("PLATE_WORKSPACE_ROOT")
+        .filter(|path| !path.to_string_lossy().trim().is_empty())
+        .map(PathBuf::from)
 }
 
-const MARKER: &str = "plate-workbench.json";
+fn workspace_registration(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path().app_local_data_dir().map(|dir| dir.join("workspace.json"))
+        .map_err(|error| format!("无法定位本机工作区登记：{error}"))
+}
+
+fn read_registered_workspace(path: &Path) -> Result<Option<PathBuf>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map(Some)
+            .map_err(|_| "本机工作区登记已损坏，请重新选择笔记目录。".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("无法读取本机工作区登记：{error}")),
+    }
+}
+
+fn write_json(path: PathBuf, value: &impl serde::Serialize) -> Result<(), String> {
+    let directory = path.parent().ok_or("找不到本机设置目录")?;
+    std::fs::create_dir_all(directory).map_err(|error| format!("无法创建本机设置目录：{error}"))?;
+    let temporary = directory.join(format!("plate-state-{}.tmp", uuid::Uuid::new_v4()));
+    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::write(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, &path)) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("无法保存本机设置：{error}"));
+    }
+    Ok(())
+}
+
+fn is_registered_workspace(root: &Path) -> bool {
+    root.is_absolute() && root.join(MARKER).is_file() && root.join("projects").is_dir()
+}
+
+#[cfg(test)]
+#[test]
+fn saved_workspace_preserves_unicode_and_can_be_replaced() -> Result<(), String> {
+    let fixture = std::env::temp_dir().join(format!("plate-workspace-{}", uuid::Uuid::new_v4()));
+    let registration = fixture.join("workspace.json");
+    let first = fixture.join("中文 笔记");
+    let second = fixture.join("日本語 자료");
+    let result = (|| {
+        assert_eq!(read_registered_workspace(&registration)?, None);
+        write_json(registration.clone(), &first)?;
+        assert_eq!(read_registered_workspace(&registration)?.as_ref(), Some(&first));
+        assert!(!is_registered_workspace(&first));
+        write_json(registration.clone(), &second)?;
+        assert_eq!(read_registered_workspace(&registration)?.as_ref(), Some(&second));
+        assert!(!first.exists() && !second.exists());
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(registration);
+    let _ = std::fs::remove_dir(fixture);
+    result
+}
 
 // ── Agent 发现与任务执行（S5）────────────────────────────────────
 
@@ -111,14 +160,50 @@ fn startup_state(app: AppHandle, state: State<'_, AppState>) -> Result<serde_jso
     if let Some(workspace) = state.workspace.lock().unwrap().as_ref() {
         return Ok(ready(&workspace.store.root));
     }
-    let suggest = default_suggest();
-    if suggest.join(MARKER).exists() && suggest.join("projects").is_dir() {
-        return open_store(&app, &state, &suggest);
+    if let Some(root) = workspace_override() {
+        return if is_registered_workspace(&root) {
+            Ok(reopen_workspace(&app, &state, &root, true))
+        } else {
+            Ok(choose_workspace(Some(&root)))
+        };
     }
-    Ok(serde_json::json!({
+    match workspace_registration(&app).and_then(|path| read_registered_workspace(&path)) {
+        Ok(Some(root)) => return Ok(reopen_workspace(&app, &state, &root, false)),
+        Ok(None) => (),
+        Err(error) => return Ok(serde_json::json!({ "phase": "blocked", "error": error })),
+    }
+    // Preserve an initialized S9 workspace at the former default path.
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let legacy = PathBuf::from(home).join("Documents").join(LEGACY_WORKSPACE_DIRECTORY);
+        if is_registered_workspace(&legacy) {
+            return Ok(reopen_workspace(&app, &state, &legacy, false));
+        }
+    }
+    let suggested = app.path().document_dir().ok()
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join(WORKSPACE_DIRECTORY));
+    if let Some(root) = suggested.as_deref().filter(|root| is_registered_workspace(root)) {
+        return Ok(reopen_workspace(&app, &state, root, false));
+    }
+    Ok(choose_workspace(suggested.as_deref()))
+}
+
+fn choose_workspace(suggested: Option<&Path>) -> serde_json::Value {
+    serde_json::json!({
         "phase": "choose",
-        "suggested": suggest.to_string_lossy(),
-        "candidate": workspace_candidate(&suggest)
+        "suggested": suggested,
+        "candidate": suggested.map(workspace_candidate)
+    })
+}
+
+fn reopen_workspace(app: &AppHandle, state: &State<'_, AppState>, root: &Path, override_root: bool) -> serde_json::Value {
+    let result = if is_registered_workspace(root) {
+        open_store(app, state, root, false)
+    } else {
+        Err("已登记的工作区当前不可用。请恢复原目录，或选择另一个笔记目录。".into())
+    };
+    result.unwrap_or_else(|error| serde_json::json!({
+        "phase": "blocked", "path": root, "error": error, "override": override_root
     }))
 }
 
@@ -133,7 +218,7 @@ fn workspace_candidate(root: &Path) -> serde_json::Value {
     serde_json::json!({ "token": root.to_string_lossy(), "path": root.to_string_lossy(), "kind": kind })
 }
 
-fn open_store(app: &AppHandle, state: &State<'_, AppState>, root: &Path) -> Result<serde_json::Value, String> {
+fn open_store(app: &AppHandle, state: &State<'_, AppState>, root: &Path, remember: bool) -> Result<serde_json::Value, String> {
     if !root.is_absolute() { return Err("笔记位置必须是绝对路径".into()); }
     let mut current = state.workspace.lock().unwrap();
     if let Some(workspace) = current.as_ref() {
@@ -151,20 +236,29 @@ fn open_store(app: &AppHandle, state: &State<'_, AppState>, root: &Path) -> Resu
     }
     let generation = uuid::Uuid::new_v4();
     let watcher = start_watcher(app.clone(), &store.projects_dir, generation)?;
+    if remember {
+        write_json(workspace_registration(app)?, &root)?;
+    }
     *current = Some(Workspace { store, generation, _watcher: watcher });
     Ok(ready(root))
 }
 
 #[tauri::command]
 fn startup_submit(app: AppHandle, state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
-    open_store(&app, &state, Path::new(&token))
+    let root = Path::new(&token);
+    match open_store(&app, &state, root, workspace_override().is_none()) {
+        Ok(ready) => Ok(ready),
+        Err(error) => Ok(serde_json::json!({
+            "phase": "blocked", "path": root, "candidate": workspace_candidate(root), "error": error
+        })),
+    }
 }
 
 #[tauri::command]
 fn startup_rebuild(app: AppHandle, state: State<'_, AppState>, token: String) -> Result<serde_json::Value, String> {
     let root = PathBuf::from(&token);
     if !root.join("projects").is_dir() { return Err("该目录没有 projects 子目录，无法重建索引".into()); }
-    let next = open_store(&app, &state, &root)?;
+    let next = open_store(&app, &state, &root, false)?;
     with_store(&state, NoteStore::scan)?;
     Ok(next)
 }

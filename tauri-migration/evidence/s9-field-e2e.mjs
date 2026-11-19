@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { copyFile, mkdir, mkdtemp, readFile, writeFile, access } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, access, unlink, rmdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
 const { chromium } = createRequire(new URL('../source/package.json', import.meta.url))('playwright')
 const [mode, inputExe, output, openCodeEntry] = process.argv.slice(2)
-assert.ok(['agents', 'picker', 'first-run', 'opencode'].includes(mode))
+assert.ok(['agents', 'picker', 'first-run', 'opencode', 'workspace-startup'].includes(mode))
 const evidence = resolve(output)
 await mkdir(evidence, { recursive: true })
 const run = await mkdtemp(join(tmpdir(), 'plate-s9-field-' + mode + '-'))
 let exe = resolve(inputExe)
-const notes = join(run, 'workspace')
+const notes = join(run, mode === 'workspace-startup' ? '中文 日本語 자료' : 'workspace')
 const agentSettings = join(run, 'agent-settings')
 const profile = join(run, 'webview')
 const result = { mode, run, checks: [], status: 'RUNNING' }
@@ -43,19 +43,13 @@ async function poll(fn, description, millis = 15_000) {
   } while (Date.now() < deadline)
   throw new Error('Timed out: ' + description)
 }
-async function launch() {
+async function connect(appSettings = env) {
   const portLease = createServer().listen(0, '127.0.0.1')
   await once(portLease, 'listening')
   const port = portLease.address().port
   await new Promise(done => portLease.close(done))
   const address = 'http://127.0.0.1:' + port
-  const appEnv = { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + port }
-  const defaultSuggestion = join(process.env.USERPROFILE, 'Documents', 'Plate-Tauri-S9-试用笔记')
-  const defaultWorkspaceExists = mode === 'first-run' &&
-    await access(join(defaultSuggestion, 'plate-workbench.json')).then(() => true, () => false)
-  const testDefaultSuggestion = mode === 'first-run' && !defaultWorkspaceExists
-  const expectedSuggestion = testDefaultSuggestion ? defaultSuggestion : notes
-  if (testDefaultSuggestion) delete appEnv.PLATE_WORKSPACE_ROOT
+  const appEnv = { ...appSettings, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + port }
   processHandle = spawn(exe, [], {
     cwd: run, stdio: 'ignore', windowsHide: mode !== 'picker', env: appEnv,
   })
@@ -67,17 +61,17 @@ async function launch() {
   page = browser.contexts()[0].pages()[0]
   page.setDefaultTimeout(12_000)
   await page.waitForFunction(() => !!window.workbench)
+}
+async function launch() {
+  await connect()
   const startup = await page.evaluate(() => window.workbench.startup.state())
   assert.equal(startup.phase, 'choose')
-  assert.equal(startup.suggested, expectedSuggestion)
+  assert.equal(startup.suggested, notes)
   if (mode === 'first-run') {
     const selected = await page.evaluate(path => window.__TAURI_INTERNALS__.invoke('startup_submit', { token: path }), notes)
     assert.equal(selected.path, notes)
     await page.reload()
-    record(testDefaultSuggestion ? 'default startup suggestion uses a new S9 workspace'
-      : 'first launch uses an isolated workspace with an existing S9 workspace present', 'PASS', {
-      defaultSuggestionTested: testDefaultSuggestion, showsChooser: true,
-    })
+    record('first launch offers and opens the explicitly isolated workspace', 'PASS', { showsChooser: true })
   } else {
     await page.getByRole('button', { name: '打开笔记', exact: true }).click()
   }
@@ -92,6 +86,70 @@ async function shutdown() {
   void page?.evaluate(() => window.workbench.startup.exit()).catch(() => {})
   if (!await Promise.race([exited, delay(3_000, false)])) { processHandle.kill(); await exited }
   await browser?.close()
+}
+async function workspaceStartup() {
+  const expectedDocuments = process.env.PLATE_TEST_WINDOWS_DOCUMENTS
+  const registration = process.env.PLATE_TEST_WORKSPACE_REGISTRATION
+  assert.ok(expectedDocuments && registration &&
+    /[\\/]local\.plate\.workbench\.workspace-test-[0-9a-f]{32}[\\/]workspace\.json$/i.test(registration),
+  'Use a build with a dedicated test identifier and pass the actual Windows Documents and test registration paths')
+  const exists = path => access(path).then(() => true, () => false)
+  assert.equal(await exists(registration), false)
+  const suggestion = join(expectedDocuments, 'Plate Workbench')
+  const legacy = join(process.env.USERPROFILE, 'Documents', 'Plate-Tauri-S9-试用笔记')
+  const existingWorkspace = await exists(join(legacy, 'plate-workbench.json')) ||
+    await exists(join(suggestion, 'plate-workbench.json'))
+  const appSettings = { ...env }
+  delete appSettings.PLATE_WORKSPACE_ROOT
+  const missing = join(run, '不可用 工作区')
+  try {
+    // Keep startup away from existing workspaces on the acceptance host.
+    if (existingWorkspace) {
+      await mkdir(dirname(registration), { recursive: true })
+      await writeFile(registration, JSON.stringify(missing), { flag: 'wx' })
+    }
+    await connect(appSettings)
+    const identifier = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:app|identifier'))
+    assert.equal(identifier, basename(dirname(registration)))
+    result.version = (await page.evaluate(() => window.workbench.getAppInfo())).version
+    result.defaultSuggestionTested = !existingWorkspace
+    const startup = await page.evaluate(() => window.workbench.startup.state())
+    assert.equal(await exists(join(notes, 'index.sqlite')), false)
+    if (existingWorkspace) {
+      assert.equal(startup.phase, 'blocked')
+      assert.equal(startup.path, missing)
+    } else {
+      assert.equal(startup.phase, 'choose')
+      assert.equal(startup.suggested.toLowerCase(), suggestion.toLowerCase())
+      record('Windows Documents matches the first-launch suggestion', 'PASS', { noInitialDatabase: true })
+    }
+
+    const ready = await page.evaluate(path => window.workbench.startup.submit(path), notes)
+    assert.equal(ready.path, notes)
+    assert.equal(JSON.parse(await readFile(registration, 'utf8')), notes)
+    assert.equal(await exists(join(notes, 'index.sqlite')), true)
+    await shutdown()
+    await connect(appSettings)
+    const reopened = await page.evaluate(() => window.workbench.startup.state())
+    assert.equal(reopened.phase, 'ready')
+    assert.equal(reopened.path, notes)
+    record('Unicode custom workspace reopens after process restart', 'PASS', { databaseCreated: true })
+
+    await shutdown()
+    await writeFile(registration, JSON.stringify(missing))
+    await connect(appSettings)
+    const unavailable = await page.evaluate(() => window.workbench.startup.state())
+    assert.equal(unavailable.phase, 'blocked')
+    assert.equal(unavailable.path, missing)
+    assert.equal(await exists(missing), false)
+    record('Unavailable workspace can be recovered without creating a replacement', 'PASS', { originalDatabaseExists: await exists(join(notes, 'index.sqlite')) })
+  } finally {
+    await shutdown()
+    if (await exists(registration)) await unlink(registration)
+    await rmdir(dirname(registration)).catch(error => {
+      if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error
+    })
+  }
 }
 const safeDiagnostic = card => {
   const content = [card.errorMsg, card.logTail, card.outputDraft].join('\n')
@@ -522,9 +580,12 @@ try {
     await copyFile(exe, standalone)
     exe = standalone
   }
-  await launch()
-  const info = await page.evaluate(() => window.workbench.getAppInfo())
-  result.version = info.version
+  if (mode === 'workspace-startup') {
+    await workspaceStartup()
+  } else {
+    await launch()
+    result.version = (await page.evaluate(() => window.workbench.getAppInfo())).version
+  }
   if (mode === 'agents') await agents()
   if (mode === 'opencode') {
     await titleAndBody()
