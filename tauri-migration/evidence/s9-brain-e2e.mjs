@@ -122,11 +122,24 @@ try {
   for (const [key, original] of Object.entries(originals)) assert.equal(await readFile(files[key], 'utf8'), original)
   pass('S8 SQLite upgrade preserves Markdown and initializes five semantic nodes')
 
+  await page.evaluate(() => {
+    const brain = window.workbench.brain
+    const onChanged = brain.onChanged
+    window.__s9IgnoreCaptureBroadcast = true
+    brain.onChanged = listener => onChanged(() => {
+      if (!window.__s9IgnoreCaptureBroadcast) listener()
+    })
+  })
   await page.keyboard.press('Control+Shift+Space')
-  await dialog('捕获闪念').getByRole('textbox', { name: '闪念内容' }).fill('闪念：研究桥梁有待补充依据')
+  const captureText = '闪念：研究桥梁有待补充依据'
+  await dialog('捕获闪念').getByRole('textbox', { name: '闪念内容' }).fill(captureText)
   await page.keyboard.press('Enter')
-  const captured = page.locator('.brain-episodic-card').filter({ hasText: '闪念：研究桥梁有待补充依据' })
+  const captured = page.locator('.brain-episodic-card').filter({ hasText: captureText })
+  await until(() => sql(db => db.prepare('SELECT id FROM episodic_events WHERE raw_text=?').get(captureText)),
+    'capture committed to SQLite')
   await captured.waitFor()
+  await page.evaluate(() => { window.__s9IgnoreCaptureBroadcast = false })
+  pass('The first capture appears after saving even if the canvas misses the change broadcast')
   assert.equal(sql(db => db.prepare('SELECT count(*) AS n FROM note').get().n), 5)
   const probe = page.locator('.brain-probes path[d]:not([d=""])')
   const target = noteNode(ids.bridge)
@@ -179,8 +192,21 @@ try {
     suggested_skill: { title: '研究复核流程', tags: ['research'], system_prompt: '先核对链接来源，再汇总。' },
   }))
   await page.evaluate(() => {
-    window.__s9waves = []
-    window.workbench.brain.onActivation(wave => window.__s9waves.push(wave))
+    const tasks = window.workbench.tasks
+    const start = tasks.start
+    const dispatched = new Map()
+    window.__s9activations = []
+    tasks.start = request => {
+      dispatched.set(request.taskId, performance.now())
+      tasks.start = start
+      return start(request)
+    }
+    window.workbench.brain.onActivation(wave => {
+      const started = dispatched.get(wave.runId)
+      if (started !== undefined) window.__s9activations.push({
+        ...wave, dispatchToReceivedMs: performance.now() - started,
+      })
+    })
   })
   await noteNode(ids.seed).dispatchEvent('dblclick', { detail: 2 })
   const editor = page.locator('[data-editor-host=render]')
@@ -193,10 +219,13 @@ try {
   for (const text of ['[GLOBAL_SOURCE_OF_TRUTH]', '[EPISODIC_RECENT_CONTEXT]', '[PROCEDURAL_HARNESS_RULES]',
     '[ACTIVE_TASK_INSTRUCTION]', '合成研究数值 1729', '闪念：研究桥梁有待补充依据', '研究下一步 & | %']) assert.ok(prompt.includes(text), text)
   assert.ok(!prompt.includes('XX-FOREIGN-CTX-XX') && !prompt.includes('XX-FOREIGN-EVENT-XX'))
-  const wave = await page.evaluate(() => window.__s9waves.at(-1))
+  const wave = await page.evaluate(taskId => window.__s9activations.find(item => item.runId === taskId), first.taskId)
+  assert.ok(wave, 'The activation event must arrive for the dispatched task')
   assert.deepEqual(new Set(wave.activatedNoteIds), new Set([ids.bridge, ids.fact]))
   assert.equal(wave.edgePairs.length, 2)
-  assert.ok(wave.pprElapsedMs >= 0 && wave.pprElapsedMs < 50, JSON.stringify(wave))
+  // This includes IPC in both directions and brackets PPR and the backend's emit.
+  assert.ok(wave.pprElapsedMs >= 0 && wave.dispatchToReceivedMs >= wave.pprElapsedMs &&
+    wave.dispatchToReceivedMs < 50, JSON.stringify(wave))
   assert.ok(await page.locator('.brain-edge--synaptic-flowing').count())
   pass('TODO sends four contextual sections and emits two-hop activation within the current project', wave)
 
@@ -234,12 +263,16 @@ try {
   pass('Disk-full message retains the pending receipt and allows adoption to be retried')
   await editor.locator('[data-task-pill=adopt]').click()
   await editor.locator('[data-task-pill=memory]').click()
+  assert.equal(activeClaim(), undefined, 'Adopting the receipt alone must not apply its memory proposal')
   await dialog('记忆变更提案').getByRole('button', { name: '应用记忆提案' }).click()
   await dialog('记忆变更提案').getByText('记忆提案已应用。').waitFor()
   await dialog('记忆变更提案').getByRole('button', { name: '关闭' }).click()
   const claim = activeClaim()
   assert.equal(claim.claim_text, '初始事实 1729')
-  assert.match(await readFile(files.fact, 'utf8'), /第一轮补充说明/)
+  const evolved = await readFile(files.fact, 'utf8')
+  assert.match(evolved, /<!-- plate-evolution -->\r?\n第一轮补充说明\r?\n<!-- \/plate-evolution -->/)
+  assert.equal(sql(db => db.prepare('SELECT delta_summary FROM memory_evolution_logs WHERE target_note_id=?')
+    .get(ids.fact)).delta_summary, '补充第一轮观察\n更新事实 · 初始事实 1729')
   assert.ok(sql(db => db.prepare('SELECT 1 FROM note_link WHERE source_note_id=? AND target_note_id=?').get(ids.seed, ids.fact)))
   await page.evaluate(id => window.workbench.brain.applyDelta(id), first.taskId)
   assert.equal((await readFile(files.fact, 'utf8')).match(/第一轮补充说明/g).length, 1)
@@ -318,9 +351,56 @@ try {
   assert.ok(motion.distanceX > 0, JSON.stringify(motion))
   pass('A capture flies from the episodic lane to the semantic card before crystallizing', motion)
 
-  sql(db => db.prepare('UPDATE note SET last_accessed_at=?,access_count=1 WHERE id=?').run(Date.now() - 90 * 86_400_000, ids.cold))
   const vitality = page.getByRole('button', { name: '活力热力', exact: true })
+  const fading = noteNode(ids.bridge)
+  const fadingInk = fading.locator('.relationship-card-ink')
+  await until(() => fading.evaluate(node =>
+    node.dataset.brainActive === 'false' && !node.matches(':hover, :focus-within')), 'nonactivated fade sample')
+  sql(db => db.prepare('UPDATE note SET last_accessed_at=?,access_count=1 WHERE id IN (?,?)')
+    .run(Date.now() - 90 * 86_400_000, ids.bridge, ids.cold))
+  assert.equal(await fadingInk.evaluate(node => Number(getComputedStyle(node).opacity)), 1)
+  await page.screenshot({ path: join(evidence, 'vitality-before.png') })
+  await fadingInk.evaluate(node => {
+    const samples = []
+    window.__s9FadeSamples = samples
+    const start = performance.now()
+    const sample = now => {
+      const style = getComputedStyle(node)
+      samples.push({
+        elapsedMs: now - start, opacity: Number(style.opacity),
+        vitality: Number(style.getPropertyValue('--node-vitality')),
+        active: node.parentElement.dataset.brainActive === 'true',
+        dormant: node.parentElement.dataset.brainDormant === 'true',
+      })
+      if (now - start < 900) requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  })
   await vitality.click()
+  await until(() => fadingInk.evaluate(node => {
+    const style = getComputedStyle(node)
+    const vitality = Number(style.getPropertyValue('--node-vitality'))
+    return vitality < 0.22 && Math.abs(Number(style.opacity) - (0.38 + 0.62 * vitality)) < 0.001
+  }), 'low-vitality card reaches its final opacity')
+  const fade = sql(db => db.prepare('SELECT vitality_score AS vitality, is_dormant AS dormant FROM note WHERE id=?')
+    .get(ids.bridge))
+  assert.equal(fade.dormant, 0)
+  assert.ok(fade.vitality < 0.22)
+  assert.equal(await fading.locator('.brain-dormant-dot').count(), 0)
+  const fadingFrames = await page.evaluate(() => window.__s9FadeSamples)
+  const finalOpacity = 0.38 + 0.62 * fade.vitality
+  const intermediate = fadingFrames.filter(frame => Math.abs(frame.vitality - fade.vitality) < 0.0001 &&
+    frame.opacity > finalOpacity + 0.015 && frame.opacity < 0.985)
+  assert.ok(new Set(intermediate.map(frame => frame.opacity)).size >= 3,
+    'Expected multiple intermediate opacity values with the recalculated vitality')
+  assert.ok(fadingFrames.every(frame => !frame.active && !frame.dormant))
+  assert.match(await fadingInk.textContent(), /研究桥梁/)
+  await page.screenshot({ path: join(evidence, 'vitality-faded.png') })
+  pass('Low-vitality non-dormant card fades through intermediate opacity values and stays a card', {
+    ...fade, initialOpacity: 1, finalOpacity,
+    sampledFrames: intermediate.length,
+    samples: [intermediate[0], intermediate[Math.floor(intermediate.length / 2)], intermediate.at(-1)],
+  })
   await page.locator('[data-graph-node="' + ids.cold + '"][data-brain-dormant=true]').waitFor({ state: 'attached' })
   const dormant = noteNode(ids.cold)
   const dot = dormant.locator('.brain-dormant-dot')
@@ -331,7 +411,8 @@ try {
   assert.ok(dotBox && dotBox.width > 0 && dotBox.height > 0)
   await page.screenshot({ path: join(evidence, 'dormant-collapsed.png') })
   await dot.hover()
-  assert.equal(await dormant.evaluate(node => node.matches(':hover') && !node.matches(':focus-within')), true)
+  await until(() => dormant.evaluate(node => node.matches(':hover') && !node.matches(':focus-within')),
+    'pointer hover is applied without keyboard focus')
   await until(async () => (await opacity(ink)) === '1', 'mouse hover expands dormant card')
   assert.equal(await opacity(dot), '0')
   assert.match(await ink.textContent(), /休眠样本/)

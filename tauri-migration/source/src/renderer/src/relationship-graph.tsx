@@ -933,6 +933,7 @@ export function RelationshipGraph({
     </>}
     {capture && <QuickCaptureBar project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
       captured={(id, text) => {
+        void brain.refresh()
         const lower = text.toLowerCase()
         setFresh({ id, probe: nodes.filter(note => note.projectId === activeProject &&
           [note.title, ...(note.tags ?? [])].some(label => label.length > 1 && lower.includes(label.toLowerCase())))

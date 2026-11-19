@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, EpisodicEvent } from '../../shared/brain'
 import type { RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
@@ -15,6 +15,7 @@ export function useBrainWorkbench(project: string | undefined, visible: boolean)
   const [status, setStatus] = useState<Awaited<ReturnType<ReturnType<typeof api>['status']>>>()
   const [wave, setWave] = useState<BrainActivationWave>()
   const [error, setError] = useState('')
+  const refreshSequence = useRef(0)
   useEffect(() => {
     let timer: number | undefined
     const unsubscribe = api().onActivation(activation => {
@@ -24,28 +25,27 @@ export function useBrainWorkbench(project: string | undefined, visible: boolean)
     })
     return () => { unsubscribe(); window.clearTimeout(timer) }
   }, [])
+  const refresh = useCallback(async () => {
+    const request = ++refreshSequence.current
+    try {
+      const [metadata, captures, library, preferences] = await Promise.all([
+        api().metadata(), api().events(project), api().skills(), api().status(),
+      ])
+      if (request !== refreshSequence.current) return
+      setNotes(metadata)
+      setEvents(captures)
+      setSkills(library)
+      setStatus(preferences)
+      setError('')
+    } catch (issue) { if (request === refreshSequence.current) setError(message(issue)) }
+  }, [project])
   useEffect(() => {
     if (!visible) return
-    let sequence = 0
-    const refresh = async () => {
-      const request = ++sequence
-      try {
-        const [metadata, captures, library, preferences] = await Promise.all([
-          api().metadata(), api().events(project), api().skills(), api().status(),
-        ])
-        if (request !== sequence) return
-        setNotes(metadata)
-        setEvents(captures)
-        setSkills(library)
-        setStatus(preferences)
-        setError('')
-      } catch (issue) { if (request === sequence) setError(message(issue)) }
-    }
     const off = api().onChanged(refresh)
     void refresh()
-    return () => { sequence++; off() }
-  }, [project, visible])
-  return { notes, events, skills, status, wave, error }
+    return () => { refreshSequence.current++; off() }
+  }, [refresh, visible])
+  return { notes, events, skills, status, wave, error, refresh }
 }
 
 export function BrainHudBar({ wave, notes, events, zones, vitality, toggleZones, toggleVitality, dream }: {
