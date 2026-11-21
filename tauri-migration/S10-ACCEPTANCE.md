@@ -1,6 +1,6 @@
 # S10 阶段验收与路线比对
 
-计划基线为 [S10 开发执行计划](plans/s10_workbench_harness_plan.md)。源码起点为 S9.6 的 `d6eccf45e468a7ba5cdba7d29e77ff9a238c5407`。以下记录按计划里的 M1 至 M4 顺序累积。
+计划基线为 [S10 开发执行计划](plans/s10_workbench_harness_plan.md) 及 [视觉修订版](plans/s10_workbench_harness_plan_1.md)。源码起点为 S9.6 的 `d6eccf45e468a7ba5cdba7d29e77ff9a238c5407`。以下记录按计划里的 M1 至 M4 顺序累积。
 
 ## M1 · 壳层与 BYOK 基础 · 2026-11-22
 
@@ -50,3 +50,22 @@
 - `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，15 项。
 - `npm run build` 通过，含 TypeScript 检查。
 - `node checks/s10-m3-windows.mjs` 通过，覆盖 API 和原生隔离 CLI、权限、待审阅状态、审阅写入和原文变更冲突。
+
+## M4 · 大脑闭环、技能面板与视觉修订 · 2026-11-22
+
+源码提交 `021fc6460278e3802371685d8f596f9c7e9846b8`，发布到 GitHub 的 `checkpoint/tauri-s10` 分支。修订版追加的视觉规范在本阶段落地，并重新验收 M1–M3 的入口。
+
+| 计划条目 | 实际与验收 |
+| --- | --- |
+| 原计划 §3.7、§5 M4 · 上下文与活力 | 引用的本机记录经权限检查后加入模型上下文。工作台显示 BrainActivationWave 激活的授权笔记，未授权笔记的内容及标识不出现在该任务的激活结果。已验证流式响应期间可见激活记录。 |
+| 原计划 §3.6、§5 M4 · 笔记审阅与记忆回流 | 合成笔记在审阅前未写入。应用后依次核对磁盘正文、活力重算、认知年轮、海马体任务回流和技能的调用与采纳次数。笔记应用复用原有保存版本和草稿检查。 |
+| 原计划 §4.4、§5 M4 · 做梦整理与技能 | 做梦整理可将选中的同分区闪念发给指定角色的模型，显示可编辑的建议标题与正文，再经确认固化。验收覆盖了 SKILL.md 导入、保存、试用及能力授权与任务权限求交。 |
+| 修订版 §5.1–5.5 · 图标与布局 | Lucide React 1.77.0 经统一图标出口及 IconAction 提供控件。Windows 实测 52px 纯图标导航、40px 顶栏、五个导航项、命令面板与键盘导航。大脑 HUD 右下角实测三个图标动作。图谱的数据图形和插件标识继续使用原有资源。[Lucide React](https://lucide.dev/guide/react) |
+| 修订版 §5.3、§5.6 · 输入、列表与 Diff | 输入岛四个图标触发器和一个发送动作，附带引用胶囊。任务、记录和技能列表的操作按行悬停或键盘聚焦显现。右侧 Diff 默认折叠，有待审阅徽标，打开后可见差异及接受、驳回图标。设置页保存本机扫描来源与默认任务上限。 |
+| 实现差异与待验范围 | 沿用 Plate 的浅色和深色主题变量。保持 Windows 快捷键和原关系图内的大脑能力。验收使用 Windows WebView2、回环模型和合成 CLI。真实第三方模型、已登录的厂商 CLI、签名安装与干净 Windows 仍待验。 |
+
+- `cargo check --locked --manifest-path src-tauri/Cargo.toml` 通过。
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，15 项。
+- `npm run build` 通过，含 `npm run typecheck`，Vite 保留包体积警告。
+- `checks/s10-m1-windows.mjs` 至 `checks/s10-m4-windows.mjs` 四套 Windows WebView2 Playwright 冒烟通过。渲染器无控制台错误。部分退出有 WebView2 宿主窗口注销诊断。
+- 合成验收截图 [复合输入岛](evidence/s10-m4/composer.png) · [暂存审阅](evidence/s10-m4/workbench-review.png) · [大脑 HUD](evidence/s10-m4/brain-hud.png)。
