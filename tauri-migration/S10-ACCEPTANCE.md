@@ -33,3 +33,20 @@
 - `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，11 项。
 - `npm run build` 通过，含 TypeScript 检查。
 - `node checks/s10-m2-windows.mjs` 通过，含重复扫描零新增、增量追加、中文检索、海马体可见性和工作台引用，无渲染器控制台错误。
+
+## M3 · 统一 Harness 与双引擎 · 2026-11-22
+
+源码提交 `0a70b73df9188125a4467e52862ff9b78b484892`，发布到 GitHub 的 `checkpoint/tauri-s10` 分支。
+
+| 计划条目 | 实际与验收 |
+| --- | --- |
+| §3.5–3.6 · 权限与暂存 | 路径授权基于规范路径并拒绝上级跳转、数据流、设备名和笔记库的通用文件写入。工具生成 SQLite 暂存 Diff，审阅时核对原文。合成任务验证越权读取被拒、审阅前原文件未变、外部修改后应用被拒。 |
+| §3.7 · API 执行 | OpenAI 与兼容接口、Anthropic 和 Gemini 接入 SSE，工具调用只开放任务限定的读取、检索与提议。Windows 回环模型服务验证分片工具参数、逐步输出、计费字段及 SQLite 状态流转。Anthropic 输入分片与 Gemini 函数签名往返由单元测试覆盖。 |
+| §3.7、§4.4 · 本机 CLI 与工作台 | 复用 Agent 路由、标准输入输出、任务进程监督和 Windows JobObject。新增按任务创建的低权限 AppContainer。Windows 合成独立 EXE 验证逐步输出、进程隔离、越权读取与直接写入失败、子进程被禁用，以及审阅后外部文件写入。三栏工作台已接通历史、对话、工具状态和暂存审阅。 [Microsoft AppContainer 实现文档](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer) |
+| 与计划的实现差异 | CLI 使用临时隔离档案和明确的文本提议协议，继承现有插件路由与进程监督。隔离执行只支持独立 Windows EXE，已有用户目录里的 CLI 登录与任意脚本启动器无法自动继承到隔离环境。使用授权文件目录的 API 真正写入仍由用户审阅触发。 |
+| 待验范围 | 使用合成 CLI 与回环模型验收，第三方模型实际账户计费、真实 CLI 登录配置及兼容性未验。预算按配置单价与服务返回用量估算，缺用量时保守估算。笔记应用和技能回流由 M4 验收。 |
+
+- `cargo check --locked --manifest-path src-tauri/Cargo.toml` 通过。
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，15 项。
+- `npm run build` 通过，含 TypeScript 检查。
+- `node checks/s10-m3-windows.mjs` 通过，覆盖 API 和原生隔离 CLI、权限、待审阅状态、审阅写入和原文变更冲突。
