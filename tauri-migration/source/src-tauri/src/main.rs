@@ -10,6 +10,7 @@ mod memory_consolidator;
 mod vitality_engine;
 mod graph_layout;
 mod notes;
+mod provider_store;
 #[cfg(windows)]
 mod process_job;
 
@@ -506,6 +507,8 @@ fn main() {
             drafts_list, drafts_write, drafts_discard, drafts_restore, drafts_save_copy,
             graph_layout_get_all, graph_layout_save_batch, graph_layout_set_collapsed, graph_layout_reset, graph_layout_connect_nodes,
             agents_discover,
+            provider_store::provider_list, provider_store::provider_upsert,
+            provider_store::provider_delete, provider_store::provider_test_connection,
             agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
             agent_plugins::agent_plugins_resolve, agent_plugins::agent_plugin_install,
             agent_plugins::agent_plugin_uninstall, agent_plugins::agent_plugin_update,

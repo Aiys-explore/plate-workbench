@@ -196,6 +196,12 @@ export function createTauriBridge(): WorkbenchApi {
     agents: createAgentsApi(),
     agentPlugins: createAgentPluginsApi(),
     brain: createBrainApi(),
+    providers: {
+      list: () => invoke('provider_list'),
+      upsert: input => invoke('provider_upsert', { input }),
+      remove: id => invoke('provider_delete', { id }),
+      test: id => invoke('provider_test_connection', { id }),
+    },
     agentSettings: {
       get: () => invoke<AgentSettings>('agent_settings_get'),
       save: input => invoke<AgentSettings>('agent_settings_save', {

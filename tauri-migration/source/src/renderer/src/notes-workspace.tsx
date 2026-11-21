@@ -21,7 +21,11 @@ const DRAFT_DELAY_MS = 700
 const fileName = (path: string) => path.split(/[\\/]/).at(-1)
 
 
-export function NotesWorkspace({ hudRight }: { hudRight: ReactNode }) {
+export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
+  hudRight: ReactNode
+  brainOpen: boolean
+  onBrainOpenChange: (open: boolean) => void
+}) {
   const drawerWidth = useWorkbench((state) => state.noteDrawerWidth)
   const setDrawerWidthStored = useWorkbench((state) => state.setNoteDrawerWidth)
   const api = window.workbench.notes
@@ -734,6 +738,7 @@ export function NotesWorkspace({ hudRight }: { hudRight: ReactNode }) {
       locate={locateNode} close={() => closeSearch()} searchAll={() => { setProject(''); setTag('') }}/>}
     <main className="pane editor notes-editor notes-stage" aria-label="编辑区" onKeyDown={saveShortcut}>
       <RelationshipGraph nodes={visible} edges={visibleEdges} selected={activeId} focusId={focusId} hudLeft={hudLeft} hudRight={hudRight}
+        brainOpen={brainOpen} onBrainOpenChange={onBrainOpenChange}
         revealOutside={id => { setProject(''); setTag(''); locateNode(id) }}
         activeProject={writableProject} projectFilter={project || undefined}
         projectLabel={projects.find(item => item.id === writableProject)?.name ?? '默认'} label={label} open={(id, origin) => select(id, origin)}

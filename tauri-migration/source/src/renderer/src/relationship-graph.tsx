@@ -67,7 +67,7 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
 
 export function RelationshipGraph({
   nodes, edges, selected, focusId, label, open, close, state, reload, editorOpen, rightInset,
-  canChange, noteUpdated, activeProject, projectFilter, projectLabel, hudLeft, hudRight, revealOutside,
+  canChange, noteUpdated, activeProject, projectFilter, projectLabel, hudLeft, hudRight, revealOutside, brainOpen, onBrainOpenChange,
 }: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
   focusId?: string
@@ -81,9 +81,10 @@ export function RelationshipGraph({
   projectLabel: string
   hudLeft?: ReactNode
   hudRight?: ReactNode
+  brainOpen: boolean
+  onBrainOpenChange: (open: boolean) => void
   revealOutside?: (id: string) => void
 }) {
-  const [brainOpen, setBrainOpen] = useState(false)
   const [brainZones, setBrainZones] = useState(true)
   const [brainVitality, setBrainVitality] = useState(false)
   const [capture, setCapture] = useState(false)
@@ -105,7 +106,7 @@ export function RelationshipGraph({
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'Space' &&
         !event.isComposing && !event.repeat && !document.querySelector('dialog[open]')) {
         event.preventDefault()
-        setBrainOpen(true)
+        onBrainOpenChange(true)
         setCapture(true)
       }
     }
@@ -896,7 +897,7 @@ export function RelationshipGraph({
         </div>}
       </div>
       <button type="button" aria-expanded={legend} onClick={() => setLegend(!legend)}>图例</button>
-      <button type="button" aria-pressed={brainOpen} onClick={() => setBrainOpen(value => !value)}>大脑</button>
+      <button type="button" aria-pressed={brainOpen} onClick={() => onBrainOpenChange(!brainOpen)}>大脑</button>
       {hudRight}
     </div>
     {brainOpen && <>

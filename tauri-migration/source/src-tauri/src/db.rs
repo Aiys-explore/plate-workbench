@@ -81,6 +81,7 @@ pub fn open(root: &std::path::Path) -> Result<Connection, String> {
         }
     }
     migrate_brain(&conn).map_err(|error| format!("初始化 Brain schema 失败：{error}"))?;
+    migrate_s10(&conn).map_err(|error| format!("初始化 S10 schema 失败：{error}"))?;
     Ok(conn)
 }
 
@@ -146,6 +147,55 @@ pub(crate) fn migrate_brain(conn: &Connection) -> rusqlite::Result<()> {
             title TEXT, appendix TEXT NOT NULL, source_run_id TEXT,
             episodic_ids_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL
         );
+        "#,
+    )?;
+    tx.commit()
+}
+
+pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS llm_providers (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
+            base_url TEXT NOT NULL, default_model TEXT NOT NULL, roles_json TEXT NOT NULL DEFAULT '[]',
+            key_hint TEXT NOT NULL DEFAULT '', input_price_per_1m REAL NOT NULL DEFAULT 0.0,
+            output_price_per_1m REAL NOT NULL DEFAULT 0.0, enabled INTEGER NOT NULL DEFAULT 1,
+            updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS external_agent_sessions (
+            id TEXT PRIMARY KEY, source_tool TEXT NOT NULL, source_path TEXT NOT NULL UNIQUE,
+            workspace_cwd TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
+            byte_offset INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS external_agent_messages (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES external_agent_sessions(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, tool_name TEXT,
+            touched_files_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, UNIQUE (session_id, seq)
+        ) STRICT;
+        CREATE VIRTUAL TABLE IF NOT EXISTS external_agent_messages_fts USING fts5(
+            session_id UNINDEXED, role UNINDEXED, content
+        );
+        CREATE TABLE IF NOT EXISTS harness_runs (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL, backend_kind TEXT NOT NULL, backend_id TEXT NOT NULL,
+            model_name TEXT NOT NULL DEFAULT '', skill_id TEXT, permission_manifest_json TEXT NOT NULL,
+            activation_wave_json TEXT, status TEXT NOT NULL, token_in INTEGER NOT NULL DEFAULT 0,
+            token_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0.0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS harness_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL REFERENCES harness_runs(id) ON DELETE CASCADE, seq INTEGER NOT NULL,
+            kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (run_id, seq)
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS staged_diffs (
+            id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES harness_runs(id) ON DELETE CASCADE,
+            target_kind TEXT NOT NULL, target_ref TEXT NOT NULL, base_sha256 TEXT NOT NULL,
+            proposed_content TEXT NOT NULL, unified_diff TEXT NOT NULL, rationale TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, resolved_at INTEGER
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS idx_staged_diffs_run ON staged_diffs(run_id, status, created_at);
         "#,
     )?;
     tx.commit()

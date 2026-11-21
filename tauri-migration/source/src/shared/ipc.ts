@@ -1,4 +1,5 @@
 import type { BrainApi, BrainDelta } from './brain'
+import type { ProviderApi } from './harness'
 import type { StartupApi } from './startup'
 import type { AgentsApi } from './agents'
 import type { AgentPluginsApi } from './agent-plugins'
@@ -241,6 +242,7 @@ export interface WorkbenchApi {
   agents: AgentsApi
   agentPlugins: AgentPluginsApi
   brain: BrainApi
+  providers: ProviderApi
   agentSettings: {
     get(): Promise<AgentSettings>
     save(input: { defaultAgent: string | null; deepseekKey?: string; clearDeepseekKey?: boolean }): Promise<AgentSettings>

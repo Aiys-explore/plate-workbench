@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { ActiveView } from '../../shared/harness'
 
 type Theme = 'light' | 'dark'
 const themeKey = 'workbench.theme'
@@ -29,6 +30,8 @@ function initialDrawerWidth(): number {
   return NOTE_DRAWER_WIDTH_DEFAULT
 }
 interface WorkbenchState {
+  activeView: ActiveView
+  setActiveView(view: ActiveView): void
   theme: Theme
   sidebarCollapsed: boolean
   sidebarWidth: number
@@ -44,6 +47,8 @@ interface WorkbenchState {
 
 export const useWorkbench = create<WorkbenchState>((set) => ({
   theme: initialTheme(),
+  activeView: 'workbench',
+  setActiveView: activeView => set({ activeView }),
   sidebarCollapsed: (() => {
     try { return localStorage.getItem('plate.sidebar.collapsed') === 'true' } catch { return false }
   })(),

@@ -1,0 +1,84 @@
+.s10-shell {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  color: var(--color-text-primary);
+}
+.s10-activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 7px;
+  background: var(--color-surface-bar);
+  border-inline-end: 1px solid var(--color-surface-hover);
+}
+.s10-activity-rail button, .s10-page button {
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--color-surface-control);
+  cursor: pointer;
+}
+.s10-activity-rail button { text-align: start; background: transparent; }
+.s10-activity-rail button:hover, .s10-page button:hover { background: var(--color-surface-hover); }
+.s10-activity-rail button[aria-current="page"], .s10-page button[aria-pressed="true"] {
+  color: var(--color-accent-text);
+  background: var(--color-accent-bg-light);
+}
+.s10-page button:disabled { opacity: .65; cursor: default; }
+.s10-shell :is(button, input, select):focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+.s10-main, .s10-notes { position: relative; min-width: 0; min-height: 0; }
+.s10-notes, .s10-notes > .notes-stage { height: 100%; }
+.s10-notes > .notes-stage { position: relative; border: 0; border-radius: 0; }
+.s10-page { height: 100%; overflow: auto; }
+.s10-controls { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 15px; }
+.s10-content { max-width: 960px; margin-inline: auto; padding: 8px 24px 28px; }
+.s10-content h1 { margin-block: 0 18px; }
+.s10-content h2 { margin-block: 12px; font-size: var(--font-size-ui-title); }
+.s10-content > button { margin-inline-end: 8px; }
+.s10-section-header, .s10-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.s10-section-header { justify-content: space-between; }
+.s10-settings-grid { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 2.5fr); gap: 20px; }
+.s10-provider-list { margin: 10px 0; padding: 0; list-style: none; }
+.s10-provider-list button {
+  display: grid;
+  width: 100%;
+  margin-bottom: 4px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.s10-provider-list span, .s10-settings p { font-size: var(--font-size-ui-small); }
+.s10-settings fieldset {
+  min-inline-size: 0;
+  border: 1px solid var(--color-surface-hover);
+  border-radius: 8px;
+  padding: 10px 13px 13px;
+}
+.s10-settings label { display: grid; gap: 4px; margin-block: 7px; }
+.s10-settings :is(input:not([type="checkbox"]), select) {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--color-surface-hover);
+  border-radius: 5px;
+  background: var(--color-surface-editor);
+  color: inherit;
+  font: inherit;
+}
+.s10-inline-options { display: flex; flex-wrap: wrap; gap: 12px; }
+.s10-inline-options label, .s10-settings .s10-check { display: flex; align-items: center; }
+.s10-price-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.s10-error { color: var(--color-status-error, #b52b2b); }
+@media (max-width: 660px) {
+  .s10-shell { grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); }
+  .s10-activity-rail { flex-direction: row; overflow-x: auto; padding: 5px; border-inline-end: 0; }
+  .s10-activity-rail button { white-space: nowrap; }
+  .s10-settings-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}
