@@ -23,10 +23,12 @@ pub struct StagedDiff {
     pub rationale: String,
     pub status: String,
     pub created_at: i64,
+    #[serde(skip)]
+    previous_excerpt: String,
 }
 
 const SELECT: &str = "SELECT id,run_id,target_kind,target_ref,base_sha256,proposed_content,
-    unified_diff,rationale,status,created_at FROM staged_diffs";
+    unified_diff,rationale,status,created_at,previous_excerpt FROM staged_diffs";
 
 fn row_to_diff(row: &Row<'_>) -> rusqlite::Result<StagedDiff> {
     Ok(StagedDiff {
@@ -40,6 +42,7 @@ fn row_to_diff(row: &Row<'_>) -> rusqlite::Result<StagedDiff> {
         rationale: row.get(7)?,
         status: row.get(8)?,
         created_at: row.get(9)?,
+        previous_excerpt: row.get(10)?,
     })
 }
 
@@ -143,10 +146,11 @@ pub fn propose(
         .to_string();
     let id = uuid::Uuid::new_v4().to_string();
     let rationale: String = rationale.chars().take(500).collect();
+    let previous_excerpt: String = base.unwrap_or_default().chars().take(600).collect();
     conn.execute(
-        "INSERT INTO staged_diffs(id,run_id,target_kind,target_ref,base_sha256,proposed_content,unified_diff,rationale,created_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-        params![id,run_id,kind,target,version,content,diff,rationale,now_ms()],
+        "INSERT INTO staged_diffs(id,run_id,target_kind,target_ref,base_sha256,proposed_content,unified_diff,rationale,created_at,previous_excerpt)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        params![id,run_id,kind,target,version,content,diff,rationale,now_ms(),previous_excerpt],
     ).map_err(|error| error.to_string())?;
     Ok(id)
 }
@@ -232,5 +236,52 @@ pub fn resolve_record(conn: &Connection, diff: &StagedDiff, accepted: bool) -> R
     if changed == 0 {
         return Err("该条变更已处理".into());
     }
+    Ok(())
+}
+
+pub fn approve_note(
+    store: &NoteStore,
+    policy: &PermissionManifest,
+    diff: &StagedDiff,
+) -> Result<(), String> {
+    use crate::notes::SaveResult;
+    if !policy.allow_brain_note_propose || !policy.can_read_note(&diff.target_ref) {
+        return Err("该笔记不在当前任务的审阅权限内".into());
+    }
+    let note = store.read(&diff.target_ref)?;
+    if store.has_unsaved_draft(&note)? {
+        return Err("请先处理目标笔记的未保存草稿".into());
+    }
+    if note.content == diff.proposed_content {
+        return Ok(());
+    }
+    if note.revision != diff.base_sha256 {
+        return Err("笔记在暂存后已变化，请重新生成变更".into());
+    }
+    match store.update_strict(&diff.target_ref, &diff.proposed_content, note.revision)? {
+        SaveResult::Saved { .. } => Ok(()),
+        SaveResult::Conflict { .. } => Err("笔记版本已变化".into()),
+    }
+}
+
+pub fn record_note_evolution(conn: &Connection, diff: &StagedDiff) -> Result<(), String> {
+    let now = now_ms();
+    crate::vitality_engine::boost(conn, &diff.target_ref, now)
+        .map_err(|error| error.to_string())?;
+    let version: i64 = conn.query_row(
+        "UPDATE note SET evolution_version=evolution_version+1 WHERE id=?1 RETURNING evolution_version",
+        [&diff.target_ref], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    let rationale = if diff.rationale.is_empty() {
+        "采纳工作台笔记变更"
+    } else {
+        &diff.rationale
+    };
+    conn.execute(
+        "INSERT INTO memory_evolution_logs(id,target_note_id,source_run_id,version,delta_summary,previous_excerpt,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![uuid::Uuid::new_v4().to_string(),diff.target_ref,diff.run_id,version,rationale,diff.previous_excerpt,now],
+    ).map_err(|error| error.to_string())?;
+    crate::vitality_engine::recalculate_rows(conn, now).map_err(|error| error.to_string())?;
     Ok(())
 }

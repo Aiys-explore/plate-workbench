@@ -533,6 +533,7 @@ fn main() {
             memory_consolidator::brain_note_metadata, memory_consolidator::capture_episodic_event,
             memory_consolidator::list_episodic_events, memory_consolidator::consolidate_episodic_to_note,
             memory_consolidator::list_procedural_skills, memory_consolidator::save_procedural_skill,
+            memory_consolidator::save_workbench_skill, memory_consolidator::dream_model_suggestion,
             memory_consolidator::apply_memory_delta, memory_consolidator::get_note_evolution_history,
             memory_consolidator::recalculate_brain_vitality, memory_consolidator::trigger_dream_consolidation
         ])

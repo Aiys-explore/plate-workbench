@@ -1,3 +1,6 @@
+import { IconAction } from '../icon-action'
+import { IconApiKey, IconAttachLog, IconDelete, IconModel, IconNew, IconRefresh, IconShield } from '../components/icons'
+import { readPreferences, savePreferences } from '../s10-preferences'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ModelRole, ProviderConfig, ProviderKind, UpsertProviderInput } from '../../../shared/harness'
 
@@ -19,6 +22,14 @@ const blankProvider = (): UpsertProviderInput => ({
 const describe = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export function SettingsView({ openAgentSettings }: { openAgentSettings: () => void }) {
+  const [tab, setTab] = useState<'agents' | 'providers' | 'logs' | 'limits'>('providers')
+  const [prefs, setPrefs] = useState(readPreferences)
+  const [prefsStatus, setPrefsStatus] = useState('')
+  function saveLocalPreferences(event: FormEvent) {
+    event.preventDefault()
+    try { savePreferences(prefs); setPrefsStatus('本机偏好已保存。') }
+    catch { setPrefsStatus('本机偏好保存失败。') }
+  }
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [form, setForm] = useState(blankProvider)
   const [hint, setHint] = useState('')
@@ -79,14 +90,42 @@ export function SettingsView({ openAgentSettings }: { openAgentSettings: () => v
 
   const selectedId = form.id
   return <section className="s10-content s10-settings" aria-labelledby="s10-settings-title">
-    <header className="s10-section-header">
-      <h1 id="s10-settings-title">模型与权限</h1>
-      <button type="button" onClick={openAgentSettings}>本机 Agent 设置</button>
-    </header>
-    <h2>API 模型服务商</h2>
+    <h1 id="s10-settings-title" className="s10-visually-hidden">模型与权限</h1>
+    <div className="s10-settings-sections">
+      <nav aria-label="设置分类">
+        {([
+          ['agents','本机 CLI',IconModel], ['providers','API 模型服务商',IconApiKey],
+          ['logs','本机记录来源',IconAttachLog], ['limits','默认任务上限',IconShield],
+        ] as const).map(([id,label,Icon]) => <button key={id} type="button" aria-pressed={tab === id}
+          onClick={() => { setTab(id); setPrefsStatus('') }}>
+          <Icon size={14} strokeWidth={1.65} aria-hidden="true"/>{label}
+        </button>)}
+      </nav>
+      <div>
+      {tab === 'agents' && <section>
+        <h2>本机 CLI</h2>
+        <button type="button" onClick={openAgentSettings}>本机 Agent 设置</button>
+      </section>}
+      {(tab === 'logs' || tab === 'limits') && <form onSubmit={saveLocalPreferences}>
+        <h2>{tab === 'logs' ? '本机记录来源' : '默认任务上限'}</h2>
+        {tab === 'logs' ? <>
+          <label className="s10-check"><input type="checkbox" checked={prefs.includeDefaultLogs}
+            onChange={event => setPrefs({ ...prefs, includeDefaultLogs: event.target.checked })}/>扫描 Claude Code 和 Codex 默认目录</label>
+          <label>自定义目录<input value={prefs.customLogDirectory}
+            onChange={event => setPrefs({ ...prefs, customLogDirectory: event.target.value })}/></label>
+        </> : <>
+          <label>默认步数上限<input type="number" min="1" max="40" step="1" required value={prefs.maxSteps}
+            onChange={event => setPrefs({ ...prefs, maxSteps: Number(event.target.value) })}/></label>
+          <label>默认预算上限（美元）<input type="number" min="0" max="1000" step="any" required value={prefs.maxBudgetUsd}
+            onChange={event => setPrefs({ ...prefs, maxBudgetUsd: Number(event.target.value) })}/></label>
+        </>}
+        <button type="submit">保存本机偏好</button><p role="status">{prefsStatus}</p>
+      </form>}
+      {tab === 'providers' && <section aria-label="API 模型服务商">
+      <h2>API 模型服务商</h2>
     <div className="s10-settings-grid">
       <aside aria-label="模型服务商列表">
-        <button type="button" disabled={pending} onClick={() => select()}>新增服务商</button>
+        <IconAction icon={IconNew} label="新增服务商" disabled={pending} onClick={() => select()}/>
         <ul className="s10-provider-list">
           {providers.map(provider => <li key={provider.id}><button type="button" disabled={pending}
             aria-pressed={selectedId === provider.id} onClick={() => select(provider)}>
@@ -128,11 +167,11 @@ export function SettingsView({ openAgentSettings }: { openAgentSettings: () => v
           <div className="s10-actions">
             <button type="submit">保存服务商</button>
             {selectedId && <>
-              <button type="button" onClick={() => void act(async () => {
+              <IconAction icon={IconRefresh} label="测试已保存配置" onClick={() => void act(async () => {
                 await window.workbench.providers.test(selectedId)
                 return '已连通保存的模型服务'
-              })}>测试已保存配置</button>
-              <button type="button" onClick={() => setConfirmRemove(true)}>删除服务商</button>
+              })}/>
+              <IconAction icon={IconDelete} label="删除服务商" danger onClick={() => setConfirmRemove(true)}/>
             </>}
           </div>
           {selectedId && confirmRemove && <div className="s10-actions">
@@ -149,6 +188,9 @@ export function SettingsView({ openAgentSettings }: { openAgentSettings: () => v
         <p role="status">{pending ? '处理中…' : status}</p>
         {error && <p className="s10-error" role="alert">{error}</p>}
       </form>
+    </div>
+      </section>}
+      </div>
     </div>
   </section>
 }

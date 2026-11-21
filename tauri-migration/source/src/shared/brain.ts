@@ -37,6 +37,8 @@ export interface BrainSkill {
   systemPrompt: string
   usageCount: number
   successCount: number
+  allowShell: boolean
+  allowNetwork: boolean
 }
 
 export interface BrainDelta {
@@ -57,10 +59,13 @@ export interface BrainApi {
   metadata(): Promise<Record<string, BrainNoteMetadata>>
   capture(projectId: string, rawText: string): Promise<string>
   events(projectId?: string): Promise<EpisodicEvent[]>
-  consolidate(eventIds: string[], title: string, targetNoteId?: string): Promise<string>
+  consolidate(eventIds: string[], title: string, targetNoteId?: string, synthesis?: string): Promise<string>
+  dreamSuggestion(eventIds: string[]): Promise<{ title: string; summary: string }>
   dream(projectId?: string): Promise<EpisodicEvent[]>
   skills(): Promise<BrainSkill[]>
   saveSkill(input: SkillInput): Promise<string>
+  saveWorkbenchSkill(input: { skillId?: string; input: SkillInput; preferredAgentId?: string;
+    allowShell: boolean; allowNetwork: boolean }): Promise<string>
   history(noteId: string): Promise<BrainHistory>
   applyDelta(runId: string): Promise<void>
   recalculate(): Promise<void>

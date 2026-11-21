@@ -32,6 +32,12 @@ function initialDrawerWidth(): number {
 interface WorkbenchState {
   activeView: ActiveView
   pendingDiffCount: number
+  inspectorOpen: boolean
+  toggleInspector(): void
+  draftSkillId: string
+  activeRunId: string
+  setActiveRunId(id: string): void
+  trySkill(id: string): void
   setPendingDiffCount(count: number): void
   draftAttachedLogs: Pick<ExternalAgentSession, 'id' | 'title'>[]
   attachLogToWorkbench(log: Pick<ExternalAgentSession, 'id' | 'title'>): void
@@ -54,10 +60,17 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   theme: initialTheme(),
   activeView: 'workbench',
   pendingDiffCount: 0,
+  inspectorOpen: false,
+  toggleInspector: () => set(state => ({ inspectorOpen: !state.inspectorOpen })),
+  draftSkillId: '',
+  activeRunId: '',
+  setActiveRunId: activeRunId => set({ activeRunId }),
+  trySkill: id => set({ draftSkillId: id, activeView: 'workbench', activeRunId: '' }),
   setPendingDiffCount: pendingDiffCount => set({ pendingDiffCount }),
   draftAttachedLogs: [],
   attachLogToWorkbench: ({ id, title }) => set(state => ({
     activeView: 'workbench',
+    activeRunId: '',
     draftAttachedLogs: state.draftAttachedLogs.some(log => log.id === id)
       ? state.draftAttachedLogs : [...state.draftAttachedLogs, { id, title }],
   })),

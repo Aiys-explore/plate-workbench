@@ -1,3 +1,5 @@
+import { IconAction } from './icon-action'
+import { IconFolder, IconReject } from './components/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { DEFAULT_PROJECT, type DraftRecovery, type DraftSummary, type LinkIndex, type Note, type NoteSummary, type NoteTemplate, type ProjectSummary } from '../../shared/ipc'
 import { linkCatalog, resolveLink } from '../../shared/link-resolution'
@@ -730,7 +732,7 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
       <option value="">全部标签</option>
       {tags.map(label => <option key={label}>{label}</option>)}
     </select>}
-    <button type="button" aria-label="新建分区" title="新建分区" onClick={() => newProject()}>＋</button>
+    <IconAction icon={IconFolder} label="新建分区" onClick={() => newProject()}/>
     {recoveries.length > 0 && <button type="button" onClick={() => setDrawerOpen(true)}>草稿 {recoveries.length}</button>}
   </>
   return <>
@@ -784,7 +786,7 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
         <div className="note-drawer-heading">
           <h2 id="editor-title">笔记</h2>
           <div className="note-actions">
-            <button type="button" className="icon-button" aria-label="关闭编辑抽屉" onClick={closeNoteDrawer}>×</button>
+            <IconAction icon={IconReject} label="关闭编辑抽屉" onClick={closeNoteDrawer}/>
           </div>
         </div>
         <div className="note-drawer-body">

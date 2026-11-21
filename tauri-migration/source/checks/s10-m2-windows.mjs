@@ -83,6 +83,7 @@ try {
   await page.getByLabel('搜索消息').fill('跨记录')
   await page.getByRole('button', { name: '搜索会话' }).click()
   await page.getByRole('button', { name: /研究本机日志验收/ }).click()
+  await page.getByRole('button', { name: /研究本机日志验收/ }).hover()
   await page.locator('.s10-log-messages').getByText(answer, { exact: true }).waitFor()
   await page.getByRole('button', { name: '送入海马体' }).click()
   await page.getByText('会话摘要已送入海马体。').waitFor()
@@ -91,8 +92,9 @@ try {
 
   await logs()
   await page.getByRole('button', { name: /研究本机日志验收/ }).click()
-  await page.getByRole('button', { name: '引用到工作台' }).click()
-  await page.getByRole('list', { name: '已引用的本机会话' }).getByText(user).waitFor()
+  await page.getByRole('button', { name: /研究本机日志验收/ }).hover()
+  await page.locator('.s10-row').filter({ hasText: user }).getByRole('button', { name: '引用到工作台' }).click()
+  await page.getByRole('list', { name: '任务引用' }).getByText(user).waitFor()
   assert.deepEqual(errors, [])
   passed = true
   console.log('PASS S10 M2: Claude Code, Codex CLI, custom JSONL, incremental import, CJK FTS, EpisodicLane and workbench attachment.')

@@ -239,18 +239,15 @@ fn load_context(
     request: &mut RunRequest,
     id: &str,
 ) -> Result<(String, Option<context_compiler::BrainActivationWave>, usize), String> {
-    let mut logs = Vec::new();
     let mut selected_skill = None;
+    let (log_block, log_count);
     {
         let conn = store.conn.lock().unwrap();
-        for session_id in &request.attached_log_session_ids {
-            if !request.permissions.can_read_log(session_id) {
-                return Err("会话未授权给本次任务".into());
-            }
-            logs.push(
-                json!({"id":session_id,"summary":agent_log_harvester::summary(&conn,session_id)?}),
-            );
-        }
+        (log_block, log_count) = context_compiler::compile_harness_logs(
+            &conn,
+            &request.attached_log_session_ids,
+            &request.permissions,
+        )?;
         if let Some(skill_id) = &request.skill_id {
             let (prompt, shell, network) = conn.query_row(
                 "SELECT system_prompt,allow_shell,allow_network FROM procedural_skills WHERE id=?1", [skill_id],
@@ -271,16 +268,18 @@ fn load_context(
         {
             compiled.push_str("\n\n[授权笔记资料]\n");
             compiled.push_str(&packet.compiled_prompt);
-            wave = Some(packet.wave);
+            let mut activation = packet.wave;
+            if let Some(skill) = &request.skill_id {
+                activation.activated_skill_ids.push(skill.clone());
+            }
+            wave = Some(activation);
         }
     }
     if let Some(rule) = selected_skill {
         compiled.push_str(&format!("\n\n[所选技能说明]\n{}", json!(rule)));
     }
-    if !logs.is_empty() {
-        compiled.push_str(&format!("\n\n[授权本机会话摘要]\n{}", json!(logs)));
-    }
-    Ok((compiled, wave, logs.len()))
+    compiled.push_str(&log_block);
+    Ok((compiled, wave, log_count))
 }
 
 fn insert(
@@ -302,6 +301,13 @@ fn insert(
     with_store(&state, |store| {
         let (context, wave, log_count) = load_context(store, request, &id)?;
         let (backend, backend_id, model) = select_backend(app, store, request)?;
+        let project = request
+            .seed_note_id
+            .as_deref()
+            .map(|seed| store.read(seed))
+            .transpose()?
+            .map(|note| note.summary.project_id)
+            .unwrap_or_else(|| crate::notes::DEFAULT_PROJECT.into());
         let json = serde_json::to_string(&request.permissions).map_err(db_error)?;
         let wave_json = wave
             .as_ref()
@@ -312,10 +318,17 @@ fn insert(
         let tx = conn.unchecked_transaction().map_err(db_error)?;
         tx.execute(
             "INSERT INTO harness_runs(id,title,backend_kind,backend_id,model_name,skill_id,permission_manifest_json,
-             activation_wave_json,status,created_at,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'running',?9,?9)",
-            params![id,request.title.trim(),request.backend_kind.as_str(),backend_id,model,request.skill_id,json,wave_json,now_ms()],
+             activation_wave_json,status,created_at,updated_at,project_id)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'running',?9,?9,?10)",
+            params![id,request.title.trim(),request.backend_kind.as_str(),backend_id,model,request.skill_id,json,wave_json,now_ms(),project],
         ).map_err(db_error)?;
+        if let Some(skill) = &request.skill_id {
+            tx.execute(
+                "UPDATE procedural_skills SET usage_count=usage_count+1 WHERE id=?1",
+                [skill],
+            )
+            .map_err(db_error)?;
+        }
         record(
             &tx,
             &HarnessEvent::RunStarted {
@@ -576,7 +589,8 @@ async fn local_task(
 fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), String> {
     let (status, usage) = with_store(&app.state::<AppState>(), |store| {
         let conn = store.conn.lock().unwrap();
-        let pending: i64 = conn
+        let tx = conn.unchecked_transaction().map_err(db_error)?;
+        let pending: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM staged_diffs WHERE run_id=?1 AND status='pending'",
                 [id],
@@ -589,12 +603,15 @@ fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), S
             Ok(()) if pending > 0 => "review_ready",
             Ok(()) => "completed",
         };
-        conn.execute(
+        tx.execute(
             "UPDATE harness_runs SET status=?2,updated_at=?3 WHERE id=?1",
             params![id, status, now_ms()],
         )
         .map_err(db_error)?;
-        let usage = conn
+        if status == "completed" {
+            crate::memory_consolidator::harness_recap(&tx, id)?;
+        }
+        let usage = tx
             .query_row(
                 "SELECT token_in,token_out,cost_usd FROM harness_runs WHERE id=?1",
                 [id],
@@ -607,6 +624,7 @@ fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), S
                 },
             )
             .map_err(db_error)?;
+        tx.commit().map_err(db_error)?;
         Ok((status, usage))
     })?;
     emit(
@@ -618,6 +636,9 @@ fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), S
             error: result.as_ref().err().map(String::as_str),
         },
     )?;
+    if status == "completed" {
+        let _ = app.emit("brain://changed", ());
+    }
     Ok(())
 }
 
@@ -636,6 +657,9 @@ pub fn harness_start_run(app: AppHandle, mut request: RunRequest) -> Result<Stri
     let task = insert(&app, &mut request, sender)?;
     let id = task.id.clone();
     tauri::async_runtime::spawn(async move {
+        if let Some(wave) = &task.wave {
+            let _ = app.emit("brain://activation-wave", wave);
+        }
         let result = match emit(
             &app,
             HarnessEvent::ContextActivated {
@@ -776,12 +800,16 @@ pub fn staging_resolve_diff(
         if accept {
             match diff.target_kind.as_str() {
                 "workspace_file" => staging::approve_file(store, &policy, &diff)?,
-                _ => return Err("此任务暂存的是笔记变更，请在大脑闭环阶段接入后应用".into()),
+                "brain_note" => staging::approve_note(store, &policy, &diff)?,
+                _ => return Err("不支持该变更类型".into()),
             }
         }
         let conn = store.conn.lock().unwrap();
         let tx = conn.unchecked_transaction().map_err(db_error)?;
         staging::resolve_record(&tx, &diff, accept)?;
+        if accept && diff.target_kind == "brain_note" {
+            staging::record_note_evolution(&tx, &diff)?;
+        }
         let pending: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM staged_diffs WHERE run_id=?1 AND status='pending'",
@@ -791,6 +819,7 @@ pub fn staging_resolve_diff(
             .map_err(db_error)?;
         let completed = status == "review_ready" && pending == 0;
         if completed {
+            crate::memory_consolidator::harness_recap(&tx, &diff.run_id)?;
             tx.execute(
                 "UPDATE harness_runs SET status='completed',updated_at=?2 WHERE id=?1",
                 params![diff.run_id, now_ms()],
@@ -801,5 +830,8 @@ pub fn staging_resolve_diff(
         Ok(completed)
     })?;
     let _ = app.emit("harness:review-updated", completed);
+    if accept || completed {
+        let _ = app.emit("brain://changed", ());
+    }
     Ok(())
 }

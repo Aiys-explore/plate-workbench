@@ -222,5 +222,15 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
             tx.execute(&format!("ALTER TABLE procedural_skills ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"), [])?;
         }
     }
+    for (table, column, definition) in [
+        ("harness_runs","project_id","TEXT NOT NULL DEFAULT 'default'"),
+        ("staged_diffs","previous_excerpt","TEXT NOT NULL DEFAULT ''"),
+    ] {
+        let exists: bool = tx.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?1)"),
+            [column], |row| row.get(0),
+        )?;
+        if !exists { tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?; }
+    }
     tx.commit()
 }

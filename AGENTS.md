@@ -7,5 +7,5 @@
 
 # S10 计划比对
 
-- 每次开发步骤完成后，对照 [S10 开发执行计划](tauri-migration/plans/s10_workbench_harness_plan.md) 核查实际范围、交互、数据及权限约束。在该阶段验收记录中标注计划条目、实际表现、偏差及原因、待验项。
+- 每次开发步骤完成后，对照 [S10 开发执行计划](tauri-migration/plans/s10_workbench_harness_plan.md) 与 [视觉修订版](tauri-migration/plans/s10_workbench_harness_plan_1.md) 核查实际范围、交互、数据及权限约束。在该阶段验收记录中标注计划条目、实际表现、偏差及原因、待验项。
 - S10 按 M1 → M2 → M3 → M4 推进。每阶段在 `tauri-migration/source` 执行 `cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`npm run build`，通过后核对计划该阶段的验收条件、记录 GitHub 源码提交，再推进下一阶段。`npm run build` 已包含 `npm run typecheck`。

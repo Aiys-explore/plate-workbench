@@ -25,8 +25,7 @@
   box-shadow: var(--shadow-level-2);
 }
 .brain-hud {
-  inset: 64px auto auto 50%;
-  transform: translateX(-50%);
+  inset: auto var(--brain-hud-right, 16px) 62px auto;
   min-height: 40px;
   width: max-content;
   max-width: calc(100% - 32px);
@@ -131,7 +130,7 @@
 .brain-context-control label { display: flex; align-items: center; gap: 4px; }
 .brain-context-control p { margin: 4px 0; }
 .brain-skill-dock {
-  inset: auto 12px 66px auto;
+  inset: auto 16px 112px auto;
   padding: 4px 7px;
   max-width: min(660px, 51%);
   display: flex;
@@ -258,7 +257,6 @@
   to { opacity: 0; transform: rotate(360deg) scale(1.3); }
 }
 @media (max-width: 1100px) {
-  .brain-hud { top: 106px; }
   .brain-episodic, .brain-zone-hippocampus, .brain-zone-neocortex { top: 154px; }
 }
 @media (prefers-reduced-motion: reduce) {

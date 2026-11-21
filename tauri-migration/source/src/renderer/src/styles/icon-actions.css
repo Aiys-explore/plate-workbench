@@ -26,3 +26,29 @@
 .note-tag-form { display:flex;flex-wrap:wrap;align-items:center;width:100%;gap:5px; }
 .note-tag-form input { min-width:75px;max-width:min(100%,220px);padding:4px 7px;font:inherit; }
 .note-tag-form small { flex-basis:100%;font-size:11px; }
+
+.plate-ui .plate-icon-btn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.plate-ui .plate-icon-btn:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-surface-hover); }
+.plate-ui .plate-icon-btn.is-active { color: var(--color-accent-text); background: var(--color-accent-bg-light); }
+.plate-ui .plate-icon-btn.is-danger { color: var(--color-semantic-error-text, #b52b2b); }
+.plate-ui .plate-icon-btn:disabled { opacity: .45; cursor: default; }
+.plate-icon-badge {
+  position: absolute; top: -3px; right: -5px; min-width: 14px; min-height: 14px;
+  padding-inline: 2px; border-radius: 12px; line-height: 14px; font-size: 10px; font-weight: 600;
+  color: var(--color-text-inverse); background: var(--color-accent-primary); text-align: center;
+}

@@ -1,3 +1,5 @@
+import { IconAction } from './icon-action'
+import { IconReject } from './components/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { NoteFilters, NoteSummary, SearchResult } from '../../shared/ipc'
 
@@ -41,7 +43,7 @@ export function QuickNodePopover({ visible, filters, label, locate, close, searc
     onClick={event => { if (event.target === event.currentTarget) close() }}>
     <section>
       <header><h2 id={heading}>搜索或跳转</h2>
-        <button type="button" aria-label="关闭搜索" onClick={close}>×</button>
+        <IconAction icon={IconReject} label="关闭搜索" onClick={close}/>
       </header>
       <form role="search" onSubmit={event => {
         event.preventDefault()

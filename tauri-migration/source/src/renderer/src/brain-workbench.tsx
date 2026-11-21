@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, EpisodicEvent } from '../../shared/brain'
 import type { RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
+import { IconAction } from './icon-action'
+import { IconDream, IconHeat, IconNew, IconZones } from './components/icons'
 import './styles/brain-dynamics.css'
 
 const api = () => window.workbench.brain
@@ -58,9 +60,9 @@ export function BrainHudBar({ wave, notes, events, zones, vitality, toggleZones,
         <>全脑就绪 · {events} 条闪念 · {notes} 个长期节点</>}
     </output>
     <div className="brain-hud-actions">
-      <button type="button" aria-pressed={zones} onClick={toggleZones}>分区视图</button>
-      <button type="button" aria-pressed={vitality} onClick={toggleVitality}>活力热力</button>
-      <button type="button" onClick={dream}>做梦整理</button>
+      <IconAction icon={IconZones} label="分区视图" active={zones} aria-pressed={zones} onClick={toggleZones}/>
+      <IconAction icon={IconHeat} label="活力热力" active={vitality} aria-pressed={vitality} onClick={toggleVitality}/>
+      <IconAction icon={IconDream} label="做梦整理" onClick={dream}/>
     </div>
   </div>
 }
@@ -110,7 +112,7 @@ export function EpisodicLane({ events, fresh, openCapture, consolidate }: {
   return <aside className="brain-episodic" aria-label="海马体 · 短期闪念">
     <div className="brain-lane-header">
       <span><small>海马体</small><strong>短期闪念</strong></span>
-      <button type="button" aria-label="捕获闪念" title="Ctrl+Shift+Space" onClick={openCapture}>＋</button>
+      <IconAction icon={IconNew} label="捕获闪念" shortcut="Ctrl+Shift+Space" onClick={openCapture}/>
     </div>
     <div className="brain-event-list">
       {events.length === 0 && <p className="brain-muted">按 Ctrl+Shift+Space 捕获闪念。</p>}
@@ -125,11 +127,12 @@ export function EpisodicLane({ events, fresh, openCapture, consolidate }: {
 
 export function ConsolidationDialog({ events, nodes, close, consolidate }: {
   events: EpisodicEvent[]; nodes: RelationshipNote[]; close: () => void
-  consolidate: (ids: string[], title: string, target?: string) => Promise<void>
+  consolidate: (ids: string[], title: string, target?: string, synthesis?: string) => Promise<void>
 }) {
   const [selected, setSelected] = useState<string[]>(events.length === 1 ? [events[0].id] : [])
   const [title, setTitle] = useState(events.length === 1 ? events[0].rawText.split(/\r?\n/)[0].slice(0, 60) : '')
   const [target, setTarget] = useState('')
+  const [synthesis, setSynthesis] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const project = events.find(event => event.id === selected[0])?.projectId
@@ -137,7 +140,7 @@ export function ConsolidationDialog({ events, nodes, close, consolidate }: {
     event.preventDefault()
     setBusy(true)
     setError('')
-    try { await consolidate(selected, title, target || undefined); close() }
+    try { await consolidate(selected, title, target || undefined, synthesis || undefined); close() }
     catch (issue) { setError(message(issue)); setBusy(false) }
   }
   return <EditorDialog title="固化闪念" close={close} kind="brain">
@@ -148,6 +151,7 @@ export function ConsolidationDialog({ events, nodes, close, consolidate }: {
             disabled={!!project && project !== event.projectId || !selected.includes(event.id) && selected.length >= 20}
             onChange={change => {
               setSelected(old => change.target.checked ? [...old, event.id] : old.filter(id => id !== event.id))
+              setSynthesis('')
               if (!change.target.checked && selected.length === 1) setTarget('')
             }}/>{event.rawText}
         </label>)}
@@ -160,7 +164,17 @@ export function ConsolidationDialog({ events, nodes, close, consolidate }: {
       </label>
       {!target && <label>笔记标题<input value={title} onChange={event => setTitle(event.target.value)} required/></label>}
       {error && <p role="alert">{error}</p>}
-      <button type="submit" className="button-primary" disabled={busy || !selected.length || !target && !title.trim()}>确认固化</button>
+      <div className="s10-actions">
+        <button type="button" disabled={busy || !selected.length} onClick={() => {
+          setBusy(true); setError('')
+          void api().dreamSuggestion(selected).then(draft => {
+            setTitle(draft.title)
+            setSynthesis(draft.summary)
+          }).catch(cause => setError(message(cause))).finally(() => setBusy(false))
+        }}>用模型整理所选闪念</button>
+        <button type="submit" className="button-primary" disabled={busy || !selected.length || !target && !title.trim()}>确认固化</button>
+      </div>
+      {synthesis && <label>审阅排版和正文<textarea rows={5} value={synthesis} onChange={event => setSynthesis(event.target.value)}/></label>}
     </form>
   </EditorDialog>
 }
@@ -203,7 +217,7 @@ export function SkillDock({ skills, wave, inspect, create }: {
       {skills.map(skill => <button type="button" key={skill.id} data-attached={wave?.activatedSkillIds.includes(skill.id) || undefined}
         onClick={() => inspect(skill)}>{skill.title} <small>调用 {skill.usageCount} 次</small></button>)}
     </div>
-    <button type="button" onClick={create}>＋ 新技能</button>
+    <IconAction icon={IconNew} label="新技能" onClick={create}/>
   </div>
 }
 

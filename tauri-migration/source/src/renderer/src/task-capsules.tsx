@@ -205,7 +205,7 @@ export function arrangeTaskCapsules(
     if (group.dataset.state !== state) {
       group.dataset.state = state
       const toggle = () => actions.togglePanel(marker.taskId)
-      const labels = { DOING: '⟳ DOING', PENDING: '👁 待审阅', DONE: '✓ DONE',
+      const labels = { DOING: '执行中', PENDING: '待审阅', DONE: '已完成',
         ERROR: '执行失败 · 查看', TODO: '恢复待办', UNKNOWN: '待核对 · 恢复待办' }
       const click = () => {
         if (card?.state === 'TODO') actions.restore(card)

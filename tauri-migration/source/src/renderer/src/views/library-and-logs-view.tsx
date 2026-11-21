@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ExternalAgentMessage, ExternalAgentSession } from '../../../shared/harness'
 import type { ProjectSummary } from '../../../shared/ipc'
 import { useWorkbench } from '../store'
+import { readPreferences } from '../s10-preferences'
+import { IconAction } from '../icon-action'
+import { IconAttachLog, IconBrain, IconRefresh, IconSearch, IconWorkbench } from '../components/icons'
 
 const pageSize = 100
 const tools: Record<ExternalAgentSession['sourceTool'], string> = {
@@ -20,8 +23,8 @@ export function LibraryAndLogsView() {
   const [project, setProject] = useState('default')
   const [query, setQuery] = useState('')
   const [searched, setSearched] = useState('')
-  const [directory, setDirectory] = useState('')
-  const [defaults, setDefaults] = useState(true)
+  const [directory, setDirectory] = useState(() => readPreferences().customLogDirectory)
+  const [defaults, setDefaults] = useState(() => readPreferences().includeDefaultLogs)
   const [loading, setLoading] = useState(true)
   const [moreSessions, setMoreSessions] = useState(false)
   const [status, setStatus] = useState('')
@@ -85,7 +88,7 @@ export function LibraryAndLogsView() {
         扫描 Claude Code 和 Codex 默认目录
       </label>
       <label>自定义目录 <input type="text" value={directory} onChange={event => setDirectory(event.target.value)}/></label>
-      <button type="submit" disabled={loading}>扫描记录</button>
+      <IconAction type="submit" icon={IconRefresh} label="扫描记录" disabled={loading}/>
     </form>
     <form className="s10-actions" onSubmit={event => {
       event.preventDefault()
@@ -96,7 +99,7 @@ export function LibraryAndLogsView() {
       })
     }}>
       <label>搜索消息 <input type="search" value={query} onChange={event => setQuery(event.target.value)}/></label>
-      <button type="submit" disabled={loading}>搜索会话</button>
+      <IconAction type="submit" icon={IconSearch} label="搜索会话" disabled={loading}/>
     </form>
     <p role="status">{loading ? '处理中…' : status}</p>
     {error && <p role="alert" className="s10-error">{error}</p>}
@@ -104,11 +107,23 @@ export function LibraryAndLogsView() {
       <aside aria-label="会话列表">
         {!loading && sessions.length === 0 && <p>{searched ? '没有匹配会话。' : '没有已索引会话。'}</p>}
         <ul className="s10-provider-list">
-          {sessions.map(item => <li key={item.id}><button type="button" disabled={loading}
-            aria-pressed={selected?.id === item.id} onClick={() => select(item)}>
-            <strong>{item.title}</strong>
-            <span>{tools[item.sourceTool]} · {item.messageCount} 条</span>
-          </button></li>)}
+          {sessions.map(item => <li key={item.id} className="s10-row">
+            <button type="button" className="s10-row-label" disabled={loading}
+              aria-pressed={selected?.id === item.id} onClick={() => select(item)}>
+              <IconAttachLog size={14} strokeWidth={1.65} aria-hidden="true"/>
+              <span className="s10-row-title"><strong>{item.title}</strong>
+                <span>{tools[item.sourceTool]} · {item.messageCount} 条</span>
+                <time dateTime={new Date(item.updatedAt).toISOString()}>{localTime(item.updatedAt)}</time>
+              </span>
+            </button>
+            <div className="s10-row-actions">
+              <IconAction icon={IconWorkbench} label="引用到工作台" onClick={() => attached(item)}/>
+              <IconAction icon={IconBrain} label="送入海马体" disabled={loading || !project} onClick={() => void perform(async () => {
+                await api().sendToHippocampus(item.id, project)
+                setStatus('会话摘要已送入海马体。')
+              })}/>
+            </div>
+          </li>)}
         </ul>
         {moreSessions && <button type="button" disabled={loading}
           onClick={() => void perform(() => load(searched, sessions.length))}>更多会话</button>}
@@ -119,16 +134,9 @@ export function LibraryAndLogsView() {
           {selected.workspaceCwd && <p>{selected.workspaceCwd}</p>}
         </details>
         <pre className="s10-log-summary">{selected.summary}</pre>
-        <div className="s10-actions">
-          <button type="button" onClick={() => attached(selected)}>引用到工作台</button>
-          <label>写入分区 <select value={project} onChange={event => setProject(event.target.value)}>
-            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select></label>
-          <button type="button" disabled={loading || !project} onClick={() => void perform(async () => {
-            await api().sendToHippocampus(selected.id, project)
-            setStatus('会话摘要已送入海马体。')
-          })}>送入海马体</button>
-        </div>
+        <label>写入分区 <select value={project} onChange={event => setProject(event.target.value)}>
+          {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select></label>
         <ol className="s10-log-messages">
           {messages.map(message => <li key={message.id}>
             <header><strong>{message.toolName || roles[message.role]}</strong>

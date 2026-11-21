@@ -11,22 +11,26 @@ const DEGREE: &str = "(SELECT COUNT(*) FROM note_link WHERE source_note_id=note.
 
 pub fn recalculate(conn: &Connection, now: i64) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
+    recalculate_rows(&tx, now)?;
+    tx.commit()
+}
+
+pub(crate) fn recalculate_rows(conn: &Connection, now: i64) -> rusqlite::Result<()> {
     let rows = {
-        let mut stmt = tx.prepare(&format!("SELECT id, last_accessed_at, access_count, {DEGREE}
+        let mut stmt = conn.prepare(&format!("SELECT id, last_accessed_at, access_count, {DEGREE}
             FROM note WHERE last_accessed_at>0"))?;
         let rows = stmt.query_map([], |row| Ok((
             row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?,
         )))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
-    let mut update = tx.prepare_cached("UPDATE note SET vitality_score=?2,is_dormant=?3 WHERE id=?1")?;
+    let mut update = conn.prepare_cached("UPDATE note SET vitality_score=?2,is_dormant=?3 WHERE id=?1")?;
     for (id, last, access, degree) in rows {
         let days = now.saturating_sub(last).max(0) as f64 / 86_400_000.0;
         let vitality = score(days, access, degree);
         update.execute(params![id, vitality, vitality < 0.22 && days > 30.0 && degree <= 1])?;
     }
-    drop(update);
-    tx.commit()
+    Ok(())
 }
 
 pub fn boost(conn: &Connection, id: &str, now: i64) -> rusqlite::Result<()> {

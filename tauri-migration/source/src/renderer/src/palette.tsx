@@ -1,7 +1,12 @@
+import { IconAction } from './icon-action'
+import { IconReject } from './components/icons'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { NoteIndexState } from '../../shared/note-index'
 import { commands, focus, indexError, type CommandId, type PaletteRegistry, type Source, type Target } from './palette-registry'
+
+const OPEN_PALETTE = 'plate:open-command-palette'
+export const openCommandPalette = () => window.dispatchEvent(new Event(OPEN_PALETTE))
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase()
 const ime = (event: globalThis.KeyboardEvent) => event.isComposing || event.key === 'Process' || event.keyCode === 229
@@ -43,19 +48,25 @@ export function PaletteHost({ registry, shell, fallback, binding }: {
       if (globalComposition.current === event.target) globalComposition.current = null
     }
     const blur = () => { globalComposition.current = null; epoch.current++ }
-    const key = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || ime(event) || !event.ctrlKey || event.shiftKey ||
-        event.metaKey || event.altKey || event.key.toLowerCase() !== 'p' || !canAct()) return
+    const showPalette = () => {
+      if (!canAct()) return false
       if (opened.current) {
         host.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
-        return
+        return true
       }
       const source = registry.capture(fallback)
       epoch.current++
       flushSync(() => setView({ source }))
-      if (host.current?.open) { opened.current = true; event.preventDefault() }
-      else setView(undefined)
+      if (host.current?.open) { opened.current = true; return true }
+      setView(undefined)
+      return false
     }
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || ime(event) || !event.ctrlKey || event.shiftKey ||
+        event.metaKey || event.altKey || event.key.toLowerCase() !== 'p') return
+      if (showPalette()) event.preventDefault()
+    }
+    window.addEventListener(OPEN_PALETTE, showPalette)
     window.addEventListener('compositionstart', compositionStart, true)
     window.addEventListener('compositionend', compositionEnd, true)
     window.addEventListener('blur', blur)
@@ -63,6 +74,7 @@ export function PaletteHost({ registry, shell, fallback, binding }: {
     return () => {
       live = false; epoch.current++; off()
       window.removeEventListener('keydown', key)
+      window.removeEventListener(OPEN_PALETTE, showPalette)
       window.removeEventListener('compositionstart', compositionStart, true)
       window.removeEventListener('compositionend', compositionEnd, true)
       window.removeEventListener('blur', blur)
@@ -232,10 +244,7 @@ function Palette({ registry, shell, host, view, close, handoff }: {
     aria-labelledby="M51.title" onCancel={event => event.preventDefault()} onKeyDown={key}>
     <header data-element="M51.head">
       <h2 id="M51.title" data-element="M51.title">命令</h2>
-      <button type="button" ref={exit} data-element="M51.close" aria-label="关闭命令面板" title="关闭命令面板" onClick={close}>
-        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>
-      </button>
+      <IconAction icon={IconReject} label="关闭命令面板" ref={exit} data-element="M51.close" onClick={close}/>
     </header>
     <div data-element="M51.queryBand">
       <label htmlFor="M51.query" data-element="M51.queryLabel">查找命令</label>

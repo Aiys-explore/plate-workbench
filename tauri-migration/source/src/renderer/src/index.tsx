@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { WorkbenchApi } from '../../shared/ipc'
 import { PaletteHost } from './palette'
-import { focus, PaletteRegistry, RegistryContext, target, usePaletteOwner, type Source } from './palette-registry'
+import { PaletteRegistry, RegistryContext, target, usePaletteOwner, type Source } from './palette-registry'
 import { Layout } from './layout'
 import { HelpDialog } from './help'
 import { StartupGate } from './startup'
@@ -46,7 +46,6 @@ function ReadyWorkbench({ notePath }: { notePath: string }) {
 }
 
 function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath: string }) {
-  const theme = useWorkbench((state) => state.theme)
   const toggleTheme = useWorkbench((state) => state.toggleTheme)
   const [helpOrigin, setHelpOrigin] = useState<Source>()
   const [agentSettings, setAgentSettings] = useState(false)
@@ -54,45 +53,16 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
   useAgentSettingsEntry(openSettings)
   const [paletteBound, setPaletteBound] = useState(false)
   const shell = useRef<HTMLDivElement>(null)
-  const fallback = () => shell.current?.querySelector<HTMLElement>('.plate-map-search-entry') ?? null
-  const forButton = (element: HTMLElement): Source => ({ element, restore: () => { if (!focus(element)) focus(fallback()) } })
+  const fallback = () => shell.current?.querySelector<HTMLElement>('.s10-palette-entry') ?? null
   const openHelp = (source: Source) => setHelpOrigin(source)
-  const [agentCount, setAgentCount] = useState<number>()
   usePaletteOwner('app', { actions: {
     'm51.theme.toggle': { run: toggleTheme },
     'm51.help.open': { run: source => { openHelp(source); return target('.p13-help[open] h2') } },
   } })
 
-  useEffect(() => {
-    let sequence = 0
-    const refresh = async () => {
-      const request = ++sequence
-      try {
-        const agents = await window.workbench.agentPlugins.active()
-        if (request === sequence) setAgentCount(agents.length)
-      } catch {
-        if (request === sequence) setAgentCount(undefined)
-      }
-    }
-    const unsubscribe = window.workbench.agentPlugins.onChange(refresh)
-    void refresh()
-    return () => { sequence++; unsubscribe() }
-  }, [agentSettings])
-
-  const controls = <>
-    <button type="button" className="plate-agent-settings-entry" aria-haspopup="dialog"
-      onClick={openSettings}>Agent 设置{agentCount === undefined ? '' : ' · ' + agentCount}</button>
-    <button type="button" onClick={toggleTheme}
-      title={theme === 'light' ? '切换至深色主题' : '切换至浅色主题'}
-      aria-label={theme === 'light' ? '切换至深色主题' : '切换至浅色主题'}>
-      {theme === 'light' ? '◐ 深色' : '◑ 浅色'}
-    </button>
-    <button type="button" data-element="P13.entry.help"
-      aria-label="帮助" title="帮助" aria-haspopup="dialog" onClick={event => openHelp(forButton(event.currentTarget))}>?</button>
-  </>
   return (
     <div className="shell plate-ui plate-map-shell" ref={shell}>
-      <Layout hudRight={controls} openAgentSettings={openSettings}/>
+      <Layout openAgentSettings={openSettings}/>
       {helpOrigin && <HelpDialog notePath={notePath} restore={helpOrigin.restore} paletteBound={paletteBound} readAppInfo={window.workbench.getAppInfo} onClose={() => setHelpOrigin(undefined)}/>}
       {agentSettings && <AgentSettingsDialog onClose={() => setAgentSettings(false)}/>}
       <PaletteHost registry={registry} shell={shell} fallback={fallback} binding={setPaletteBound}/>

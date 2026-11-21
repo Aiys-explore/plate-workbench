@@ -8,6 +8,7 @@ import { noteRelations } from './relation-directions'
 import { frameNodes, interpolateCamera, type Camera, type Point } from './relationship-camera'
 import { cardWidth, connectCards, measureCards, port, type CardBox } from './relationship-geometry'
 import { IconAction } from './icon-action'
+import { IconAccept, IconBrain, IconFocus, IconInfo, IconMinus, IconMotion, IconNew, IconReject, IconStyle } from './components/icons'
 import './styles/relationship-fonts.css'
 import './styles/relationship-flow.css'
 
@@ -171,7 +172,7 @@ export function RelationshipGraph({
     setBrainError('')
     try { await work() } catch (error) { setBrainError(String(error)) }
   }
-  const consolidate = async (ids: string[], title: string, target?: string) => {
+  const consolidate = async (ids: string[], title: string, target?: string, synthesis?: string) => {
     const root = section.current
     const bounds = root?.getBoundingClientRect()
     const visible = ids.map(id => root?.querySelector('[data-event-id="' + CSS.escape(id) + '"]'))
@@ -182,7 +183,7 @@ export function RelationshipGraph({
       })
     const origin = visible?.getBoundingClientRect()
     const text = visible?.querySelector('p')?.textContent ?? ''
-    const id = await window.workbench.brain.consolidate(ids, title, target)
+    const id = await window.workbench.brain.consolidate(ids, title, target, synthesis)
     if (origin && bounds) {
       setMigration({ id, text, width: origin.width,
         from: { x: origin.left + origin.width / 2 - bounds.left, y: origin.top + origin.height / 2 - bounds.top } })
@@ -883,21 +884,20 @@ export function RelationshipGraph({
       </button>
     </div>
     <div className="plate-map-hud plate-map-hud--right">
-      <button type="button" aria-label="关系图动效" aria-pressed={live} onClick={toggleMotion} disabled={reduced}
-        title={reduced?'系统已开启减少动态效果':'切换静态与动效'}>{live?'◉ 动效':'○ 静态'}</button>
+      <IconAction icon={IconMotion} label="关系图动效" active={live} aria-pressed={live} onClick={toggleMotion} disabled={reduced}/>
       <div className="relationship-style" onBlur={event=>{if(event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setStyleOpen(false)}}>
-        <button type="button" ref={styleButton} aria-expanded={styleOpen} aria-controls={styleOpen?'relationship-styles':undefined}
-          onClick={()=>setStyleOpen(!styleOpen)}>视觉风格：{styles.find(([id])=>id===style)?.[1]} ▾</button>
+        <IconAction icon={IconStyle} label="视觉风格" ref={styleButton} aria-expanded={styleOpen}
+          aria-controls={styleOpen?'relationship-styles':undefined} onClick={()=>setStyleOpen(!styleOpen)}/>
         {styleOpen && <div id="relationship-styles" className="relationship-style-pop" role="group" aria-label="视觉风格">
           <header>视觉表达 <small><kbd>S</kbd> 循环切换</small></header>
           {styles.map(([id,name,hint])=><button key={id} type="button" aria-pressed={style===id} onClick={()=>{
             switchStyle(id);setStyleOpen(false);styleButton.current?.focus()
           }}><span className="relationship-swatch" data-swatch={id} aria-hidden="true"/><span><strong>{name}</strong><small>{hint}</small></span>
-            <span aria-hidden="true">{style===id?'✓':''}</span></button>)}
+            {style===id && <IconAccept size={14} strokeWidth={1.65} aria-hidden="true"/>}</button>)}
         </div>}
       </div>
-      <button type="button" aria-expanded={legend} onClick={() => setLegend(!legend)}>图例</button>
-      <button type="button" aria-pressed={brainOpen} onClick={() => onBrainOpenChange(!brainOpen)}>大脑</button>
+      <IconAction icon={IconInfo} label="图例" aria-expanded={legend} onClick={() => setLegend(!legend)}/>
+      <IconAction icon={IconBrain} label="大脑" active={brainOpen} aria-pressed={brainOpen} onClick={() => onBrainOpenChange(!brainOpen)}/>
       {hudRight}
     </div>
     {brainOpen && <>
@@ -948,19 +948,19 @@ export function RelationshipGraph({
     {timeline && <EvolutionTimelineModal id={timeline.id} title={timeline.title} close={() => setTimeline(undefined)}/>}
     {skill && <SkillDialog skill={skill === 'new' ? undefined : skill} close={() => setSkill(undefined)}/>}
     <div className="plate-map-hud plate-map-hud--dock">
-      <button type="button" onClick={() => void createNoteAt()} disabled={state.busy || !!state.error}>＋ 新建主节点 <kbd>N</kbd></button>
+      <IconAction icon={IconNew} label="新建主节点" shortcut="N" onClick={() => void createNoteAt()} disabled={state.busy || !!state.error}/>
       <button type="button" onClick={() => { if (active) void deriveChild(active) }} disabled={!active || state.busy || !!state.error}>子节点 <kbd>Tab</kbd></button>
       <button type="button" onClick={() => { if (active) void deriveSibling(active) }} disabled={!active || !parentOf(active) || state.busy || !!state.error}>同级 <kbd>Enter</kbd></button>
       <button type="button" onClick={() => chooseScope(local ? 'all' : 'nearby', local ? center : active)}
         disabled={local ? !center : !active}>{local ? '全部导图' : '聚焦周边'}</button>
-      <IconAction ref={first} icon="focus" label="聚焦节点详情" onClick={event => {
+      <IconAction ref={first} icon={IconFocus} label="聚焦节点详情" onClick={event => {
         const id = active && geometry.placed.has(active) ? active : ordered[0]?.id
         if (id) inspect(id,event.currentTarget)
       }} disabled={!ordered.length || state.busy || !!state.error}/>
       {resetControls}
-      <IconAction icon="minus" label="缩小" onClick={() => changeZoom(Math.max(.42, zoom - .2))} disabled={zoom<=.42}/>
+      <IconAction icon={IconMinus} label="缩小" onClick={() => changeZoom(Math.max(.42, zoom - .2))} disabled={zoom<=.42}/>
       <span role="status">{Math.round(zoom * 100)}%</span>
-      <IconAction icon="plus" label="放大" onClick={() => changeZoom(Math.min(2.25, zoom + .2))} disabled={zoom>=2.25}/>
+      <IconAction icon={IconNew} label="放大" onClick={() => changeZoom(Math.min(2.25, zoom + .2))} disabled={zoom>=2.25}/>
     </div>
     {state.busy && <p role="status" className="relationship-action-status">正在读取关系索引…</p>}
     {actionError && <p role="alert" className="relationship-action-status">{actionError}</p>}
@@ -1152,7 +1152,7 @@ export function RelationshipGraph({
     </div>
     {detailNote && !state.error && !editorOpen && <aside ref={panel} className="relationship-detail" aria-labelledby="relationship-detail-title">
       <div className="relationship-detail-top">
-        <small>笔记详情</small><button type="button" onClick={closeDetails} aria-label="关闭笔记详情">×</button>
+        <small>笔记详情</small><IconAction icon={IconReject} label="关闭笔记详情" onClick={closeDetails}/>
       </div>
       <h2 id="relationship-detail-title" ref={detailsHeading} tabIndex={-1}>{detailNote.title}</h2>
       <div className="relationship-detail-actions">

@@ -1,3 +1,5 @@
+import { IconAction } from './icon-action'
+import { IconReject } from './components/icons'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type {
   AgentPluginsApi, AgentPluginSnapshot, AgentPluginView,
@@ -41,7 +43,7 @@ function AgentDialog({ title, onClose, children, headerExtra }: {
     <header>
       <h2 id={heading}>{title}</h2>
       {headerExtra}
-      <button type="button" className="p13-action" title="关闭" aria-label="关闭" onClick={onClose}>×</button>
+      <IconAction icon={IconReject} label="关闭" onClick={onClose}/>
     </header>
     {children}
   </dialog>
