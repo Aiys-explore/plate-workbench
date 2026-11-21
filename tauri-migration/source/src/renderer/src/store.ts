@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ActiveView } from '../../shared/harness'
+import type { ActiveView, ExternalAgentSession } from '../../shared/harness'
 
 type Theme = 'light' | 'dark'
 const themeKey = 'workbench.theme'
@@ -31,6 +31,9 @@ function initialDrawerWidth(): number {
 }
 interface WorkbenchState {
   activeView: ActiveView
+  draftAttachedLogs: Pick<ExternalAgentSession, 'id' | 'title'>[]
+  attachLogToWorkbench(log: Pick<ExternalAgentSession, 'id' | 'title'>): void
+  detachLogFromWorkbench(id: string): void
   setActiveView(view: ActiveView): void
   theme: Theme
   sidebarCollapsed: boolean
@@ -48,6 +51,15 @@ interface WorkbenchState {
 export const useWorkbench = create<WorkbenchState>((set) => ({
   theme: initialTheme(),
   activeView: 'workbench',
+  draftAttachedLogs: [],
+  attachLogToWorkbench: ({ id, title }) => set(state => ({
+    activeView: 'workbench',
+    draftAttachedLogs: state.draftAttachedLogs.some(log => log.id === id)
+      ? state.draftAttachedLogs : [...state.draftAttachedLogs, { id, title }],
+  })),
+  detachLogFromWorkbench: id => set(state => ({
+    draftAttachedLogs: state.draftAttachedLogs.filter(log => log.id !== id),
+  })),
   setActiveView: activeView => set({ activeView }),
   sidebarCollapsed: (() => {
     try { return localStorage.getItem('plate.sidebar.collapsed') === 'true' } catch { return false }

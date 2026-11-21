@@ -82,3 +82,52 @@
   .s10-activity-rail button { white-space: nowrap; }
   .s10-settings-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 }
+
+.s10-library {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.s10-library[data-library="true"] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.s10-library > :not([hidden]) { pointer-events: auto; }
+.s10-library-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--color-surface-bar);
+  border-bottom: 1px solid var(--color-border-decorative);
+}
+.s10-library-tabs button {
+  color: inherit;
+  background: transparent;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.s10-library-tabs button[aria-pressed="true"] {
+  color: var(--color-accent-text);
+  background: var(--color-accent-bg-light);
+}
+.s10-logs form { margin-block: 8px; }
+.s10-logs input, .s10-logs select { font: inherit; }
+.s10-logs input:not([type="checkbox"]), .s10-logs select {
+  padding: 5px;
+  border: 1px solid var(--color-border-control);
+  background: var(--color-surface-editor);
+  color: inherit;
+  border-radius: 5px;
+}
+.s10-log-entry { overflow-wrap: anywhere; }
+.s10-log-summary, .s10-log-messages pre {
+  white-space: pre-wrap;
+  font: inherit;
+  margin-block: 5px;
+}
+.s10-log-messages { list-style: none; padding: 0; }
+.s10-log-messages li { padding: 10px 0; border-bottom: 1px solid var(--color-border-decorative); }
+.s10-log-messages time { margin-inline-start: 1rem; color: var(--color-text-secondary); }

@@ -139,7 +139,7 @@ fn episodic(conn: &Connection, project: Option<&str>, dream: bool) -> rusqlite::
     rows.collect()
 }
 
-fn capture(conn: &Connection, project: &str, raw: &str, source: &str) -> Result<String, String> {
+pub(crate) fn capture(conn: &Connection, project: &str, raw: &str, source: &str) -> Result<String, String> {
     let raw = raw.trim();
     if raw.is_empty() || raw.len() > 24_000 || raw.contains('\0') { return Err("请输入 1–24 KB 的闪念内容".into()); }
     if !matches!(source, "capture" | "web_clip" | "agent_trace" | "task_intent") {

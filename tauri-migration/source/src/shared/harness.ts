@@ -27,3 +27,35 @@ export interface ProviderApi {
   remove(id: string): Promise<void>
   test(id: string): Promise<void>
 }
+
+export interface ExternalAgentSession {
+  id: string
+  sourceTool: 'claude_code' | 'codex_cli' | 'gemini_cli' | 'custom'
+  sourcePath: string
+  workspaceCwd: string
+  title: string
+  summary: string
+  messageCount: number
+  updatedAt: number
+}
+
+export interface ExternalAgentMessage {
+  id: string
+  sessionId: string
+  seq: number
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  toolName: string | null
+  touchedFiles: string[]
+  createdAt: number
+}
+
+export interface AgentLogsApi {
+  scan(input: { includeDefaults: boolean; customDirectory?: string }): Promise<{
+    scannedFiles: number; updatedSessions: number; newMessages: number; skippedPaths: number
+  }>
+  list(offset: number): Promise<ExternalAgentSession[]>
+  search(query: string, offset: number): Promise<ExternalAgentSession[]>
+  messages(sessionId: string, offset: number): Promise<ExternalAgentMessage[]>
+  sendToHippocampus(sessionId: string, projectId: string): Promise<string>
+}

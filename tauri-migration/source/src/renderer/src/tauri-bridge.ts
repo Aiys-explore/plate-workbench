@@ -196,6 +196,13 @@ export function createTauriBridge(): WorkbenchApi {
     agents: createAgentsApi(),
     agentPlugins: createAgentPluginsApi(),
     brain: createBrainApi(),
+    agentLogs: {
+      scan: input => invoke('agent_logs_scan', { input }),
+      list: offset => invoke('agent_logs_list', { offset }),
+      search: (query, offset) => invoke('agent_logs_search', { query, offset }),
+      messages: (sessionId, offset) => invoke('agent_logs_get_messages', { sessionId, offset }),
+      sendToHippocampus: (sessionId, projectId) => invoke('agent_logs_send_to_hippocampus', { sessionId, projectId }),
+    },
     providers: {
       list: () => invoke('provider_list'),
       upsert: input => invoke('provider_upsert', { input }),

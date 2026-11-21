@@ -11,6 +11,7 @@ mod vitality_engine;
 mod graph_layout;
 mod notes;
 mod provider_store;
+mod agent_log_harvester;
 #[cfg(windows)]
 mod process_job;
 
@@ -509,6 +510,9 @@ fn main() {
             agents_discover,
             provider_store::provider_list, provider_store::provider_upsert,
             provider_store::provider_delete, provider_store::provider_test_connection,
+            agent_log_harvester::agent_logs_scan, agent_log_harvester::agent_logs_list,
+            agent_log_harvester::agent_logs_get_messages, agent_log_harvester::agent_logs_search,
+            agent_log_harvester::agent_logs_send_to_hippocampus,
             agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
             agent_plugins::agent_plugins_resolve, agent_plugins::agent_plugin_install,
             agent_plugins::agent_plugin_uninstall, agent_plugins::agent_plugin_update,

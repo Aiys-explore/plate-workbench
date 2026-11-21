@@ -198,5 +198,14 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_staged_diffs_run ON staged_diffs(run_id, status, created_at);
         "#,
     )?;
+    for (name, definition) in [("prefix_signature", "TEXT NOT NULL DEFAULT ''"), ("file_bytes", "INTEGER NOT NULL DEFAULT 0")] {
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('external_agent_sessions') WHERE name=?1)",
+            [name], |row| row.get(0),
+        )?;
+        if !exists {
+            tx.execute(&format!("ALTER TABLE external_agent_sessions ADD COLUMN {name} {definition}"), [])?;
+        }
+    }
     tx.commit()
 }
