@@ -17,3 +17,19 @@
 - `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，8 项。
 - `npm run build` 通过，含 `npm run typecheck`。Vite 报告打包体积警告。
 - `node checks/s10-m1-windows.mjs` 在 Windows WebView2 通过，渲染器无控制台错误。验收使用隔离笔记库和合成凭据，关闭阶段有宿主 WebView2 的 Chrome 窗口注销日志。
+
+## M2 · 本机 Agent 记录采集 · 2026-11-22
+
+源码提交 `f81415e154c45f13e511a9ceae07be74a5d8c6a0`，发布到 GitHub 的 `checkpoint/tauri-s10` 分支。
+
+| 计划条目 | 实际与验收 |
+| --- | --- |
+| §3.4 · 日志采集和检索 | 根据字节游标增量读取 Claude Code、Codex CLI 和自定义 JSONL。保留尾部未写完的记录，截断或文件样本变化时重建该会话索引。同一事务更新会话、消息和 FTS5。中英文关键词在合成记录上验证。 |
+| §3.8、§4.4 · 本机记录和海马体 | 五个 `agent_logs_*` 命令及资料页已接通。手动扫描、搜索、消息时间线、引用到工作台均已在 Windows WebView2 验证。将摘要送入指定分区后，可在 EpisodicLane 看到 `agent_trace` 闪念。 |
+| 与计划的实现差异 | 摘要使用本地首条用户消息和最近回复生成，全文留在本机索引。按实际字节游标和文件样本识别追加与轮转；内置默认扫描范围为 Claude Code 与 Codex CLI。Gemini 原生会话 JSON 不属于 M2 的 JSONL 验收范围。[Gemini CLI 会话文档](https://geminicli.com/docs/cli/session-management/) |
+| 待验范围 | 测试使用合成 JSONL 和隔离工作区。真实历史目录规模、非 JSONL 格式和超长单行没有现场验证。 |
+
+- `cargo check --locked --manifest-path src-tauri/Cargo.toml` 通过。
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml` 通过，11 项。
+- `npm run build` 通过，含 TypeScript 检查。
+- `node checks/s10-m2-windows.mjs` 通过，含重复扫描零新增、增量追加、中文检索、海马体可见性和工作台引用，无渲染器控制台错误。
