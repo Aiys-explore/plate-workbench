@@ -37,7 +37,7 @@ export interface AgentPluginUpdate {
 
 export interface AgentPluginsApi {
   saveDeepSeek(input: { key?: string; clear: boolean; baseUrl: string }): Promise<AgentPluginSnapshot>
-  active(): Promise<{ id: string }[]>
+  active(): Promise<{ id: string; name: string; executable: string; model: string }[]>
   list(refresh?: boolean): Promise<AgentPluginSnapshot>
   install(id: string): Promise<AgentPluginSnapshot>
   uninstall(ids: string[]): Promise<AgentPluginSnapshot>

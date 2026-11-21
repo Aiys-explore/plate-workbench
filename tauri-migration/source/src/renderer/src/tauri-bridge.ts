@@ -196,6 +196,15 @@ export function createTauriBridge(): WorkbenchApi {
     agents: createAgentsApi(),
     agentPlugins: createAgentPluginsApi(),
     brain: createBrainApi(),
+    harness: {
+      start: request => invoke('harness_start_run', { request }),
+      cancel: runId => invoke('harness_cancel_run', { runId }),
+      list: () => invoke('harness_list_runs'),
+      events: runId => invoke('harness_get_events', { runId }),
+      diffs: runId => invoke('staging_list_diffs', { runId }),
+      resolve: (diffId, accept) => invoke('staging_resolve_diff', { diffId, accept }),
+      onEvent: callback => subscribeBrain('harness:event', callback),
+    },
     agentLogs: {
       scan: input => invoke('agent_logs_scan', { input }),
       list: offset => invoke('agent_logs_list', { offset }),

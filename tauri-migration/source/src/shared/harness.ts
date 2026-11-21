@@ -59,3 +59,78 @@ export interface AgentLogsApi {
   messages(sessionId: string, offset: number): Promise<ExternalAgentMessage[]>
   sendToHippocampus(sessionId: string, projectId: string): Promise<string>
 }
+
+export type BackendKind = 'local_cli' | 'api_key'
+export type RunStatus = 'running' | 'review_ready' | 'completed' | 'failed' | 'cancelled'
+
+export interface PermissionManifest {
+  readableNoteIds: string[]
+  allowAllNotesRead: boolean
+  readableLogSessionIds: string[]
+  writableDirs: string[]
+  allowBrainNotePropose: boolean
+  allowShell: boolean
+  allowNetwork: boolean
+  maxSteps: number
+  maxBudgetUsd: number
+}
+
+export interface HarnessRunRequest {
+  title: string
+  prompt: string
+  backendKind: BackendKind
+  backendId: string
+  modelOverride?: string
+  seedNoteId?: string
+  skillId?: string
+  attachedLogSessionIds: string[]
+  permissions: PermissionManifest
+}
+
+export interface Usage {
+  tokenIn: number
+  tokenOut: number
+  costUsd: number
+}
+
+export interface HarnessRun extends Usage {
+  id: string
+  title: string
+  backendKind: BackendKind
+  backendId: string
+  modelName: string
+  status: RunStatus
+  updatedAt: number
+}
+
+export interface StagedDiff {
+  id: string
+  runId: string
+  targetKind: 'workspace_file' | 'brain_note'
+  targetRef: string
+  baseSha256: string
+  proposedContent: string
+  unifiedDiff: string
+  rationale: string
+  status: 'pending' | 'accepted' | 'rejected'
+  createdAt: number
+}
+
+export type HarnessEvent = { runId: string } & (
+  | { kind: 'run_started'; prompt: string }
+  | { kind: 'context_activated'; wave: import('./brain').BrainActivationWave | null; attachedLogCount: number }
+  | { kind: 'token_delta'; delta: string }
+  | { kind: 'tool_call'; toolName: string; summary: string; allowed: boolean }
+  | { kind: 'diff_proposed'; diffId: string }
+  | ({ kind: 'run_status_changed'; status: RunStatus; error: string | null } & Usage)
+)
+
+export interface HarnessApi {
+  start(request: HarnessRunRequest): Promise<string>
+  cancel(runId: string): Promise<void>
+  list(): Promise<HarnessRun[]>
+  events(runId: string): Promise<HarnessEvent[]>
+  diffs(runId: string): Promise<StagedDiff[]>
+  resolve(diffId: string, accept: boolean): Promise<void>
+  onEvent(callback: (event: HarnessEvent) => void): () => void
+}

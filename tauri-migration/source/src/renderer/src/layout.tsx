@@ -6,14 +6,13 @@ import { NoteIndexNotice, useNoteIndex } from './note-index-status'
 import { useWorkbench } from './store'
 import { LibraryAndLogsView } from './views/library-and-logs-view'
 import { SettingsView } from './views/settings-view'
+import { WorkbenchView } from './views/workbench-view'
 import './styles/s10-shell.css'
 
 export function Layout({ hudRight, openAgentSettings }: { hudRight: ReactNode; openAgentSettings: () => void }) {
   const index = useNoteIndex()
   const active = useWorkbench(state => state.activeView)
   const navigate = useWorkbench(state => state.setActiveView)
-  const logs = useWorkbench(state => state.draftAttachedLogs)
-  const detach = useWorkbench(state => state.detachLogFromWorkbench)
   const [libraryTab, setLibraryTab] = useState<'notes' | 'logs'>('notes')
   usePaletteOwner('layout', {
     index: { state: index.state, error: index.error },
@@ -45,16 +44,7 @@ export function Layout({ hudRight, openAgentSettings }: { hudRight: ReactNode; o
       {!notesVisible && !logsVisible && <main className="s10-page">
         <div className="s10-controls">{hudRight}</div>
         {active === 'settings' && <SettingsView openAgentSettings={openAgentSettings}/>}
-        {active === 'workbench' && <section className="s10-content" aria-label="工作台">
-          <h1>工作台</h1>
-          <button type="button" onClick={() => navigate('brain')}>打开大脑</button>
-          <button type="button" onClick={() => navigate('settings')}>配置模型服务商</button>
-          {logs.length > 0 && <ul aria-label="已引用的本机会话">
-            {logs.map(log => <li key={log.id}>{log.title}
-              {' '}<button type="button" onClick={() => detach(log.id)}>移除引用</button>
-            </li>)}
-          </ul>}
-        </section>}
+        {active === 'workbench' && <WorkbenchView/>}
         {active === 'skills' && <section className="s10-content" aria-label="技能">
           <h1>技能</h1>
           <button type="button" onClick={() => navigate('brain')}>在大脑中管理技能</button>

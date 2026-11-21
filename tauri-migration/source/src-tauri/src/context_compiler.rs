@@ -203,3 +203,35 @@ mod tests {
         assert_eq!(edges, [("a".into(), "b".into()), ("b".into(), "c".into())]);
     }
 }
+
+pub fn compile_harness_seed(
+    store: &NoteStore, seed: &str, run_id: &str, permissions: &crate::harness::policy::PermissionManifest,
+) -> Result<Option<BrainContextPacket>, String> {
+    if !permissions.can_read_note(seed) { return Err("种子笔记未授权给本次任务".into()); }
+    let seed_note = store.read(seed)?;
+    let conn = store.conn.lock().unwrap();
+    let enabled: bool = conn.query_row("SELECT context_enabled FROM brain_settings WHERE singleton=1", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if !enabled { return Ok(None); }
+    let time = std::time::Instant::now();
+    let (ids, edges) = activate(&conn, seed, &seed_note.summary.project_id).map_err(|error| error.to_string())?;
+    drop(conn);
+    let ppr_elapsed_ms = time.elapsed().as_secs_f64() * 1000.0;
+    let mut sources = vec![json!({"note_id":seed,"title":seed_note.summary.title,"body":note_excerpt(&seed_note.content,16_000)})];
+    let mut activated = Vec::new();
+    for id in ids.into_iter().filter(|id| permissions.can_read_note(id)) {
+        if let Ok(note) = store.read(&id) {
+            sources.push(json!({"note_id":id,"title":note.summary.title,"excerpt":note_excerpt(&note.content,600)}));
+            activated.push(id);
+        }
+    }
+    let visible = |id: &String| id == seed || activated.contains(id);
+    let edge_pairs = edges.into_iter().filter(|(a,b)| visible(a) && visible(b)).collect();
+    Ok(Some(BrainContextPacket {
+        compiled_prompt: json!(sources).to_string(),
+        wave: BrainActivationWave {
+            seed_note_id: seed.into(), run_id: run_id.into(), activated_note_ids: activated,
+            activated_skill_ids: Vec::new(), edge_pairs, ppr_elapsed_ms,
+        },
+    }))
+}

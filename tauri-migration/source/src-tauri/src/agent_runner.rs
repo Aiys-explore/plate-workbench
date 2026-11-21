@@ -737,3 +737,39 @@ setInterval(()=>{},1000);
     }
 }
 
+#[cfg(windows)]
+pub async fn run_harness_cli(
+    route: crate::agent_plugins::Route, prompt: String, allow_network: bool, allow_shell: bool,
+    cancel: oneshot::Receiver<()>, mut output: impl FnMut(&str),
+) -> Result<String, String> {
+    use crate::harness::local_cli::Profile;
+    let executable = PathBuf::from(&route.executable);
+    if !executable.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
+        return Err("工作台的隔离模式需要独立 Windows EXE，请在 Agent 设置中选择原生程序".into());
+    }
+    let command = build_command(&route)?;
+    let args: Vec<_> = command.as_std().get_args().map(std::ffi::OsStr::to_owned).collect();
+    let profile = Profile::create().map_err(|error| format!("无法创建任务隔离环境：{error}"))?;
+    let command = profile.launcher(&executable, &args, allow_network, allow_shell)
+        .map_err(|error| format!("无法准备隔离 CLI：{error}"))?;
+    let mut previous = String::new();
+    let result = supervise(&profile.home, command, Some(prompt), cancel, RUN_TIMEOUT, |current| {
+        let append = current.strip_prefix(&previous).unwrap_or(current);
+        if !append.is_empty() { output(append); }
+        previous = current.to_string();
+    }).await?;
+    match result.outcome {
+        Outcome::Exit(Ok(status)) if status.success() => {
+            result.input.map_err(|_| "隔离 CLI 未完整读取任务输入")?;
+            let final_output = result.stdout.strip_prefix(&previous).unwrap_or_else(|| {
+                if previous.is_empty() { result.stdout.as_str() } else { "" }
+            });
+            if !final_output.is_empty() { output(final_output); }
+            Ok(result.stdout)
+        }
+        Outcome::Cancelled => Err("任务已取消".into()),
+        Outcome::Timeout => Err("隔离 CLI 执行超时".into()),
+        Outcome::Exit(Ok(status)) => Err(format!("隔离 CLI 执行失败（{status}）：{}", result.log.chars().take(900).collect::<String>())),
+        Outcome::Exit(Err(error)) => Err(format!("无法等待隔离 CLI：{error}")),
+    }
+}

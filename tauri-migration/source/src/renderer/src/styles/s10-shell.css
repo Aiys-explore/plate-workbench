@@ -131,3 +131,35 @@
 .s10-log-messages { list-style: none; padding: 0; }
 .s10-log-messages li { padding: 10px 0; border-bottom: 1px solid var(--color-border-decorative); }
 .s10-log-messages time { margin-inline-start: 1rem; color: var(--color-text-secondary); }
+
+.s10-workbench {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr) minmax(160px, 1.35fr);
+  min-height: calc(100% - 54px);
+}
+.s10-workbench > :is(aside, div) { padding: 14px; min-width: 0; }
+.s10-workbench > aside { background: var(--color-surface-bar); }
+.s10-workbench > aside:first-child { border-inline-end: 1px solid var(--color-border-decorative); }
+.s10-workbench > aside:last-child { border-inline-start: 1px solid var(--color-border-decorative); }
+.s10-workbench :is(h1, h2) { margin: 0 0 .8rem; font-size: var(--font-size-ui-title); }
+.s10-run-form { max-width: 740px; display: grid; gap: .7rem; }
+.s10-run-form label { display: grid; gap: 4px; }
+.s10-run-form details > label { margin-block: 6px; }
+.s10-run-form .s10-check { display: flex; align-items: center; }
+.s10-run-form :is(input:not([type=checkbox]), select, textarea) {
+  min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid var(--color-border-control);
+  border-radius: 5px; padding: 6px; color: inherit; background: var(--color-surface-editor); font: inherit;
+}
+.s10-workbench pre, .s10-user-message {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: 9px; border-radius: 6px; background: var(--color-surface-control);
+  max-height: 54vh; overflow: auto;
+}
+.s10-timeline pre { font: inherit; }
+.s10-context { color: var(--color-accent-text); }
+.s10-diff-panel summary { overflow-wrap: anywhere; margin-block: 6px; cursor: pointer; }
+@media (max-width: 1040px) {
+  .s10-workbench { grid-template-columns: minmax(115px, 1fr) minmax(0, 4fr); }
+  .s10-workbench > aside:last-child { grid-column: 2; border-top: 1px solid var(--color-border-decorative); }
+}
+@media (max-width: 620px) { .s10-workbench { display: block; } }

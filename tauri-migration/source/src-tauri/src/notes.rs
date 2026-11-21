@@ -340,6 +340,7 @@ impl NoteStore {
         store.ensure_project(DEFAULT_PROJECT, "默认")?;
         store.scan()?;
         crate::agent_runner::recover_interrupted(&store.conn.lock().unwrap())?;
+        crate::harness::engine::recover_interrupted(&store.conn.lock().unwrap())?;
         // A conflicting draft can leave an approved write queued for user retry.
         let _ = crate::memory_consolidator::flush_note_writes(&store);
         crate::vitality_engine::recalculate(&store.conn.lock().unwrap(), now_ms()).map_err(|e| e.to_string())?;

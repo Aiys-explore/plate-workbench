@@ -9,6 +9,7 @@ mod context_compiler;
 mod memory_consolidator;
 mod vitality_engine;
 mod graph_layout;
+mod harness;
 mod notes;
 mod provider_store;
 mod agent_log_harvester;
@@ -226,7 +227,8 @@ fn open_store(app: &AppHandle, state: &State<'_, AppState>, root: &Path, remembe
     let mut current = state.workspace.lock().unwrap();
     if let Some(workspace) = current.as_ref() {
         if workspace.store.root == root { return Ok(ready(root)); }
-        if app.state::<TaskEngine>().has_running(&workspace.store.root) {
+        if app.state::<TaskEngine>().has_running(&workspace.store.root)
+            || app.state::<harness::engine::HarnessState>().has_running() {
             return Err("请先结束当前工作区的运行任务，再切换工作区".into());
         }
     }
@@ -492,6 +494,8 @@ fn start_watcher(app: AppHandle, projects_dir: &Path, generation: uuid::Uuid) ->
 }
 
 fn main() {
+    #[cfg(windows)]
+    harness::local_cli::run_if_requested();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -513,6 +517,9 @@ fn main() {
             agent_log_harvester::agent_logs_scan, agent_log_harvester::agent_logs_list,
             agent_log_harvester::agent_logs_get_messages, agent_log_harvester::agent_logs_search,
             agent_log_harvester::agent_logs_send_to_hippocampus,
+            harness::engine::harness_start_run, harness::engine::harness_cancel_run,
+            harness::engine::harness_list_runs, harness::engine::harness_get_events,
+            harness::engine::staging_list_diffs, harness::engine::staging_resolve_diff,
             agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
             agent_plugins::agent_plugins_resolve, agent_plugins::agent_plugin_install,
             agent_plugins::agent_plugin_uninstall, agent_plugins::agent_plugin_update,
@@ -530,6 +537,7 @@ fn main() {
             memory_consolidator::recalculate_brain_vitality, memory_consolidator::trigger_dream_consolidation
         ])
         .manage(TaskEngine::new())
+        .manage(harness::engine::HarnessState::default())
         .run(tauri::generate_context!())
         .expect("Tauri 应用启动失败");
 }

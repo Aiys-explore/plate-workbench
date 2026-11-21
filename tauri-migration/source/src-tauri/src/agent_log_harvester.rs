@@ -709,3 +709,28 @@ mod tests {
         result
     }
 }
+
+pub fn search_authorized(
+    conn: &Connection,
+    query: &str,
+    ids: &[String],
+) -> Result<Vec<Value>, String> {
+    let query = format!("\"{}\"", index_text(query).replace('"', "\"\""));
+    let mut statement = conn.prepare(
+        "SELECT s.id,s.title,s.summary FROM external_agent_sessions s WHERE s.id=?1
+         AND s.id IN (SELECT session_id FROM external_agent_messages_fts WHERE external_agent_messages_fts MATCH ?2)"
+    ).map_err(db_error)?;
+    let mut results = Vec::new();
+    for id in ids {
+        let found = statement.query_row(params![id,query], |row| Ok(serde_json::json!({
+            "id":row.get::<_,String>(0)?, "title":row.get::<_,String>(1)?, "summary":row.get::<_,String>(2)?,
+        }))).optional().map_err(db_error)?;
+        if let Some(result) = found {
+            results.push(result);
+        }
+        if results.len() == 8 {
+            break;
+        }
+    }
+    Ok(results)
+}

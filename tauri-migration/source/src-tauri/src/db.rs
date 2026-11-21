@@ -207,5 +207,20 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
             tx.execute(&format!("ALTER TABLE external_agent_sessions ADD COLUMN {name} {definition}"), [])?;
         }
     }
+    for name in ["allow_shell", "allow_network"] {
+        // The M1 schema tests run without the earlier Brain migrations.
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='procedural_skills')", [],
+            |row| row.get(0),
+        )?;
+        if !exists { break; }
+        let field: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('procedural_skills') WHERE name=?1)",
+            [name], |row| row.get(0),
+        )?;
+        if !field {
+            tx.execute(&format!("ALTER TABLE procedural_skills ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"), [])?;
+        }
+    }
     tx.commit()
 }

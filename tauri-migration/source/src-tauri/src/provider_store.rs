@@ -404,3 +404,12 @@ mod tests {
         Ok(())
     }
 }
+pub fn normalized_endpoint(provider: &ProviderConfig) -> Result<String, String> {
+    normalize_url(provider.kind, &provider.base_url)
+}
+
+pub fn for_role(conn: &Connection, role: ModelRole) -> Result<Option<ProviderConfig>, String> {
+    Ok(list(conn)?
+        .into_iter()
+        .find(|provider| provider.enabled && provider.roles.contains(&role)))
+}
