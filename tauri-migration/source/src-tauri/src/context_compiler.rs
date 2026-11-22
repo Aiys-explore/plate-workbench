@@ -28,7 +28,8 @@ struct Visit {
     neighbors: Vec<String>,
 }
 
-fn activate(conn: &Connection, seed: &str, project: &str) -> rusqlite::Result<(Vec<String>, Vec<(String, String)>)> {
+fn activate(conn: &Connection, seed: &str, project: &str, allowed_space_ids: &[String],
+    permissions: Option<&crate::harness::policy::PermissionManifest>) -> rusqlite::Result<(Vec<String>, Vec<(String, String)>)> {
     const MAX_NODES: usize = 512;
     const MAX_HOPS: u8 = 2;
     let mut visited = BTreeMap::from([(seed.to_string(), Visit {
@@ -36,7 +37,7 @@ fn activate(conn: &Connection, seed: &str, project: &str) -> rusqlite::Result<(V
     })]);
     let mut queue = VecDeque::from([seed.to_string()]);
     let mut stmt = conn.prepare(
-        "SELECT n.id, n.vitality_score, n.is_dormant FROM (
+        "SELECT n.id, n.vitality_score, n.is_dormant, n.space_id FROM (
             SELECT target_note_id AS id FROM note_link WHERE source_note_id=?1
             UNION SELECT source_note_id FROM note_link WHERE target_note_id=?1
         ) AS link JOIN note n ON n.id=link.id
@@ -49,6 +50,8 @@ fn activate(conn: &Connection, seed: &str, project: &str) -> rusqlite::Result<(V
         let mut rows = stmt.query(params![id, project])?;
         while let Some(row) = rows.next()? {
             let next: String = row.get(0)?;
+            let space: String = row.get(3)?;
+            if !allowed_space_ids.contains(&space) || permissions.is_some_and(|p| !p.can_read_note(&next)) { continue; }
             if !visited.contains_key(&next) && distance < MAX_HOPS && visited.len() < MAX_NODES {
                 let dormant: bool = row.get(2)?;
                 if !dormant || distance == 0 {
@@ -123,7 +126,8 @@ pub fn compile(store: &NoteStore, seed: &str, run_id: &str, agent_id: &str, inst
         let conn = store.conn.lock().unwrap();
         let project = &seed_note.summary.project_id;
         let ppr_start = std::time::Instant::now();
-        let (ids, edges) = activate(&conn, seed, project)?;
+        let spaces = vec![conn.query_row("SELECT space_id FROM note WHERE id=?1", [seed], |row| row.get(0))?];
+        let (ids, edges) = activate(&conn, seed, project, &spaces, None)?;
         let ppr_elapsed_ms = ppr_start.elapsed().as_secs_f64() * 1000.0;
         let mut facts = BTreeMap::<String, Vec<serde_json::Value>>::new();
         let mut assertions = conn.prepare(
@@ -139,13 +143,14 @@ pub fn compile(store: &NoteStore, seed: &str, run_id: &str, agent_id: &str, inst
             facts.insert(id, rows.collect::<rusqlite::Result<_>>()?);
         }
         let mut episodic = conn.prepare("SELECT raw_text FROM episodic_events WHERE project_id=?1
-            AND archived_at IS NULL ORDER BY created_at DESC,id LIMIT 3")?;
-        let rows = episodic.query_map([project], |r| Ok(excerpt(&r.get::<_, String>(0)?, 600)))?;
+            AND archived_at IS NULL AND space_id=?2 ORDER BY created_at DESC,id LIMIT 3")?;
+        let rows = episodic.query_map(params![project,spaces[0]], |r| Ok(excerpt(&r.get::<_, String>(0)?, 600)))?;
         let events = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let mut tags = conn.prepare("SELECT tag FROM note_tag WHERE note_id=?1")?;
         let rows = tags.query_map([seed], |r| Ok(r.get::<_, String>(0)?.to_lowercase()))?;
         let tags = rows.collect::<rusqlite::Result<BTreeSet<_>>>()?;
         let mut skills: Vec<_> = memory_consolidator::skills(&conn)?.into_iter().filter_map(|skill| {
+            if !spaces.contains(&skill.space_id) { return None; }
             let overlap = skill.tags.iter().filter(|tag| tags.contains(*tag)).count();
             let preferred = skill.preferred_agent_id.as_deref() == Some(agent_id);
             (overlap > 0 || (skill.tags.is_empty() && preferred)).then_some((overlap + usize::from(preferred), skill))
@@ -193,12 +198,13 @@ mod tests {
     #[test]
     fn graph_activation_obeys_project_hops_and_dormancy() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE note(id TEXT, project_id TEXT, vitality_score REAL, is_dormant INTEGER, memory_zone TEXT);
+        conn.execute_batch("CREATE TABLE note(id TEXT, project_id TEXT, vitality_score REAL, is_dormant INTEGER, memory_zone TEXT,space_id TEXT DEFAULT 'work');
             CREATE TABLE note_link(source_note_id TEXT,target_note_id TEXT);
-            INSERT INTO note VALUES ('a','p',1,0,'semantic'),('b','p',1,1,'semantic'),
-            ('c','p',1,0,'semantic'),('d','p',1,1,'semantic'),('e','q',1,0,'semantic'),('f','p',1,0,'semantic');
-            INSERT INTO note_link VALUES ('b','a'),('b','c'),('b','d'),('a','e'),('c','f');").unwrap();
-        let (ids, edges) = activate(&conn, "a", "p").unwrap();
+            INSERT INTO note(id,project_id,vitality_score,is_dormant,memory_zone) VALUES ('a','p',1,0,'semantic'),('b','p',1,1,'semantic'),
+            ('c','p',1,0,'semantic'),('d','p',1,1,'semantic'),('e','q',1,0,'semantic'),('f','p',1,0,'semantic'),('private','p',1,0,'semantic');
+            UPDATE note SET space_id='personal' WHERE id='private';
+            INSERT INTO note_link VALUES ('b','a'),('b','c'),('b','d'),('a','e'),('c','f'),('a','private');").unwrap();
+        let (ids, edges) = activate(&conn, "a", "p", &["work".into()], None).unwrap();
         assert_eq!(ids, ["b", "c"]);
         assert_eq!(edges, [("a".into(), "b".into()), ("b".into(), "c".into())]);
     }
@@ -206,15 +212,21 @@ mod tests {
 
 pub fn compile_harness_seed(
     store: &NoteStore, seed: &str, run_id: &str, permissions: &crate::harness::policy::PermissionManifest,
+    allowed_space_ids: &[String],
 ) -> Result<Option<BrainContextPacket>, String> {
     if !permissions.can_read_note(seed) { return Err("种子笔记未授权给本次任务".into()); }
+    {
+        let conn = store.conn.lock().unwrap();
+        let space = crate::brain_spaces::note_space(&conn, seed)?;
+        if !allowed_space_ids.contains(&space) { return Err("种子笔记不在任务脑区范围内".into()); }
+    }
     let seed_note = store.read(seed)?;
     let conn = store.conn.lock().unwrap();
     let enabled: bool = conn.query_row("SELECT context_enabled FROM brain_settings WHERE singleton=1", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
     if !enabled { return Ok(None); }
     let time = std::time::Instant::now();
-    let (ids, edges) = activate(&conn, seed, &seed_note.summary.project_id).map_err(|error| error.to_string())?;
+    let (ids, edges) = activate(&conn, seed, &seed_note.summary.project_id, allowed_space_ids, Some(permissions)).map_err(|error| error.to_string())?;
     drop(conn);
     let ppr_elapsed_ms = time.elapsed().as_secs_f64() * 1000.0;
     let mut sources = vec![json!({"note_id":seed,"title":seed_note.summary.title,"body":note_excerpt(&seed_note.content,16_000)})];

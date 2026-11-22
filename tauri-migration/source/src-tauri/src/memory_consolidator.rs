@@ -1,3 +1,4 @@
+use crate::brain_spaces;
 use crate::notes::{now_ms, Note, NoteStore, SaveResult};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub struct Skill {
     pub success_count: i64,
     pub allow_shell: bool,
     pub allow_network: bool,
+    pub space_id: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -45,21 +47,21 @@ fn save_skill(conn: &Connection, input: &SkillInput, agent: Option<&str>) -> Res
     let (title,tags,prompt)=skill_fields(input)?;
     let slug = title.to_lowercase();
     conn.query_row(
-        "INSERT INTO procedural_skills(id,slug,title,trigger_tags_json,preferred_agent_id,system_prompt,created_at,updated_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?7) ON CONFLICT(slug) DO NOTHING RETURNING id",
+        "INSERT INTO procedural_skills(id,slug,title,trigger_tags_json,preferred_agent_id,system_prompt,created_at,updated_at,space_id)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,'work') ON CONFLICT(slug) DO NOTHING RETURNING id",
         params![id(), slug, title, tags, agent, prompt, now_ms()],
         |row| row.get(0),
     ).optional().map_err(err)?.ok_or_else(|| "已有同名技能，请使用其他名称".to_string())
 }
 
 pub fn skills(conn: &Connection) -> rusqlite::Result<Vec<Skill>> {
-    let mut stmt = conn.prepare("SELECT id,title,trigger_tags_json,preferred_agent_id,system_prompt,usage_count,success_count,allow_shell,allow_network
+    let mut stmt = conn.prepare("SELECT id,title,trigger_tags_json,preferred_agent_id,system_prompt,usage_count,success_count,allow_shell,allow_network,space_id
         FROM procedural_skills ORDER BY updated_at DESC,id")?;
     let rows = stmt.query_map([], |r| {
         let raw: String = r.get(2)?;
         let tags = serde_json::from_str(&raw).map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?;
         Ok(Skill { id: r.get(0)?, title: r.get(1)?, tags, preferred_agent_id: r.get(3)?,
-            system_prompt: r.get(4)?, usage_count: r.get(5)?, success_count: r.get(6)?, allow_shell: r.get(7)?, allow_network: r.get(8)? })
+            system_prompt: r.get(4)?, usage_count: r.get(5)?, success_count: r.get(6)?, allow_shell: r.get(7)?, allow_network: r.get(8)?, space_id: r.get(9)? })
     })?;
     rows.collect()
 }
@@ -131,34 +133,49 @@ pub struct EpisodicEvent {
     pub raw_text: String,
     pub source_type: String,
     pub salience_score: f64,
+    pub space_id: String,
+    pub review_status: String,
+    pub source_run_id: Option<String>,
     pub created_at: i64,
 }
 
-fn episodic(conn: &Connection, project: Option<&str>, dream: bool) -> rusqlite::Result<Vec<EpisodicEvent>> {
+fn episodic(conn: &Connection, project: Option<&str>, space: &str, dream: bool) -> rusqlite::Result<Vec<EpisodicEvent>> {
     let order = if dream { "salience_score DESC,created_at ASC,id" } else { "created_at DESC,id" };
-    let mut stmt = conn.prepare(&format!("SELECT id,project_id,raw_text,source_type,salience_score,created_at
-        FROM episodic_events WHERE archived_at IS NULL AND (?1 IS NULL OR project_id=?1) ORDER BY {order} LIMIT 150"))?;
-    let rows = stmt.query_map([project], |r| Ok(EpisodicEvent {
+    let mut stmt = conn.prepare(&format!("SELECT id,project_id,raw_text,source_type,salience_score,created_at,space_id,review_status,source_run_id
+        FROM episodic_events WHERE archived_at IS NULL AND (?1 IS NULL OR project_id=?1) AND space_id=?2 ORDER BY {order} LIMIT 150"))?;
+    let rows = stmt.query_map(params![project,space], |r| Ok(EpisodicEvent {
         id: r.get(0)?, project_id: r.get(1)?, raw_text: r.get(2)?, source_type: r.get(3)?,
-        salience_score: r.get(4)?, created_at: r.get(5)?,
+        salience_score: r.get(4)?, created_at: r.get(5)?, space_id: r.get(6)?, review_status: r.get(7)?, source_run_id: r.get(8)?,
     }))?;
     rows.collect()
 }
 
 pub(crate) fn capture(conn: &Connection, project: &str, raw: &str, source: &str) -> Result<String, String> {
+    capture_scoped(conn, project, raw, source, "learning", None)
+}
+
+pub(crate) fn capture_scoped(conn: &Connection, project: &str, raw: &str, source: &str, space: &str,
+    run: Option<&str>) -> Result<String, String> {
     let raw = raw.trim();
     if raw.is_empty() || raw.len() > 24_000 || raw.contains('\0') { return Err("请输入 1–24 KB 的闪念内容".into()); }
     if !matches!(source, "capture" | "web_clip" | "agent_trace" | "task_intent") {
         return Err("闪念来源类型无效".into());
     }
     let id = id();
+    require_space(conn, space)?;
     let inserted = conn.execute(
-        "INSERT INTO episodic_events(id,project_id,raw_text,source_type,created_at)
-         SELECT ?1,id,?3,?4,?5 FROM project WHERE id=?2 AND archived_at IS NULL",
-        params![id, project, raw, source, now_ms()],
+        "INSERT INTO episodic_events(id,project_id,raw_text,source_type,created_at,space_id,source_run_id)
+         SELECT ?1,id,?3,?4,?5,?6,?7 FROM project WHERE id=?2 AND archived_at IS NULL",
+        params![id, project, raw, source, now_ms(), space, run],
     ).map_err(err)?;
     if inserted == 0 { return Err("请选择有效的未归档项目".into()); }
     Ok(id)
+}
+
+pub(crate) fn require_space(conn: &Connection, id: &str) -> Result<(), String> {
+    let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM brain_spaces WHERE id=?1)", [id], |r| r.get(0))
+        .map_err(err)?;
+    if exists { Ok(()) } else { Err("找不到脑区".into()) }
 }
 
 struct NoteWrite {
@@ -168,15 +185,16 @@ struct NoteWrite {
     title: Option<String>,
     appendix: String,
     events: String,
+    space: String,
 }
 
 pub fn flush_note_writes(store: &NoteStore) -> Result<Vec<Note>, String> {
     let writes = {
         let conn = store.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id,note_id,project_id,title,appendix,episodic_ids_json
+        let mut stmt = conn.prepare("SELECT id,note_id,project_id,title,appendix,episodic_ids_json,space_id
             FROM brain_note_writes ORDER BY created_at,id").map_err(err)?;
         let rows = stmt.query_map([], |r| Ok(NoteWrite {
-            id: r.get(0)?, note_id: r.get(1)?, project_id: r.get(2)?, title: r.get(3)?, appendix: r.get(4)?, events: r.get(5)?,
+            id: r.get(0)?, note_id: r.get(1)?, project_id: r.get(2)?, title: r.get(3)?, appendix: r.get(4)?, events: r.get(5)?, space: r.get(6)?,
         })).map_err(err)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?
     };
@@ -200,9 +218,12 @@ pub fn flush_note_writes(store: &NoteStore) -> Result<Vec<Note>, String> {
         };
         let conn = store.conn.lock().unwrap();
         let tx = conn.unchecked_transaction().map_err(err)?;
+        if write.title.is_some() {
+            tx.execute("UPDATE note SET space_id=?2 WHERE id=?1", params![write.note_id,write.space]).map_err(err)?;
+        }
         let event_ids: Vec<String> = serde_json::from_str(&write.events).map_err(err)?;
         for event in event_ids {
-            tx.execute("UPDATE episodic_events SET consolidated_note_id=?2,archived_at=?3 WHERE id=?1",
+            tx.execute("UPDATE episodic_events SET consolidated_note_id=?2,archived_at=?3,review_status='promoted' WHERE id=?1",
                 params![event, write.note_id, now_ms()]).map_err(err)?;
         }
         tx.execute("DELETE FROM brain_note_writes WHERE id=?1", [&write.id]).map_err(err)?;
@@ -213,7 +234,7 @@ pub fn flush_note_writes(store: &NoteStore) -> Result<Vec<Note>, String> {
 }
 
 fn consolidate(store: &NoteStore, event_ids: Vec<String>, target: Option<String>, title: &str,
-    synthesis: Option<&str>) -> Result<String, String> {
+    synthesis: Option<&str>, requested_space: Option<&str>) -> Result<String, String> {
     let synthesis = synthesis.map(str::trim).filter(|text| !text.is_empty());
     if synthesis.is_some_and(|text| text.len() > 24_000 || text.contains('\0')) {
         return Err("模型整理正文超过允许的长度或含无效字符".into());
@@ -233,9 +254,9 @@ fn consolidate(store: &NoteStore, event_ids: Vec<String>, target: Option<String>
         let tx = conn.unchecked_transaction().map_err(err)?;
         let mut rows = Vec::new();
         for event in &event_ids {
-            let row = tx.query_row("SELECT e.project_id,e.raw_text,e.created_at FROM episodic_events e JOIN project p
+            let row = tx.query_row("SELECT e.project_id,e.raw_text,e.created_at,e.space_id FROM episodic_events e JOIN project p
                 ON p.id=e.project_id WHERE e.id=?1 AND e.archived_at IS NULL AND p.archived_at IS NULL", [event],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?)))
                 .optional().map_err(err)?.ok_or("闪念不存在、已固化或项目已归档")?;
             rows.push(row);
         }
@@ -243,16 +264,24 @@ fn consolidate(store: &NoteStore, event_ids: Vec<String>, target: Option<String>
         if rows.iter().any(|row| &row.0 != project) || target.as_ref().is_some_and(|n| n.summary.project_id != *project) {
             return Err("请在同一项目内固化闪念".into());
         }
+        let space = rows[0].3.clone();
+        if rows.iter().any(|row| row.3 != space) || target.as_ref().is_some_and(|_| {
+            brain_spaces::note_space(&tx, &note_id).as_deref() != Ok(space.as_str())
+        }) {
+            return Err("请在同一脑区内固化闪念".into());
+        }
+        let space = requested_space.unwrap_or(&space);
+        require_space(&tx, space)?;
         let project = project.clone();
         rows.sort_by_key(|row| row.2);
-        let text = rows.into_iter().map(|(_, text, _)| text.lines().map(|line| format!("> {line}"))
+        let text = rows.into_iter().map(|(_, text, _, _)| text.lines().map(|line| format!("> {line}"))
             .collect::<Vec<_>>().join("\n")).collect::<Vec<_>>().join("\n\n");
         let appendix = if let Some(summary) = synthesis {
             format!("## 做梦整理\n\n{summary}\n\n### 闪念原文\n\n{text}")
         } else { format!("## 固化闪念\n\n{text}") };
-        tx.execute("INSERT INTO brain_note_writes(id,note_id,project_id,title,appendix,episodic_ids_json,created_at)
-            VALUES (?1,?2,?3,?4,?5,?6,?7)", params![id(),note_id,project,target.is_none().then_some(title.trim()),
-                appendix,serde_json::to_string(&event_ids).map_err(err)?,now_ms()]).map_err(err)?;
+        tx.execute("INSERT INTO brain_note_writes(id,note_id,project_id,title,appendix,episodic_ids_json,created_at,space_id)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![id(),note_id,project,target.is_none().then_some(title.trim()),
+                appendix,serde_json::to_string(&event_ids).map_err(err)?,now_ms(),space]).map_err(err)?;
         tx.commit().map_err(err)?;
     }
     flush_note_writes(store)?;
@@ -273,7 +302,11 @@ fn apply(store: &NoteStore, run_id: &str) -> Result<(), String> {
     let (_, proposal) = parse_delta_from_output(&raw).ok_or("此回执没有可用的记忆提案")?;
     let seed_note = store.read(&seed)?;
     let project = &seed_note.summary.project_id;
+    let seed_space = brain_spaces::note_space(&store.conn.lock().unwrap(), &seed)?;
     let get_note = |id: &str| -> Result<Note, String> {
+        if brain_spaces::note_space(&store.conn.lock().unwrap(), id)? != seed_space {
+            return Err("记忆提案不能修改其他脑区".into());
+        }
         let note = store.read(id)?;
         if note.summary.project_id != *project { return Err("记忆提案的目标必须和任务属于同一项目".into()); }
         Ok(note)
@@ -337,7 +370,10 @@ fn apply(store: &NoteStore, run_id: &str) -> Result<(), String> {
             tx.execute("INSERT INTO brain_note_writes(id,note_id,project_id,appendix,source_run_id,created_at)
                 VALUES (?1,?2,?3,?4,?5,?6)", params![id(),note_id,project,lines.join("\n\n"),run_id,now]).map_err(err)?;
         }
-        if let Some(skill) = &proposal.suggested_skill { save_skill(&tx, skill, Some(&agent))?; }
+        if let Some(skill) = &proposal.suggested_skill {
+            let skill = save_skill(&tx, skill, Some(&agent))?;
+            tx.execute("UPDATE procedural_skills SET space_id=?2 WHERE id=?1", params![skill,seed_space]).map_err(err)?;
+        }
         tx.execute("INSERT INTO brain_applied_runs(run_id,applied_at) VALUES (?1,?2)", params![run_id,now]).map_err(err)?;
         tx.commit().map_err(err)?;
     }
@@ -366,7 +402,7 @@ fn history(conn: &Connection, note_id: &str) -> rusqlite::Result<Value> {
 use crate::{with_store, AppState};
 use tauri::{AppHandle, Emitter, State};
 
-fn changed(app: &AppHandle) { let _ = app.emit("brain://changed", ()); }
+pub(crate) fn changed(app: &AppHandle) { let _ = app.emit("brain://changed", ()); }
 
 #[tauri::command]
 pub fn brain_status(state: State<'_, AppState>) -> Result<Value, String> {
@@ -392,9 +428,9 @@ pub fn set_brain_context(app: AppHandle, state: State<'_, AppState>, enabled: bo
 pub fn brain_note_metadata(state: State<'_, AppState>) -> Result<BTreeMap<String, Value>, String> {
     with_store(&state, |store| {
         let conn = store.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id,memory_zone,vitality_score,is_dormant,evolution_version FROM note").map_err(err)?;
+        let mut stmt = conn.prepare("SELECT id,memory_zone,vitality_score,is_dormant,evolution_version,space_id FROM note").map_err(err)?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?,json!({
-            "zone":r.get::<_, String>(1)?,"vitality":r.get::<_, f64>(2)?,"dormant":r.get::<_, bool>(3)?,"version":r.get::<_, i64>(4)?,
+            "zone":r.get::<_, String>(1)?,"vitality":r.get::<_, f64>(2)?,"dormant":r.get::<_, bool>(3)?,"version":r.get::<_, i64>(4)?,"spaceId":r.get::<_, String>(5)?,
         })))).map_err(err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(err)
     })
@@ -402,23 +438,69 @@ pub fn brain_note_metadata(state: State<'_, AppState>) -> Result<BTreeMap<String
 
 #[tauri::command]
 pub fn capture_episodic_event(app: AppHandle, state: State<'_, AppState>, project_id: String, raw_text: String,
-    source_type: Option<String>) -> Result<String, String> {
-    let id = with_store(&state, |store| capture(&store.conn.lock().unwrap(), &project_id, &raw_text, source_type.as_deref().unwrap_or("capture")))?;
+    source_type: Option<String>, space_id: Option<String>) -> Result<String, String> {
+    let id = with_store(&state, |store| capture_scoped(&store.conn.lock().unwrap(), &project_id, &raw_text,
+        source_type.as_deref().unwrap_or("capture"),space_id.as_deref().unwrap_or("learning"),None))?;
     changed(&app);
     Ok(id)
 }
 
 #[tauri::command]
-pub fn list_episodic_events(state: State<'_, AppState>, project_id: Option<String>) -> Result<Vec<EpisodicEvent>, String> {
-    with_store(&state, |store| episodic(&store.conn.lock().unwrap(), project_id.as_deref(), false).map_err(err))
+pub fn list_episodic_events(state: State<'_, AppState>, project_id: Option<String>, space_id: Option<String>) -> Result<Vec<EpisodicEvent>, String> {
+    with_store(&state, |store| episodic(&store.conn.lock().unwrap(), project_id.as_deref(), space_id.as_deref().unwrap_or("learning"), false).map_err(err))
 }
 
 #[tauri::command]
 pub fn consolidate_episodic_to_note(app: AppHandle, state: State<'_, AppState>, event_ids: Vec<String>,
     target_note_id: Option<String>, title: String, synthesis: Option<String>) -> Result<String, String> {
-    let result = with_store(&state, |store| consolidate(store, event_ids, target_note_id, &title, synthesis.as_deref()));
+    let result = with_store(&state, |store| consolidate(store, event_ids, target_note_id, &title, synthesis.as_deref(), None));
     changed(&app);
     result
+}
+
+#[tauri::command]
+pub fn episodic_update_candidate(app: AppHandle, state: State<'_, AppState>, id: String,
+    new_content: String, space_id: String) -> Result<(), String> {
+    let text = new_content.trim();
+    if text.is_empty() || text.len() > 24_000 || text.contains('\0') { return Err("请输入 1–24 KB 的闪念内容".into()); }
+    let count = with_store(&state, |store| {
+        let conn = store.conn.lock().unwrap();
+        require_space(&conn, &space_id)?;
+        conn.execute("UPDATE episodic_events SET raw_text=?2,space_id=?3,review_status='edited'
+            WHERE id=?1 AND archived_at IS NULL AND review_status IN ('candidate','edited')",
+            params![id,text,space_id]).map_err(err)
+    })?;
+    if count == 0 { return Err("候选记忆已处理或不存在".into()); }
+    changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn episodic_promote_to_note(app: AppHandle, state: State<'_, AppState>, id: String,
+    target_space_id: String) -> Result<String, String> {
+    let note = with_store(&state, |store| {
+        flush_note_writes(store)?;
+        let text: String = store.conn.lock().unwrap().query_row(
+            "SELECT raw_text FROM episodic_events WHERE id=?1 AND archived_at IS NULL", [&id], |row| row.get(0),
+        ).optional().map_err(err)?.ok_or("候选记忆已处理或不存在")?;
+        let title: String = text.lines().next().unwrap_or_default().chars().filter(|ch| !ch.is_control()).take(60).collect();
+        consolidate(store, vec![id], None, if title.trim().is_empty() { "记忆" } else { &title },
+            None, Some(&target_space_id))
+    })?;
+    changed(&app);
+    Ok(note)
+}
+
+#[tauri::command]
+pub fn episodic_discard(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let count = with_store(&state, |store| {
+        flush_note_writes(store)?;
+        store.conn.lock().unwrap().execute("UPDATE episodic_events SET review_status='discarded',archived_at=?2
+            WHERE id=?1 AND archived_at IS NULL AND review_status IN ('candidate','edited')",params![id,now_ms()]).map_err(err)
+    })?;
+    if count == 0 { return Err("候选记忆已处理或不存在".into()); }
+    changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -454,11 +536,11 @@ pub fn recalculate_brain_vitality(app: AppHandle, state: State<'_, AppState>) ->
 }
 
 #[tauri::command]
-pub fn trigger_dream_consolidation(app: AppHandle, state: State<'_, AppState>, project_id: Option<String>)
+pub fn trigger_dream_consolidation(app: AppHandle, state: State<'_, AppState>, project_id: Option<String>, space_id: Option<String>)
     -> Result<Vec<EpisodicEvent>, String> {
     let result = with_store(&state, |store| {
         flush_note_writes(store)?;
-        episodic(&store.conn.lock().unwrap(), project_id.as_deref(), true).map_err(err)
+        episodic(&store.conn.lock().unwrap(), project_id.as_deref(), space_id.as_deref().unwrap_or("learning"), true).map_err(err)
     });
     changed(&app);
     result
@@ -533,14 +615,14 @@ pub async fn dream_model_suggestion(
         let mut entries = Vec::new();
         for id in &selected {
             let entry = conn.query_row(
-                "SELECT e.project_id,e.raw_text FROM episodic_events e JOIN project p ON p.id=e.project_id
+                "SELECT e.project_id,e.raw_text,e.space_id FROM episodic_events e JOIN project p ON p.id=e.project_id
                  WHERE e.id=?1 AND e.archived_at IS NULL AND p.archived_at IS NULL", [id],
-                |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?)),
+                |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?)),
             ).optional().map_err(err)?.ok_or("所选闪念不存在或已固化")?;
             entries.push(entry);
         }
-        if entries.iter().any(|entry| entry.0 != entries[0].0) { return Err("模型整理一次只处理一个分区".into()); }
-        let excerpts = entries.into_iter().map(|(_,text)| text.chars().take(1000).collect::<String>()).collect::<Vec<_>>();
+        if entries.iter().any(|entry| entry.0 != entries[0].0 || entry.2 != entries[0].2) { return Err("模型整理一次只处理一个分区".into()); }
+        let excerpts = entries.into_iter().map(|(_,text,_)| text.chars().take(1000).collect::<String>()).collect::<Vec<_>>();
         Ok((provider,key,excerpts))
     })?;
     use crate::harness::llm_provider::{self, Turn};
@@ -588,4 +670,29 @@ pub fn save_workbench_skill(
     })?;
     changed(&app);
     Ok(result)
+}
+
+#[cfg(test)]
+mod s11_tests {
+    use super::*;
+
+    #[test]
+    fn edited_candidate_promotes_once_in_selected_space() -> Result<(), String> {
+        let root = std::env::temp_dir().join(format!("plate-s11-m1-{}", id()));
+        let result = (|| {
+            let store = NoteStore::new(&root)?;
+            let candidate = capture_scoped(&store.conn.lock().unwrap(), "default", "before", "capture", "learning", None)?;
+            store.conn.lock().unwrap().execute(
+                "UPDATE episodic_events SET raw_text='edited text',space_id='work',review_status='edited' WHERE id=?1",
+                [&candidate],
+            ).map_err(err)?;
+            let note = consolidate(&store, vec![candidate.clone()], None, "Edited", None, Some("work"))?;
+            assert!(store.read(&note)?.content.contains("edited text"));
+            assert_eq!(brain_spaces::note_space(&store.conn.lock().unwrap(), &note)?, "work");
+            assert!(consolidate(&store, vec![candidate], None, "Again", None, Some("work")).is_err());
+            Ok(())
+        })();
+        std::fs::remove_dir_all(root).map_err(err)?;
+        result
+    }
 }

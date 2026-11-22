@@ -82,6 +82,7 @@ pub fn open(root: &std::path::Path) -> Result<Connection, String> {
     }
     migrate_brain(&conn).map_err(|error| format!("初始化 Brain schema 失败：{error}"))?;
     migrate_s10(&conn).map_err(|error| format!("初始化 S10 schema 失败：{error}"))?;
+    migrate_s11(&conn).map_err(|error| format!("初始化 S11 schema 失败：{error}"))?;
     Ok(conn)
 }
 
@@ -233,4 +234,77 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
         if !exists { tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?; }
     }
     tx.commit()
+}
+
+pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch("
+        CREATE TABLE IF NOT EXISTS brain_spaces (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '', isolated INTEGER NOT NULL DEFAULT 0,
+          allow_export INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL
+        ) STRICT;
+    ")?;
+    for (id, name, isolated) in [("work", "工作", false), ("learning", "学习", false), ("personal", "个人", true)] {
+        tx.execute("INSERT OR IGNORE INTO brain_spaces(id,name,kind,isolated,allow_export,created_at)
+            VALUES(?1,?2,?1,?3,NOT ?3,?4)", rusqlite::params![id,name,isolated,crate::notes::now_ms()])?;
+    }
+    for (table, column, definition) in [
+        ("note", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
+        ("episodic_events", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
+        ("episodic_events", "review_status", "TEXT NOT NULL DEFAULT 'candidate'"),
+        ("episodic_events", "source_run_id", "TEXT"),
+        ("procedural_skills", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
+        ("brain_note_writes", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
+        ("harness_runs", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
+        ("staged_diffs", "execution_mode", "TEXT NOT NULL DEFAULT 'shadow'"),
+    ] {
+        let exists: bool = tx.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?1)"),
+            [column], |row| row.get(0),
+        )?;
+        if !exists {
+            tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
+            if column == "review_status" {
+                tx.execute("UPDATE episodic_events SET review_status='promoted' WHERE consolidated_note_id IS NOT NULL", [])?;
+            }
+        }
+    }
+    tx.execute_batch("
+        CREATE INDEX IF NOT EXISTS idx_note_space ON note(space_id,updated_at);
+        CREATE INDEX IF NOT EXISTS idx_episodic_space ON episodic_events(space_id,archived_at,created_at);
+    ")?;
+    tx.commit()
+}
+
+#[cfg(test)]
+mod s11_tests {
+    use super::*;
+
+    #[test]
+    fn s10_rows_survive_repeated_s11_migration() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE project(id TEXT PRIMARY KEY);
+            CREATE TABLE note(id TEXT PRIMARY KEY, updated_at INTEGER);
+            INSERT INTO project VALUES('default');
+            INSERT INTO note VALUES('legacy',123);").unwrap();
+        migrate_brain(&conn).unwrap();
+        migrate_s10(&conn).unwrap();
+        conn.execute("INSERT INTO episodic_events(id,project_id,raw_text,created_at)
+            VALUES('e','default','legacy memory',123)", []).unwrap();
+        conn.execute("INSERT INTO procedural_skills(id,slug,title,system_prompt,created_at,updated_at)
+            VALUES('s','s','legacy skill','prompt',123,123)", []).unwrap();
+        migrate_s11(&conn).unwrap();
+        migrate_s11(&conn).unwrap();
+        let legacy: (String, String, String, String, String) = conn.query_row(
+            "SELECT n.space_id,e.space_id,e.raw_text,s.space_id,s.system_prompt
+            FROM note n CROSS JOIN episodic_events e CROSS JOIN procedural_skills s",
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)),
+        ).unwrap();
+        assert_eq!(legacy, ("learning".into(),"learning".into(),"legacy memory".into(),"learning".into(),"prompt".into()));
+        let policy = crate::brain_spaces::SpaceScopePolicy {
+            target_space_id:"work".into(), readable_space_ids:vec!["learning".into(),"personal".into()],
+        };
+        assert_eq!(policy.allowed(&conn).unwrap(), ["work","learning"]);
+    }
 }

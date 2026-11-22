@@ -204,7 +204,7 @@ export interface TasksApi {
 
 export interface NotesApi {
   index: NoteIndexApi
-  create(title: string, projectId: string, template?: NoteTemplate): Promise<Note>
+  create(title: string, projectId: string, template?: NoteTemplate, spaceId?: string): Promise<Note>
   projects(): Promise<ProjectSummary[]>
   createProject(name: string): Promise<ProjectSummary>
   read(id: string, touch?: boolean): Promise<Note>

@@ -1,6 +1,6 @@
 use super::{llm_provider as llm, policy::PermissionManifest, staging};
 use crate::{
-    agent_log_harvester, context_compiler,
+    agent_log_harvester, brain_spaces::{self, SpaceScopePolicy}, context_compiler,
     notes::{now_ms, NoteFilters, NoteStore},
     provider_store, with_store, AppState,
 };
@@ -44,6 +44,8 @@ pub struct RunRequest {
     skill_id: Option<String>,
     attached_log_session_ids: Vec<String>,
     permissions: PermissionManifest,
+    #[serde(default)]
+    space_scope: SpaceScopePolicy,
 }
 
 #[derive(Default, Clone, Copy, Serialize)]
@@ -142,6 +144,7 @@ struct Task {
     permissions: PermissionManifest,
     wave: Option<context_compiler::BrainActivationWave>,
     log_count: usize,
+    scope: SpaceScopePolicy,
 }
 
 fn record(conn: &Connection, event: &HarnessEvent<'_>) -> Result<(), String> {
@@ -240,19 +243,21 @@ fn load_context(
     id: &str,
 ) -> Result<(String, Option<context_compiler::BrainActivationWave>, usize), String> {
     let mut selected_skill = None;
-    let (log_block, log_count);
+    let (log_block, log_count, spaces);
     {
         let conn = store.conn.lock().unwrap();
+        spaces = request.space_scope.allowed(&conn)?;
         (log_block, log_count) = context_compiler::compile_harness_logs(
             &conn,
             &request.attached_log_session_ids,
             &request.permissions,
         )?;
         if let Some(skill_id) = &request.skill_id {
-            let (prompt, shell, network) = conn.query_row(
-                "SELECT system_prompt,allow_shell,allow_network FROM procedural_skills WHERE id=?1", [skill_id],
-                |row| Ok((row.get::<_, String>(0)?,row.get::<_, bool>(1)?,row.get::<_, bool>(2)?)),
+            let (prompt, shell, network, space) = conn.query_row(
+                "SELECT system_prompt,allow_shell,allow_network,space_id FROM procedural_skills WHERE id=?1", [skill_id],
+                |row| Ok((row.get::<_, String>(0)?,row.get::<_, bool>(1)?,row.get::<_, bool>(2)?,row.get::<_, String>(3)?)),
             ).map_err(|_| "找不到所选技能")?;
+            if !spaces.contains(&space) { return Err("所选技能不在任务脑区范围内".into()); }
             request.permissions.restrict_with_skill(shell, network);
             selected_skill = Some(prompt);
         }
@@ -264,7 +269,7 @@ fn load_context(
             return Err("种子笔记未授权给本次任务".into());
         }
         if let Some(packet) =
-            context_compiler::compile_harness_seed(store, seed, id, &request.permissions)?
+            context_compiler::compile_harness_seed(store, seed, id, &request.permissions, &spaces)?
         {
             compiled.push_str("\n\n[授权笔记资料]\n");
             compiled.push_str(&packet.compiled_prompt);
@@ -318,9 +323,9 @@ fn insert(
         let tx = conn.unchecked_transaction().map_err(db_error)?;
         tx.execute(
             "INSERT INTO harness_runs(id,title,backend_kind,backend_id,model_name,skill_id,permission_manifest_json,
-             activation_wave_json,status,created_at,updated_at,project_id)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'running',?9,?9,?10)",
-            params![id,request.title.trim(),request.backend_kind.as_str(),backend_id,model,request.skill_id,json,wave_json,now_ms(),project],
+             activation_wave_json,status,created_at,updated_at,project_id,space_id)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'running',?9,?9,?10,?11)",
+            params![id,request.title.trim(),request.backend_kind.as_str(),backend_id,model,request.skill_id,json,wave_json,now_ms(),project,request.space_scope.target_space_id],
         ).map_err(db_error)?;
         if let Some(skill) = &request.skill_id {
             tx.execute(
@@ -351,6 +356,7 @@ fn insert(
             permissions: request.permissions.clone(),
             wave,
             log_count,
+            scope: request.space_scope.clone(),
         })
     })
 }
@@ -359,6 +365,7 @@ fn use_tool(
     app: &AppHandle,
     run: &str,
     policy: &PermissionManifest,
+    scope: &SpaceScopePolicy,
     call: &llm::ToolCall,
 ) -> Result<Value, String> {
     let args = serde_json::from_str::<Value>(&call.args).map_err(|_| "工具参数不是有效 JSON")?;
@@ -368,13 +375,20 @@ fn use_tool(
             .ok_or_else(|| format!("工具缺少 {field}"))
     };
     let rationale = args["rationale"].as_str().unwrap_or("");
-    let result = with_store(&app.state::<AppState>(), |store| match call.name.as_str() {
+    let result = with_store(&app.state::<AppState>(), |store| {
+        let spaces = scope.allowed(&store.conn.lock().unwrap())?;
+        match call.name.as_str() {
         "read_workspace_file" => {
             let content =
                 staging::read_workspace_file(policy, &store.root, Path::new(required("path")?))?;
             Ok(json!({"content":content}))
         }
         "propose_file_write" => {
+            let conn = store.conn.lock().unwrap();
+            let export: bool = conn.query_row("SELECT allow_export FROM brain_spaces WHERE id=?1",
+                [&scope.target_space_id], |row| row.get(0)).map_err(db_error)?;
+            if !export { return Err("本脑区禁止导出文件".into()); }
+            drop(conn);
             let id = staging::propose_workspace_file(
                 store,
                 policy,
@@ -396,6 +410,8 @@ fn use_tool(
                 .into_iter()
                 .filter(|note| policy.can_read_note(&note.id))
             {
+                let space = brain_spaces::note_space(&store.conn.lock().unwrap(), &note.id)?;
+                if !spaces.contains(&space) { continue; }
                 let Ok(item) = store.read(&note.id) else {
                     continue;
                 };
@@ -425,6 +441,9 @@ fn use_tool(
             if !policy.allow_brain_note_propose || !policy.can_read_note(id) {
                 return Err("当前任务未获准提出该笔记的变更".into());
             }
+            if brain_spaces::note_space(&store.conn.lock().unwrap(), id)? != scope.target_space_id {
+                return Err("跨脑区资料仅供读取".into());
+            }
             let note = store.read(id)?;
             let id = staging::propose(
                 &store.conn.lock().unwrap(),
@@ -438,6 +457,7 @@ fn use_tool(
             Ok(json!({"diffId":id}))
         }
         _ => Err("任务工具未获授权".into()),
+        }
     })?;
     if let Some(id) = result["diffId"].as_str() {
         emit(
@@ -510,7 +530,7 @@ async fn api_task(
             if actions > task.permissions.max_steps {
                 return Err("任务已达工具调用上限".into());
             }
-            let result = use_tool(app, id, &task.permissions, call);
+            let result = use_tool(app, id, &task.permissions, &task.scope, call);
             let allowed = result.is_ok();
             let (summary, value) = match result {
                 Ok(value) => ("已执行受控工具".to_string(), value),
@@ -541,6 +561,7 @@ async fn local_task(
     app: &AppHandle,
     id: &str,
     policy: &PermissionManifest,
+    scope: &SpaceScopePolicy,
     route: crate::agent_plugins::Route,
     mut prompt: String,
     cancel: oneshot::Receiver<()>,
@@ -569,7 +590,7 @@ async fn local_task(
         }
         for proposal in proposals {
             let call = llm::ToolCall::proposal(proposal.to_string());
-            let result = use_tool(app, id, policy, &call);
+            let result = use_tool(app, id, policy, scope, &call);
             let allowed = result.is_ok();
             let status = result.err().unwrap_or_else(|| "已暂存，等待审阅".into());
             emit(
@@ -681,6 +702,7 @@ pub fn harness_start_run(app: AppHandle, mut request: RunRequest) -> Result<Stri
                         &app,
                         &task.id,
                         &task.permissions,
+                        &task.scope,
                         route,
                         task.context,
                         cancel,

@@ -1,6 +1,6 @@
 import type { BrainSkill, EpisodicEvent } from '../../shared/brain'
 import { BrainHudBar, CaptureForm, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionBadge, EvolutionTimelineModal,
-  QuickCaptureBar, SkillDialog, SkillDock, useBrainWorkbench } from './brain-workbench'
+  QuickCaptureBar, SkillDialog, SkillDock, ContextRotDialog, useBrainWorkbench } from './brain-workbench'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
@@ -67,7 +67,7 @@ function layout(notes: RelationshipNote[], edges: NoteEdge[], cards: ReturnType<
 }
 
 export function RelationshipGraph({
-  nodes, edges, selected, focusId, label, open, close, state, reload, editorOpen, rightInset,
+  nodes: allNodes, edges: allEdges, selected, focusId, label, open, close, state, reload, editorOpen, rightInset,
   canChange, noteUpdated, activeProject, projectFilter, projectLabel, hudLeft, hudRight, revealOutside, brainOpen, onBrainOpenChange,
 }: {
   nodes: RelationshipNote[]; edges: NoteEdge[]; selected?: string; label: NoteLabel
@@ -99,6 +99,14 @@ export function RelationshipGraph({
   const [skill, setSkill] = useState<BrainSkill | 'new'>()
   const [brainError, setBrainError] = useState('')
   const brain = useBrainWorkbench(projectFilter, brainOpen)
+  const [stale, setStale] = useState<Awaited<ReturnType<typeof window.workbench.brain.scan>>>()
+  const nodes = useMemo(() => brainOpen ? allNodes.filter(note => brain.notes[note.id]?.spaceId === brain.spaceId) : allNodes,
+    [allNodes, brainOpen, brain.notes, brain.spaceId])
+  const edges = useMemo(() => {
+    if (!brainOpen) return allEdges
+    const visible = new Set(nodes.map(note => note.id))
+    return allEdges.filter(edge => visible.has(edge.source) && visible.has(edge.target))
+  }, [allEdges, nodes, brainOpen])
   const activeNodes = useMemo(() => new Set(brain.wave ?
     [brain.wave.seedNoteId, ...brain.wave.activatedNoteIds, ...brain.wave.edgePairs.flat()] : []), [brain.wave])
   const activeEdges = useMemo(() => new Set(brain.wave?.edgePairs.map(pair => [...pair].sort().join('|'))), [brain.wave])
@@ -729,7 +737,7 @@ export function RelationshipGraph({
       let title = '新笔记'
       let seq = 2
       while (titles.has(title)) { title = `新笔记 ${seq++}` }
-      const created = await window.workbench.notes.create(title, activeProject, 'blank')
+      const created = await window.workbench.notes.create(title, activeProject, 'blank', brainOpen ? brain.spaceId : undefined)
       const { x, y } = clamp(pt)
 
       await window.workbench.graphLayout.saveBatch([{ noteId: created.id, x, y, pinned: true }])
@@ -760,7 +768,7 @@ export function RelationshipGraph({
           x = Math.max(x, card.x + cardWidth + 36)
         }
       }
-      const child = await window.workbench.notes.create(title, parent.projectId, 'blank')
+      const child = await window.workbench.notes.create(title, parent.projectId, 'blank', brainOpen ? brain.spaceId : undefined)
       const savedParent = await window.workbench.graphLayout.connectNodes(id, child.id, true)
       noteUpdated(savedParent)
       if (collapsedRef.current.has(id)) expandNode(id)
@@ -798,7 +806,7 @@ export function RelationshipGraph({
           y = card.y + card.height + 28
         }
       }
-      const sibling = await window.workbench.notes.create(title, siblingBase.projectId, 'blank')
+      const sibling = await window.workbench.notes.create(title, siblingBase.projectId, 'blank', brainOpen ? brain.spaceId : undefined)
       const savedParent = await window.workbench.graphLayout.connectNodes(parent, sibling.id, true)
       noteUpdated(savedParent)
       if (collapsedRef.current.has(parent)) expandNode(parent)
@@ -915,13 +923,24 @@ export function RelationshipGraph({
           setBrainVitality(value => !value)
           if (!brainVitality) void runBrain(() => window.workbench.brain.recalculate())
         }}
-        dream={() => void runBrain(async () => setConsolidation(await window.workbench.brain.dream(projectFilter)))}/>
+        dream={() => void runBrain(async () => setConsolidation(await window.workbench.brain.dream(projectFilter, brain.spaceId)))}
+        scan={() => void runBrain(async () => setStale(await window.workbench.brain.scan('work')))}/>
       {brainZones && <CorticalZonesLayer/>}
       {!!fresh?.probe.length && <svg ref={probeOverlay} className="brain-probes" aria-hidden="true">
         {fresh.probe.map(id => <path key={id} data-probe-note={id} className="brain-edge--synaptic-flowing"/>)}
       </svg>}
-      <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}
-        composer={<CaptureForm project={activeProject} projectLabel={projectLabel} captured={captured}/>}/>
+      <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)}
+        spaces={brain.spaces} spaceId={brain.spaceId} selectSpace={id => {
+          brain.setSpaceId(id)
+          setFresh(undefined)
+          setConsolidation(undefined)
+        }}
+        promote={async event => {
+          await window.workbench.brain.promote(event.id, event.spaceId)
+          await brain.refresh()
+          reload()
+        }}
+        composer={<CaptureForm spaceId={brain.spaceId} project={activeProject} projectLabel={projectLabel} captured={captured}/>}/>
       {flight && <div className="brain-memory-flight" aria-hidden="true"
         style={{
           left: flight.from.x, top: flight.from.y, width: flight.width,
@@ -941,7 +960,10 @@ export function RelationshipGraph({
       </div>
       <SkillDock skills={brain.skills} wave={brain.wave} inspect={setSkill} create={() => setSkill('new')}/>
     </>}
-    {capture && <QuickCaptureBar project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
+    {stale && <ContextRotDialog items={stale} close={() => setStale(undefined)} propose={id => {
+      setStale(undefined); open(id)
+    }}/>}
+    {capture && <QuickCaptureBar spaceId={brain.spaceId} project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
       captured={captured}/>}
     {consolidation && (consolidation.length ? <ConsolidationDialog events={consolidation} nodes={nodes}
       close={() => setConsolidation(undefined)} consolidate={consolidate}/> :

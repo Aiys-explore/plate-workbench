@@ -5,6 +5,7 @@ mod agent_plugins;
 mod agent_settings;
 mod agent_store;
 mod db;
+mod brain_spaces;
 mod context_compiler;
 mod memory_consolidator;
 mod vitality_engine;
@@ -308,8 +309,20 @@ fn notes_open_link(app: AppHandle, address: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn notes_create(state: State<'_, AppState>, title: String, project_id: String, template: Option<String>) -> Result<Note, String> {
-    with_store(&state, |s| s.create(&title, &project_id, template.as_deref().unwrap_or("blank")))
+fn notes_create(app: AppHandle, state: State<'_, AppState>, title: String, project_id: String,
+    template: Option<String>, space_id: Option<String>) -> Result<Note, String> {
+    let result = with_store(&state, |store| {
+        let space = space_id.as_deref().unwrap_or("learning");
+        crate::memory_consolidator::require_space(&store.conn.lock().unwrap(), space)?;
+        let note = store.create(&title, &project_id, template.as_deref().unwrap_or("blank"))?;
+        if space != "learning" {
+            store.conn.lock().unwrap().execute("UPDATE note SET space_id=?2 WHERE id=?1",
+                rusqlite::params![note.summary.id,space]).map_err(|e| e.to_string())?;
+        }
+        Ok(note)
+    })?;
+    memory_consolidator::changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -525,6 +538,9 @@ fn main() {
             agent_settings::agent_settings_get, agent_settings::agent_settings_save,
             tasks_list_by_note, tasks_summary, tasks_start, tasks_stop, tasks_follow_up,
             tasks_mark_done, tasks_reject,
+            brain_spaces::brain_spaces_list, brain_spaces::brain_space_upsert,
+            memory_consolidator::episodic_update_candidate, memory_consolidator::episodic_promote_to_note,
+            memory_consolidator::episodic_discard, vitality_engine::brain_scan_context_rot,
             memory_consolidator::brain_status, memory_consolidator::set_brain_context,
             memory_consolidator::brain_note_metadata, memory_consolidator::capture_episodic_event,
             memory_consolidator::list_episodic_events, memory_consolidator::consolidate_episodic_to_note,

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, EpisodicEvent } from '../../shared/brain'
+import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, BrainSpace, EpisodicEvent, StaleMemory } from '../../shared/brain'
 import type { RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
 import { IconAction } from './icon-action'
 import { IconDream, IconHeat, IconNew, IconSend, IconZones } from './components/icons'
+import { Check, Pencil, ShieldAlert, Trash2 } from 'lucide-react'
 import './styles/brain-dynamics.css'
 
 const api = () => window.workbench.brain
@@ -11,6 +12,8 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 const date = (time: number) => new Date(time).toLocaleString('zh-CN')
 
 export function useBrainWorkbench(project: string | undefined, visible: boolean) {
+  const [spaceId, setSpaceId] = useState('learning')
+  const [spaces, setSpaces] = useState<BrainSpace[]>([])
   const [notes, setNotes] = useState<Record<string, BrainNoteMetadata>>({})
   const [events, setEvents] = useState<EpisodicEvent[]>([])
   const [skills, setSkills] = useState<BrainSkill[]>([])
@@ -30,29 +33,31 @@ export function useBrainWorkbench(project: string | undefined, visible: boolean)
   const refresh = useCallback(async () => {
     const request = ++refreshSequence.current
     try {
-      const [metadata, captures, library, preferences] = await Promise.all([
-        api().metadata(), api().events(project), api().skills(), api().status(),
+      const [metadata, captures, library, preferences, availableSpaces] = await Promise.all([
+        api().metadata(), api().events(project, spaceId), api().skills(), api().status(), api().spaces(),
       ])
       if (request !== refreshSequence.current) return
       setNotes(metadata)
       setEvents(captures)
       setSkills(library)
       setStatus(preferences)
+      setSpaces(availableSpaces)
       setError('')
     } catch (issue) { if (request === refreshSequence.current) setError(message(issue)) }
-  }, [project])
+  }, [project, spaceId])
   useEffect(() => {
     if (!visible) return
     const off = api().onChanged(refresh)
     void refresh()
     return () => { refreshSequence.current++; off() }
   }, [refresh, visible])
-  return { notes, events, skills, status, wave, error, refresh }
+  return { notes, events: events.filter(event => event.spaceId === spaceId),
+    skills: skills.filter(skill => skill.spaceId === spaceId), spaces, spaceId, setSpaceId, status, wave, error, refresh }
 }
 
-export function BrainHudBar({ wave, notes, events, zones, vitality, toggleZones, toggleVitality, dream }: {
+export function BrainHudBar({ wave, notes, events, zones, vitality, toggleZones, toggleVitality, dream, scan }: {
   wave?: BrainActivationWave; notes: number; events: number; zones: boolean; vitality: boolean
-  toggleZones: () => void; toggleVitality: () => void; dream: () => void
+  toggleZones: () => void; toggleVitality: () => void; dream: () => void; scan: () => void
 }) {
   return <div className="brain-hud">
     <output role="status" className="brain-run-status" data-active={!!wave}>
@@ -62,6 +67,7 @@ export function BrainHudBar({ wave, notes, events, zones, vitality, toggleZones,
     <div className="brain-hud-actions">
       <IconAction icon={IconZones} label="分区视图" active={zones} aria-pressed={zones} onClick={toggleZones}/>
       <IconAction icon={IconHeat} label="活力热力" active={vitality} aria-pressed={vitality} onClick={toggleVitality}/>
+      <IconAction icon={ShieldAlert} label="巡检工作记忆" onClick={scan}/>
       <IconAction icon={IconDream} label="做梦整理" onClick={dream}/>
     </div>
   </div>
@@ -74,7 +80,7 @@ export function CorticalZonesLayer() {
   </div>
 }
 
-type CaptureProps = { project: string; projectLabel: string; captured: (id: string, text: string) => void }
+type CaptureProps = { project: string; projectLabel: string; spaceId: string; captured: (id: string, text: string) => void }
 
 export function QuickCaptureBar({ close, ...props }: CaptureProps & { close: () => void }) {
   return <EditorDialog title="捕获闪念" close={close} kind="brain">
@@ -82,7 +88,7 @@ export function QuickCaptureBar({ close, ...props }: CaptureProps & { close: () 
   </EditorDialog>
 }
 
-export function CaptureForm({ project, projectLabel, captured, onSaved }: CaptureProps & { onSaved?: () => void }) {
+export function CaptureForm({ project, projectLabel, spaceId, captured, onSaved }: CaptureProps & { onSaved?: () => void }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -92,7 +98,7 @@ export function CaptureForm({ project, projectLabel, captured, onSaved }: Captur
     setBusy(true)
     setError('')
     try {
-      captured(await api().capture(project, text), text)
+      captured(await api().capture(project, text, spaceId), text)
       setText('')
       onSaved?.()
     } catch (issue) { setError(message(issue)) }
@@ -101,7 +107,7 @@ export function CaptureForm({ project, projectLabel, captured, onSaved }: Captur
   return <form className={onSaved ? 'brain-form' : 'brain-form brain-capture-inline'} onSubmit={save}>
       <label>{onSaved && <>保存至 {projectLabel}</>}
         <textarea aria-label={onSaved ? '闪念内容' : '输入海马体闪念'} rows={onSaved ? 4 : 2} value={text} disabled={busy}
-          placeholder="输入学习闪念，按 Enter 存入海马体…"
+          placeholder="输入闪念，按 Enter 保存…"
           onChange={event => setText(event.target.value)}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
@@ -116,24 +122,84 @@ export function CaptureForm({ project, projectLabel, captured, onSaved }: Captur
     </form>
 }
 
-export function EpisodicLane({ events, fresh, openCapture, consolidate, composer }: {
-  events: EpisodicEvent[]; fresh?: string; openCapture: () => void; consolidate: (events: EpisodicEvent[]) => void; composer: ReactNode
+export function EpisodicLane({ events, spaces, spaceId, selectSpace, fresh, openCapture, promote, composer }: {
+  events: EpisodicEvent[]; spaces: BrainSpace[]; spaceId: string; selectSpace: (id: string) => void
+  fresh?: string; openCapture: () => void; promote: (event: EpisodicEvent) => Promise<void>; composer: ReactNode
 }) {
   return <aside className="brain-episodic" aria-label="海马体 · 短期闪念">
     <div className="brain-lane-header">
       <span><small>海马体</small><strong>短期闪念</strong></span>
       <IconAction icon={IconNew} label="捕获闪念" shortcut="Ctrl+Shift+Space" onClick={openCapture}/>
     </div>
+    <div className="s11-segments" role="group" aria-label="脑区">
+      {spaces.map(space => <button type="button" key={space.id} aria-pressed={spaceId === space.id}
+        onClick={() => selectSpace(space.id)}>{space.name}</button>)}
+    </div>
     {composer}
     <div className="brain-event-list">
       {events.length === 0 && <p className="brain-muted">还没有闪念。</p>}
-      {events.map(event => <article key={event.id} className="brain-episodic-card" data-event-id={event.id} data-new={fresh === event.id}>
-        <p>{event.rawText}</p>
-        <footer><time dateTime={new Date(event.createdAt).toISOString()}>{date(event.createdAt)}</time>
-          <button type="button" onClick={() => consolidate([event])}>固化</button></footer>
-      </article>)}
+      {events.map(event => <CandidateCard key={event.id} event={event} spaces={spaces}
+        fresh={fresh === event.id} promote={() => promote(event)}/>)}
     </div>
   </aside>
+}
+
+function CandidateCard({ event, spaces, fresh, promote }: {
+  event: EpisodicEvent; spaces: BrainSpace[]; fresh: boolean; promote: () => Promise<void>
+}) {
+  const [editing, edit] = useState(false)
+  const [text, setText] = useState(event.rawText)
+  const [space, setSpace] = useState(event.spaceId)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function act(action: () => Promise<unknown>) {
+    setBusy(true)
+    setError('')
+    try { await action(); edit(false) }
+    catch (issue) { setError(message(issue)) }
+    finally { setBusy(false) }
+  }
+  function openEdit() { setText(event.rawText); setSpace(event.spaceId); edit(true) }
+  return <article className="brain-episodic-card" data-event-id={event.id} data-new={fresh}>
+    {editing ? <form className="brain-form" onSubmit={eventForm => {
+      eventForm.preventDefault()
+      void act(() => api().updateCandidate(event.id, text, space))
+    }}>
+      <textarea aria-label="编辑候选记忆" rows={4} value={text} onChange={e => setText(e.target.value)}/>
+      <label>脑区<select value={space} onChange={e => setSpace(e.target.value)}>
+        {spaces.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select></label>
+      <div className="s10-actions">
+        <button type="button" disabled={busy} onClick={() => edit(false)}>取消</button>
+        <button type="submit" disabled={busy || !text.trim()}>保存</button>
+      </div>
+    </form> : <>
+      <button type="button" className="s11-candidate-text" onClick={openEdit}>{event.rawText}</button>
+      <footer><time dateTime={new Date(event.createdAt).toISOString()}>{date(event.createdAt)}</time>
+        <div className="s11-candidate-actions">
+          <IconAction icon={Pencil} label="编辑候选记忆" onClick={openEdit} disabled={busy}/>
+          <IconAction icon={Check} label="升格为笔记" onClick={() => void act(promote)} disabled={busy}/>
+          <IconAction icon={Trash2} label="丢弃候选记忆" onClick={() => void act(() => api().discard(event.id))} disabled={busy}/>
+        </div>
+      </footer>
+    </>}
+    {error && <p role="alert">{error}</p>}
+  </article>
+}
+
+export function ContextRotDialog({ items, close, propose }: {
+  items: StaleMemory[]; close: () => void; propose: (id: string) => void
+}) {
+  return <EditorDialog title="工作记忆巡检" close={close} kind="brain" cancelLabel="关闭">
+    <div className="brain-timeline">
+      {!items.length && <p className="brain-muted">暂无休眠或超过 90 天未更新的工作记忆。</p>}
+      {items.map(item => <article key={item.id}>
+        <strong>{item.title}</strong>
+        <p>{item.dormant ? '休眠' : '待复核'} · {date(item.updatedAt)}</p>
+        <button type="button" onClick={() => propose(item.id)}>复核记忆</button>
+      </article>)}
+    </div>
+  </EditorDialog>
 }
 
 export function ConsolidationDialog({ events, nodes, close, consolidate }: {

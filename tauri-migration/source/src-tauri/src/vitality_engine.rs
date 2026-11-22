@@ -1,4 +1,31 @@
 use rusqlite::{params, Connection};
+use serde::Serialize;
+use tauri::State;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleMemory {
+    id: String,
+    title: String,
+    updated_at: i64,
+    dormant: bool,
+}
+
+pub fn scan_context_rot(conn: &Connection, space_id: &str, now_ms: i64) -> rusqlite::Result<Vec<StaleMemory>> {
+    let mut stmt = conn.prepare("SELECT n.id,n.title,n.updated_at,n.is_dormant FROM note n
+        JOIN project p ON p.id=n.project_id WHERE p.archived_at IS NULL AND n.space_id=?1
+        AND (n.is_dormant=1 OR n.updated_at<?2) ORDER BY n.is_dormant DESC,n.updated_at,n.id LIMIT 150")?;
+    let rows = stmt.query_map(params![space_id,now_ms.saturating_sub(90 * 86_400_000)], |row| Ok(StaleMemory {
+        id:row.get(0)?, title:row.get(1)?, updated_at:row.get(2)?, dormant:row.get(3)?,
+    }))?;
+    rows.collect()
+}
+
+#[tauri::command]
+pub fn brain_scan_context_rot(state: State<'_, crate::AppState>, space_id: String) -> Result<Vec<StaleMemory>, String> {
+    crate::with_store(&state, |store| scan_context_rot(&store.conn.lock().unwrap(), &space_id, crate::notes::now_ms())
+        .map_err(|e| e.to_string()))
+}
 
 fn score(days: f64, access: i64, degree: i64) -> f64 {
     (0.55 * (-0.045 * days).exp()
