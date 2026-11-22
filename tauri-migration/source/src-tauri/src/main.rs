@@ -526,7 +526,9 @@ fn main() {
             agent_log_harvester::agent_logs_scan, agent_log_harvester::agent_logs_list,
             agent_log_harvester::agent_logs_get_messages, agent_log_harvester::agent_logs_search,
             agent_log_harvester::agent_logs_send_to_hippocampus,
-            harness::engine::harness_start_run, harness::engine::harness_cancel_run,
+            harness::profiles::profile_list, harness::profiles::profile_upsert, harness::profiles::profile_delete,
+            harness::prompt_assembler::global_prompt_get, harness::prompt_assembler::global_prompt_set,
+            harness::engine::harness_preview_prompt, harness::engine::harness_start_run, harness::engine::harness_cancel_run,
             harness::engine::harness_list_runs, harness::engine::harness_get_events,
             harness::engine::staging_list_diffs, harness::engine::staging_resolve_diff,
             agent_plugins::agent_plugins_list, agent_plugins::agent_plugins_active,
@@ -545,7 +547,7 @@ fn main() {
             memory_consolidator::brain_note_metadata, memory_consolidator::capture_episodic_event,
             memory_consolidator::list_episodic_events, memory_consolidator::consolidate_episodic_to_note,
             memory_consolidator::list_procedural_skills, memory_consolidator::save_procedural_skill,
-            memory_consolidator::save_workbench_skill, memory_consolidator::dream_model_suggestion,
+            memory_consolidator::save_workbench_skill, memory_consolidator::dream_model_suggestion, memory_consolidator::dream_stage,
             memory_consolidator::apply_memory_delta, memory_consolidator::get_note_evolution_history,
             memory_consolidator::recalculate_brain_vitality, memory_consolidator::trigger_dream_consolidation
         ])

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
-import type { BrainSkill } from '../../../shared/brain'
+import { Layers, ScanEye } from 'lucide-react'
+import { EditorDialog } from '../note-editor'
+import type { BrainNoteMetadata, BrainSkill, BrainSpace } from '../../../shared/brain'
 import type { NoteSummary } from '../../../shared/ipc'
 import type {
-  BackendKind, HarnessEvent, HarnessRun, PermissionManifest, ProviderConfig, RunStatus, StagedDiff,
+  AssembledPrompt, BackendKind, HarnessEvent, HarnessRunRequest, ModelProfile, HarnessRun, PermissionManifest, ProviderConfig, RunStatus, StagedDiff,
 } from '../../../shared/harness'
 import { useWorkbench } from '../store'
 import { readPreferences } from '../s10-preferences'
@@ -16,7 +18,7 @@ const statusLabel: Record<RunStatus, string> = {
 }
 const issue = (error: unknown) => error instanceof Error ? error.message : String(error)
 const api = () => window.workbench.harness
-const panelLabels = { notes: '引用笔记', logs: '引用记录', permissions: '任务权限', models: '模型与引擎' } as const
+const panelLabels = { notes: '引用笔记', logs: '引用记录', permissions: '任务权限', models: '模型与引擎', spaces: '目标脑区' } as const
 const starters = [
   ['整理本机排错记录并沉淀笔记', '整理我挂载的本机排错记录，提取问题、修复步骤和可复用经验，生成一条待审阅的笔记。'],
   ['基于大脑笔记审查权限策略', '结合我挂载的笔记，检查当前任务的权限范围，列出需要补充或收紧的地方。'],
@@ -53,6 +55,20 @@ function Timeline({ events, notes }: { events: HarnessEvent[]; notes: NoteSummar
   </div>
 }
 
+const layerLabels: Record<string, string> = {
+  global: '全局系统提示词', workspace_rules: '工作区规则', brain_and_skill: '记忆与技能', permissions: '权限边界',
+}
+
+function PromptLayers({ prompt }: { prompt: AssembledPrompt }) {
+  return <div className="s11-trace">
+    <p className="s10-quiet-empty">约 {prompt.totalApproxTokens} tokens</p>
+    {prompt.layers.map(layer => <details key={layer.layerName}>
+      <summary>{layerLabels[layer.layerName] ?? layer.layerName} · 约 {layer.approxTokens}</summary>
+      <p>{layer.sourceLabel}</p><pre>{layer.content || '暂无内容'}</pre>
+    </details>)}
+  </div>
+}
+
 export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
   visible: boolean
   onHeaderChange: (header: WorkbenchHeader) => void
@@ -65,6 +81,16 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
   const [agents, setAgents] = useState<Awaited<ReturnType<typeof window.workbench.agentPlugins.active>>>([])
   const [notes, setNotes] = useState<NoteSummary[]>([])
   const [skills, setSkills] = useState<BrainSkill[]>([])
+  const [spaces, setSpaces] = useState<BrainSpace[]>([])
+  const [metadata, setMetadata] = useState<Record<string, BrainNoteMetadata>>({})
+  const [targetSpace, setTargetSpace] = useState('work')
+  const [readableSpaces, setReadableSpaces] = useState<string[]>([])
+  const [profiles, setProfiles] = useState<ModelProfile[]>([])
+  const [profileId, setProfileId] = useState('')
+  const [inspectTab, setInspectTab] = useState<'shadow' | 'trace'>('shadow')
+  const [preview, setPreview] = useState<AssembledPrompt>()
+  const memoryReviewId = useWorkbench(state => state.memoryReviewId)
+  const clearMemoryReview = useWorkbench(state => state.clearMemoryReview)
   const runId = useWorkbench(state => state.activeRunId)
   const setRunId = useWorkbench(state => state.setActiveRunId)
   const [title, setTitle] = useState('')
@@ -108,6 +134,14 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     ? event.wave?.activatedNoteIds.length ?? 0 : count, 0)
 
   useEffect(() => {
+    if (!memoryReviewId || !visible) return
+    setTargetSpace('work')
+    setSeed(memoryReviewId)
+    setPrompt('复核这条工作记忆，列出需要核实的内容，并将有依据的笔记更新提交影子审阅。')
+    clearMemoryReview()
+  }, [memoryReviewId, visible, clearMemoryReview])
+
+  useEffect(() => {
     onHeaderChange({ title: selected?.title, activated })
   }, [selected?.title, activated, onHeaderChange])
 
@@ -125,7 +159,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     const form = composer.current
     const surface = form?.parentElement
     const popover = panelElement.current
-    const anchor = panel === 'models' ? panelTrigger.current : null
+    const anchor = panel === 'models' || panel === 'spaces' ? panelTrigger.current : null
     const fit = () => {
       if (!form || !surface || !popover) return
       const formRect = form.getBoundingClientRect()
@@ -146,6 +180,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
       resize.observe(surface)
     }
     if (anchor) resize.observe(anchor)
+    if (popover) resize.observe(popover)
     if (enterPanel.current) {
       panelElement.current?.querySelector<HTMLElement>('button:not([disabled]), input, select, textarea')?.focus({ preventScroll: true })
     }
@@ -190,16 +225,22 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     if (!visible) return
     let live = true
     void refreshRuns().catch(cause => { if (live) setError(issue(cause)) })
-    void Promise.all([
+    const loadCatalogs = () => void Promise.all([
       window.workbench.providers.list(), window.workbench.agentPlugins.active(),
-      window.workbench.notes.list(), window.workbench.brain.skills(),
-    ]).then(([modelServices, plugins, localNotes, localSkills]) => {
+      window.workbench.notes.list(), window.workbench.brain.skills(), window.workbench.brain.spaces(),
+      window.workbench.brain.metadata(), api().profiles(),
+    ]).then(([modelServices, plugins, localNotes, localSkills, areas, scopes, modelProfiles]) => {
       if (!live) return
       setProviders(modelServices.filter(service => service.enabled))
       setAgents(plugins.filter(item => /\.exe$/i.test(item.executable)))
       setNotes(localNotes)
       setSkills(localSkills)
+      setSpaces(areas)
+      setMetadata(scopes)
+      setProfiles(modelProfiles)
     }).catch(cause => { if (live) setError(issue(cause)) })
+    loadCatalogs()
+    const offCatalog = window.workbench.brain.onChanged(loadCatalogs)
     let timer: ReturnType<typeof setTimeout> | undefined
     const off = api().onEvent(event => {
       if (event.kind === 'run_status_changed') void refreshRuns().catch(cause => setError(issue(cause)))
@@ -209,7 +250,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
         void refreshDetail(selectedRef.current).catch(cause => setError(issue(cause)))
       }, 110)
     })
-    return () => { live = false; off(); clearTimeout(timer); refreshId.current++; detailsId.current++ }
+    return () => { live = false; off(); offCatalog(); clearTimeout(timer); refreshId.current++; detailsId.current++ }
   }, [refreshDetail, refreshRuns, visible])
 
   useEffect(() => {
@@ -227,32 +268,58 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     finally { setBusy(false) }
   }
 
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (busy || !prompt.trim()) return
-    setPanel(undefined)
+  function makeRequest(): HarnessRunRequest {
     const logIds = draft.map(log => log.id)
     const permissions: PermissionManifest = {
-      readableNoteIds: [seed, ...chosenExtras.map(note => note.id)].filter(Boolean),
+      readableNoteIds: [...(chosenNote ? [chosenNote.id] : []), ...chosenExtras.map(note => note.id)],
       allowAllNotesRead: allNotes, readableLogSessionIds: logIds,
       writableDirs: dirs.split(/\r?\n/).map(path => path.trim()).filter(Boolean),
       allowNetwork, allowShell: kind === 'local_cli' && allowShell, allowBrainNotePropose: allowNoteDraft,
       maxSteps: steps, maxBudgetUsd: budget,
     }
-    if (kind === 'local_cli' && !backend) { setError('请选择本机 Agent'); return }
     const taskTitle = title.trim() || prompt.trim().split(/\r?\n/)[0].slice(0,100)
+    return { title:taskTitle, prompt, backendKind:kind, backendId:backend, profileId:profileId || undefined,
+      modelOverride:model.trim() || undefined, seedNoteId:chosenNote?.id, skillId:chosenSkill?.id,
+      attachedLogSessionIds:logIds, permissions, spaceScope: { targetSpaceId:targetSpace, readableSpaceIds:readableSpaces } }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (busy || !prompt.trim()) return
+    if (skill && !chosenSkill) { setError('请选择包含该技能的脑区，或移除技能。'); return }
+    if (kind === 'local_cli' && !backend) { setError('请选择本机 Agent'); return }
+    setPanel(undefined)
     void action(async () => {
-      const id = await api().start({ title: taskTitle, prompt, backendKind: kind, backendId: backend,
-        modelOverride: model.trim() || undefined, seedNoteId: seed || undefined,
-        skillId: skill || undefined, attachedLogSessionIds: logIds, permissions })
+      const id = await api().start(makeRequest())
       setRunId(id)
       await refreshRuns()
     })
   }
 
-  const chosenNote = notes.find(note => note.id === seed)
-  const chosenSkill = skills.find(item => item.id === skill)
-  const chosenExtras = notes.filter(note => note.id !== seed && extraNotes.includes(note.id))
+  const allowedSpace = (id?: string) => id === targetSpace || spaces.some(space =>
+    space.id === id && !space.isolated && readableSpaces.includes(space.id))
+  const eligibleNotes = notes.filter(note => allowedSpace(metadata[note.id]?.spaceId))
+  const eligibleSkills = skills.filter(item => allowedSpace(item.spaceId))
+  const chosenNote = eligibleNotes.find(note => note.id === seed)
+  const chosenSkill = eligibleSkills.find(item => item.id === skill)
+  const chosenExtras = eligibleNotes.filter(note => note.id !== seed && extraNotes.includes(note.id))
+  const activeProfile = profiles.find(profile => profile.id === profileId)
+
+  function applyProfile(profile: ModelProfile) {
+    setProfileId(profile.id)
+    setKind(profile.backendKind)
+    setBackend(profile.backendId)
+    setModel(profile.modelName)
+    setTargetSpace(profile.defaultSpaceId)
+    setReadableSpaces([])
+    setSteps(profile.maxSteps)
+    setBudget(profile.maxBudgetUsd)
+    setDirs(profile.defaultPermissions.writableDirs.join('\n'))
+    setAllowNetwork(profile.defaultPermissions.allowNetwork)
+    setAllowShell(profile.defaultPermissions.allowShell)
+    setAllNotes(profile.defaultPermissions.allowAllNotesRead)
+    setAllowNoteDraft(profile.defaultPermissions.allowBrainNotePropose)
+  }
   const selectedBackend = (kind === 'api_key' ? providers : agents).find(item => item.id === backend)?.name
     ?? (kind === 'api_key' ? 'API Key' : '本机 CLI')
   const backendChoices = [
@@ -330,11 +397,11 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
           }
         }}>
         <label className="s10-visually-hidden" htmlFor="s10-prompt">任务内容</label>
-        {(chosenNote || chosenExtras.length > 0 || chosenSkill || draft.length > 0) && <ul className="s10-composer-chips" aria-label="任务引用">
+        {(chosenNote || chosenExtras.length > 0 || skill || draft.length > 0) && <ul className="s10-composer-chips" aria-label="任务引用">
           {chosenNote && <li>{chosenNote.title}<IconAction icon={IconReject} size={14} label="移除种子笔记" onClick={() => setSeed('')}/></li>}
           {chosenExtras.map(note => <li key={note.id}>{note.title}<IconAction icon={IconReject} size={14}
             label={'移除引用 ' + note.title} onClick={() => setExtraNotes(extraNotes.filter(id => id !== note.id))}/></li>)}
-          {chosenSkill && <li>{chosenSkill.title}<IconAction icon={IconReject} size={14} label="移除技能" onClick={() => trySkill('')}/></li>}
+          {skill && <li>{chosenSkill?.title ?? '技能在当前脑区范围外'}<IconAction icon={IconReject} size={14} label="移除技能" onClick={() => trySkill('')}/></li>}
           {draft.map(log => <li key={log.id}>{log.title}
             <IconAction icon={IconReject} size={14} label={'移除引用 ' + log.title} onClick={() => detach(log.id)}/>
           </li>)}
@@ -346,17 +413,17 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
           aria-label={panelLabels[panel]} data-panel={panel}>
           <h3>{panelLabels[panel]}</h3>
           {panel === 'notes' && <>
-            <label>种子笔记<select aria-label="种子笔记" value={seed} onChange={e => {
+            <label>种子笔记<select aria-label="种子笔记" value={chosenNote?.id ?? ''} onChange={e => {
               const id = e.target.value
               setSeed(id)
               setExtraNotes(extraNotes.filter(note => note !== id))
             }}>
               <option value="">不引用笔记</option>
-              {notes.map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
+              {eligibleNotes.map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
             </select></label>
             <label>其他授权笔记<select aria-label="其他授权笔记" multiple value={extraNotes} onChange={event =>
               setExtraNotes(Array.from(event.currentTarget.selectedOptions, item => item.value))}>
-              {notes.filter(note => note.id !== seed).map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
+              {eligibleNotes.filter(note => note.id !== seed).map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
             </select></label>
           </>}
           {panel === 'logs' && <div className="s10-log-picker">
@@ -368,7 +435,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
           </div>}
           {panel === 'permissions' && <>
             <label>授权文件目录（每行一个绝对路径）<textarea value={dirs} rows={2} onChange={e => setDirs(e.target.value)}/></label>
-            <label className="s10-check"><input type="checkbox" checked={allNotes} onChange={e => setAllNotes(e.target.checked)}/>允许读取全部笔记</label>
+            <label className="s10-check"><input type="checkbox" checked={allNotes} onChange={e => setAllNotes(e.target.checked)}/>允许读取范围内全部笔记</label>
             <label className="s10-check"><input type="checkbox" checked={allowNoteDraft} onChange={e => setAllowNoteDraft(e.target.checked)}/>允许提议笔记修改</label>
             <label className="s10-check"><input type="checkbox" checked={allowNetwork} onChange={e => setAllowNetwork(e.target.checked)}/>
               {kind === 'api_key' ? '允许连接所选模型服务并提交任务上下文' : '允许隔离 CLI 连接互联网'}
@@ -379,12 +446,32 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
               {kind === 'api_key' && <label>预算上限（美元）<input type="number" min="0" max="1000" step="any" value={budget} onChange={e => setBudget(Number(e.target.value))}/></label>}
             </div>
           </>}
+          {panel === 'spaces' && <>
+            <label>写入脑区<select value={targetSpace} onChange={event => setTargetSpace(event.target.value)}>
+              {spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+            </select></label>
+            <fieldset className="s10-inline-options"><legend>跨脑区只读</legend>
+              {spaces.filter(space => space.id !== targetSpace && !space.isolated).map(space =>
+                <label key={space.id}><input type="checkbox" checked={readableSpaces.includes(space.id)}
+                  onChange={event => setReadableSpaces(current => event.target.checked
+                    ? [...current, space.id] : current.filter(id => id !== space.id))}/>{space.name}</label>)}
+            </fieldset>
+          </>}
           {panel === 'models' && <>
+            {profiles.length > 0 && <div className="s10-backend-list" role="group" aria-label="Model Profiles">
+              <h4>Model Profiles</h4>
+              {profiles.map(profile => <button type="button" key={profile.id} aria-pressed={profile.id === profileId}
+                onClick={() => applyProfile(profile)}>
+                <span>{profile.name}<small>{profile.maxSteps} 步 · ${profile.maxBudgetUsd} · {profile.reasoningEffort}</small></span>
+              </button>)}
+            </div>}
+            <h4>模型</h4>
             <div className="s10-backend-list" role="group" aria-label="执行引擎与模型">
               {backendChoices.map(choice => {
-                const current = choice.engine === kind && choice.id === backend
+                const current = !profileId && choice.engine === kind && choice.id === backend
                 return <button type="button" aria-pressed={current} key={choice.engine + ':' + choice.id} onClick={() => {
                   if (choice.engine !== kind) setModel('')
+                  setProfileId('')
                   setKind(choice.engine)
                   setBackend(choice.id)
                 }}>
@@ -396,16 +483,20 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
             <details className="s10-model-options">
               <summary>任务设置</summary>
               <label>任务标题<input value={title} maxLength={130} onChange={e => setTitle(e.target.value)}/></label>
-              {kind === 'api_key' && <label>模型覆盖<input value={model} onChange={e => setModel(e.target.value)}/></label>}
+              {kind === 'api_key' && !profileId && <label>模型覆盖<input value={model} onChange={e => setModel(e.target.value)}/></label>}
               <label>任务技能<select value={skill} onChange={e => trySkill(e.target.value)}>
                 <option value="">不使用技能</option>
-                {skills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                {eligibleSkills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
               </select></label>
             </details>
           </>}
         </section>}
         <div className="s10-composer-footer">
           <div className="s10-actions">
+            <IconAction icon={Layers} label={panelLabels.spaces} className="s10-model-trigger"
+              aria-expanded={panel === 'spaces'} onClick={event => selectPanel('spaces', event.currentTarget, event.detail === 0)}>
+              <span>{spaces.find(space => space.id === targetSpace)?.name ?? '工作'}</span>
+            </IconAction>
             <IconAction icon={IconAttachNote} label={panelLabels.notes} aria-expanded={panel === 'notes'}
               aria-controls={panel === 'notes' ? 's10-composer-panel' : undefined}
               active={panel === 'notes' || !!seed || chosenExtras.length > 0} onClick={event => selectPanel('notes', event.currentTarget, event.detail === 0)}/>
@@ -419,23 +510,49 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
             <IconAction icon={IconModel} label={panelLabels.models} aria-expanded={panel === 'models'} active={panel === 'models'}
               aria-controls={panel === 'models' ? 's10-composer-panel' : undefined}
               size={14} className="s10-model-trigger" onClick={event => selectPanel('models', event.currentTarget, event.detail === 0)}>
-              <span>{selectedBackend}</span><IconChevronUp size={14} strokeWidth={1.65} aria-hidden="true"/>
+              <span>{activeProfile?.name ?? selectedBackend}</span><IconChevronUp size={14} strokeWidth={1.65} aria-hidden="true"/>
             </IconAction>
           </div>
-          <IconAction type="submit" icon={IconSend} label="开始任务" shortcut="Enter" size={16}
-            className="s10-send" disabled={busy || !prompt.trim()}/>
+          <div className="s10-actions">
+            <IconAction icon={ScanEye} label="预览四层提示词" disabled={busy || !!skill && !chosenSkill}
+              onClick={() => { setPanel(undefined); void action(async () => setPreview(await api().preview(makeRequest()))) }}/>
+            <IconAction type="submit" icon={IconSend} label="开始任务" shortcut="Enter" size={16}
+              className="s10-send" disabled={busy || !prompt.trim()}/>
+          </div>
         </div>
       </form></>}
     </div>
-    {inspector && <aside className="s10-diff-panel" aria-label="暂存审阅">
-      <div className="s10-section-header"><h2>暂存审阅</h2>
+    {preview && <EditorDialog title="预览四层提示词" kind="brain" close={() => setPreview(undefined)} cancelLabel="关闭">
+      <PromptLayers prompt={preview}/>
+    </EditorDialog>}
+    {inspector && <aside className="s10-diff-panel" aria-label="任务审阅">
+      <div className="s10-section-header"><h2>任务审阅</h2>
         <IconAction icon={IconReject} label="收起审阅" onClick={toggleInspector}/>
       </div>
+      <div className="s11-segments" aria-label="任务审阅视图" role="group">
+        <button type="button" aria-pressed={inspectTab === 'shadow'} onClick={() => setInspectTab('shadow')}>影子审阅</button>
+        <button type="button" aria-pressed={inspectTab === 'trace'} onClick={() => setInspectTab('trace')}>运行轨迹</button>
+      </div>
+      {inspectTab === 'trace' && <div className="s11-trace" aria-label="运行轨迹">
+        {!events.some(event => event.kind === 'prompt_assembled') && <p className="s10-quiet-empty">当前没有提示词轨迹。</p>}
+        {events.map((event, index) => {
+          if (event.kind === 'prompt_assembled') return <section key={index}>
+            <p>脑区 · {event.spaceIds.map(id => spaces.find(space => space.id === id)?.name ?? id).join('、')}</p>
+            <PromptLayers prompt={event.prompt}/>
+          </section>
+          if (event.kind === 'step_usage') return <p key={index}>第 {event.step} 步 · {event.tokenIn} 输入 / {event.tokenOut} 输出 · ${event.costUsd.toFixed(4)}</p>
+          if (event.kind === 'context_activated' && event.wave) return <details key={index}><summary>激活节点</summary>
+            {[event.wave.seedNoteId, ...event.wave.activatedNoteIds].map(id => <p key={id}>{notes.find(note => note.id === id)?.title ?? id}</p>)}
+          </details>
+          return null
+        })}
+      </div>}
+      {inspectTab === 'shadow' && <>
       {diffs.length === 0 && <p className="s10-quiet-empty">当前没有暂存变更。</p>}
       {diffs.map(diff => <article key={diff.id} className="s10-diff-card">
         <header className="s10-diff-card-header">
           <strong data-tip={diff.targetRef}>{diff.targetKind === 'brain_note'
-            ? notes.find(note => note.id === diff.targetRef)?.title ?? diff.targetRef
+            ? notes.find(note => note.id === diff.targetRef)?.title ?? (diff.baseSha256 === 'absent' ? diff.proposedContent.split('\n')[0].replace(/^# /, '') : diff.targetRef)
             : diff.targetRef.startsWith("\\\\?\\") ? diff.targetRef.slice(4) : diff.targetRef} · {{ pending: '待审阅', accepted: '已应用', rejected: '已驳回' }[diff.status]}</strong>
         {diff.status === 'pending' && selected?.status !== 'running' && <div className="s10-actions">
           <IconAction icon={IconAccept} label="审阅并应用" disabled={busy} onClick={() => void action(async () => {
@@ -452,6 +569,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
         <pre aria-label="变更对比">{diff.unifiedDiff.split('\n').map((line, i) => <span key={i}
           className={line.startsWith('+') ? 's10-diff-add' : line.startsWith('-') ? 's10-diff-remove' : undefined}>{line}{'\n'}</span>)}</pre>
       </article>)}
+      </>}
     </aside>}
   </section>
 }

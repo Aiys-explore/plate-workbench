@@ -547,10 +547,11 @@ pub fn trigger_dream_consolidation(app: AppHandle, state: State<'_, AppState>, p
 }
 
 pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<(), String> {
-    let (title, project, skill, wave): (String,String,Option<String>,Option<String>) = conn.query_row(
-        "SELECT title,project_id,skill_id,activation_wave_json FROM harness_runs WHERE id=?1", [run_id],
-        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+    let (title, project, skill, wave, space, backend): (String,String,Option<String>,Option<String>,String,String) = conn.query_row(
+        "SELECT title,project_id,skill_id,activation_wave_json,space_id,backend_id FROM harness_runs WHERE id=?1", [run_id],
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
     ).map_err(err)?;
+    if backend == "做梦整理" { return Ok(()); }
     let mut statement = conn.prepare(
         "SELECT json_extract(payload_json,'$.delta') FROM harness_events WHERE run_id=?1 AND kind='token_delta' ORDER BY seq"
     ).map_err(err)?;
@@ -584,7 +585,7 @@ pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<(), String> {
     let project = conn.query_row("SELECT id FROM project WHERE id=?1 AND archived_at IS NULL",
         [&project], |r| r.get::<_,String>(0)).optional().map_err(err)?
         .unwrap_or_else(|| crate::notes::DEFAULT_PROJECT.into());
-    capture(conn, &project, &caption, "agent_trace")?;
+    capture_scoped(conn, &project, &caption, "agent_trace", &space, Some(run_id))?;
     if count > 0 {
         if let Some(skill) = skill {
             conn.execute("UPDATE procedural_skills SET success_count=success_count+1 WHERE id=?1", [skill])
@@ -599,6 +600,58 @@ pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<(), String> {
 pub struct DreamSuggestion {
     title: String,
     summary: String,
+}
+
+#[tauri::command]
+pub fn dream_stage(app: AppHandle, state: State<'_, AppState>, event_ids: Vec<String>, title: String,
+    target_note_id: Option<String>, synthesis: Option<String>) -> Result<String, String> {
+    use crate::harness::{policy::PermissionManifest, staging};
+    let selected: BTreeSet<_> = event_ids.into_iter().collect();
+    if selected.is_empty() || selected.len() > 20 || title.len() > 240 || title.contains(['\r','\n','\0']) {
+        return Err("请选择有效的闪念与单行标题".into());
+    }
+    let result = with_store(&state, |store| {
+        let mut context = None;
+        let mut quoted = Vec::new();
+        {
+            let conn = store.conn.lock().unwrap();
+            for id in &selected {
+                let (project,space,text): (String,String,String) = conn.query_row(
+                    "SELECT e.project_id,e.space_id,e.raw_text FROM episodic_events e
+                     JOIN project p ON p.id=e.project_id WHERE e.id=?1 AND e.archived_at IS NULL AND p.archived_at IS NULL",
+                    [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+                ).optional().map_err(err)?.ok_or("找不到当前候选记忆")?;
+                let scope = (project,space);
+                if context.as_ref().is_some_and(|prior| prior != &scope) { return Err("请在同一项目和脑区内整理".into()); }
+                context = Some(scope);
+                quoted.push(text.lines().map(|line| format!("> {line}")).collect::<Vec<_>>().join("\n"));
+            }
+        }
+        let (project, space) = context.ok_or("请先选择闪念")?;
+        let target = target_note_id.as_deref().map(|id| store.read(id)).transpose()?;
+        if let Some(note) = &target {
+            if note.summary.project_id != project || brain_spaces::note_space(&store.conn.lock().unwrap(), &note.summary.id)? != space {
+                return Err("做梦整理只能提议修改同一项目和脑区的笔记".into());
+            }
+        } else if title.trim().is_empty() { return Err("请填写笔记标题".into()); }
+        let note_id = target.as_ref().map(|note| note.summary.id.clone()).unwrap_or_else(id);
+        let run = id();
+        let body = format!("## 做梦整理\n\n{}\n\n### 闪念原文\n\n{}\n",synthesis.as_deref().unwrap_or(""),quoted.join("\n\n"));
+        let proposed = target.as_ref().map(|note| format!("{}\n\n{body}",note.content))
+            .unwrap_or_else(|| format!("# {}\n\n{body}",title.trim()));
+        let policy = PermissionManifest { readable_note_ids:vec![note_id.clone()], ..Default::default() };
+        let conn = store.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction().map_err(err)?;
+        tx.execute("INSERT INTO harness_runs(id,title,backend_kind,backend_id,permission_manifest_json,status,created_at,updated_at,project_id,space_id)
+            VALUES(?1,?2,'local_cli','做梦整理',?3,'review_ready',?4,?4,?5,?6)",
+            params![run,format!("做梦整理 · {}", target.as_ref().map_or(title.trim(), |note| &note.summary.title)),
+                serde_json::to_string(&policy).map_err(err)?,now_ms(),project,space]).map_err(err)?;
+        staging::propose(&tx,&run,"brain_note",&note_id,target.as_ref().map(|note| note.content.as_str()),&proposed,"做梦整理")?;
+        tx.commit().map_err(err)?;
+        Ok(run)
+    })?;
+    changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]

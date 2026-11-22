@@ -239,6 +239,13 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
 pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute_batch("
+        CREATE TABLE IF NOT EXISTS model_profiles (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, backend_kind TEXT NOT NULL, backend_id TEXT NOT NULL,
+          model_name TEXT NOT NULL DEFAULT '', reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+          temperature REAL NOT NULL DEFAULT 0.3, max_steps INTEGER NOT NULL DEFAULT 12,
+          max_budget_usd REAL NOT NULL DEFAULT 0.5, default_space_id TEXT NOT NULL DEFAULT 'work',
+          default_permissions_json TEXT NOT NULL, updated_at INTEGER NOT NULL
+        ) STRICT;
         CREATE TABLE IF NOT EXISTS brain_spaces (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '', isolated INTEGER NOT NULL DEFAULT 0,
@@ -250,6 +257,7 @@ pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
             VALUES(?1,?2,?1,?3,NOT ?3,?4)", rusqlite::params![id,name,isolated,crate::notes::now_ms()])?;
     }
     for (table, column, definition) in [
+        ("brain_settings", "global_system_prompt", "TEXT NOT NULL DEFAULT ''"),
         ("note", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
         ("episodic_events", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
         ("episodic_events", "review_status", "TEXT NOT NULL DEFAULT 'candidate'"),

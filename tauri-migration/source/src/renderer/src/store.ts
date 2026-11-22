@@ -37,6 +37,10 @@ interface WorkbenchState {
   draftSkillId: string
   activeRunId: string
   setActiveRunId(id: string): void
+  showShadow(id: string): void
+  requestMemoryReview(id: string): void
+  memoryReviewId: string
+  clearMemoryReview(): void
   trySkill(id: string): void
   setPendingDiffCount(count: number): void
   draftNoteIds: string[]
@@ -68,6 +72,10 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   draftSkillId: '',
   activeRunId: '',
   setActiveRunId: activeRunId => set({ activeRunId }),
+  showShadow: activeRunId => set({ activeView: 'workbench', activeRunId, inspectorOpen: true }),
+  memoryReviewId: '',
+  requestMemoryReview: memoryReviewId => set({ activeView: 'workbench', activeRunId: '', memoryReviewId }),
+  clearMemoryReview: () => set({ memoryReviewId: '' }),
   trySkill: id => set({ draftSkillId: id, activeView: 'workbench', activeRunId: '' }),
   setPendingDiffCount: pendingDiffCount => set({ pendingDiffCount }),
   draftNoteIds: [],

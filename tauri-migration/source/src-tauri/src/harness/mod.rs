@@ -4,3 +4,5 @@ pub mod staging;
 pub mod local_cli;
 pub mod llm_provider;
 pub mod engine;
+pub mod profiles;
+pub mod prompt_assembler;

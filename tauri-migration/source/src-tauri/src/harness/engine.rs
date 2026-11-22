@@ -1,4 +1,4 @@
-use super::{llm_provider as llm, policy::PermissionManifest, staging};
+use super::{llm_provider as llm, policy::PermissionManifest, profiles, prompt_assembler::{self, AssembledPrompt}, staging};
 use crate::{
     agent_log_harvester, brain_spaces::{self, SpaceScopePolicy}, context_compiler,
     notes::{now_ms, NoteFilters, NoteStore},
@@ -16,15 +16,15 @@ use tokio::sync::oneshot;
 const EVENT: &str = "harness:event";
 const CANCELLED: &str = "任务已取消";
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum BackendKind {
+pub enum BackendKind {
     LocalCli,
     ApiKey,
 }
 
 impl BackendKind {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::LocalCli => "local_cli",
             Self::ApiKey => "api_key",
@@ -40,6 +40,7 @@ pub struct RunRequest {
     backend_kind: BackendKind,
     backend_id: String,
     model_override: Option<String>,
+    profile_id: Option<String>,
     seed_note_id: Option<String>,
     skill_id: Option<String>,
     attached_log_session_ids: Vec<String>,
@@ -87,6 +88,8 @@ enum HarnessEvent<'a> {
         wave: Option<&'a context_compiler::BrainActivationWave>,
         attached_log_count: usize,
     },
+    PromptAssembled { run_id: &'a str, prompt: &'a AssembledPrompt, space_ids: &'a [String] },
+    StepUsage { run_id: &'a str, step: u32, #[serde(flatten)] usage: Usage },
     TokenDelta {
         run_id: &'a str,
         delta: &'a str,
@@ -115,6 +118,8 @@ impl HarnessEvent<'_> {
         match self {
             Self::RunStarted { run_id, .. }
             | Self::ContextActivated { run_id, .. }
+            | Self::PromptAssembled { run_id, .. }
+            | Self::StepUsage { run_id, .. }
             | Self::TokenDelta { run_id, .. }
             | Self::ToolCall { run_id, .. }
             | Self::DiffProposed { run_id, .. }
@@ -139,7 +144,10 @@ enum Backend {
 struct Task {
     id: String,
     backend: Backend,
-    context: String,
+    user_prompt: String,
+    system: AssembledPrompt,
+    options: llm::ModelOptions,
+    space_ids: Vec<String>,
     model: String,
     permissions: PermissionManifest,
     wave: Option<context_compiler::BrainActivationWave>,
@@ -219,7 +227,7 @@ fn select_backend(
             }
             #[cfg(windows)]
             {
-                let route = app
+                let mut route = app
                     .state::<crate::agent_plugins::AgentPlugins>()
                     .route(app, Some(&request.backend_id))?
                     .ok_or("请先在本机 Agent 设置中启用 CLI")?;
@@ -229,6 +237,13 @@ fn select_backend(
                 {
                     return Err("工作台隔离模式需要独立 Windows EXE".into());
                 }
+                if let Some(model) = &request.model_override {
+                    if model.is_empty() || model.len() > 240 || model.starts_with('-') || model.chars().any(char::is_control) {
+                        return Err("模型标识无效".into());
+                    }
+                    if route.model_flag.is_none() { return Err("该 CLI 无模型覆盖参数".into()); }
+                    route.selected_model = model.clone();
+                }
                 let id = route.id.clone();
                 let model = route.selected_model.clone();
                 Ok((Backend::Local(route), id, model))
@@ -237,16 +252,55 @@ fn select_backend(
     }
 }
 
+fn apply_profile(conn: &Connection, request: &mut RunRequest) -> Result<llm::ModelOptions, String> {
+    let Some(id) = request.profile_id.as_deref() else { return Ok(llm::ModelOptions::default()); };
+    let profile = profiles::get(conn, id)?;
+    request.backend_kind = profile.backend_kind;
+    request.backend_id = profile.backend_id;
+    request.model_override = (!profile.model_name.trim().is_empty()).then_some(profile.model_name);
+    let template = profile.default_permissions;
+    request.permissions.allow_all_notes_read &= template.allow_all_notes_read;
+    request.permissions.allow_brain_note_propose &= template.allow_brain_note_propose;
+    request.permissions.allow_network &= template.allow_network;
+    request.permissions.allow_shell &= template.allow_shell;
+    request.permissions.writable_dirs.retain(|path| template.writable_dirs.contains(path));
+    request.permissions.max_steps = request.permissions.max_steps.min(profile.max_steps);
+    request.permissions.max_budget_usd = request.permissions.max_budget_usd.min(profile.max_budget_usd);
+    Ok(llm::ModelOptions {
+        temperature: Some(profile.temperature), reasoning_effort: Some(profile.reasoning_effort),
+    })
+}
+
+fn export_allowed(conn: &Connection, spaces: &[String]) -> Result<bool, String> {
+    for space in spaces {
+        let allowed: bool = conn.query_row("SELECT allow_export FROM brain_spaces WHERE id=?1",
+            [space], |row| row.get(0)).map_err(db_error)?;
+        if !allowed { return Ok(false); }
+    }
+    Ok(true)
+}
+
+struct Compiled {
+    system: AssembledPrompt,
+    wave: Option<context_compiler::BrainActivationWave>,
+    log_count: usize,
+    space_ids: Vec<String>,
+    options: llm::ModelOptions,
+}
+
 fn load_context(
     store: &NoteStore,
     request: &mut RunRequest,
     id: &str,
-) -> Result<(String, Option<context_compiler::BrainActivationWave>, usize), String> {
+) -> Result<Compiled, String> {
     let mut selected_skill = None;
-    let (log_block, log_count, spaces);
+    let (log_block, log_count, spaces, options, allow_export);
+    request.permissions.validate()?;
     {
         let conn = store.conn.lock().unwrap();
+        options = apply_profile(&conn, request)?;
         spaces = request.space_scope.allowed(&conn)?;
+        allow_export = export_allowed(&conn, &spaces)?;
         (log_block, log_count) = context_compiler::compile_harness_logs(
             &conn,
             &request.attached_log_session_ids,
@@ -262,7 +316,7 @@ fn load_context(
             selected_skill = Some(prompt);
         }
     }
-    let mut compiled = request.prompt.clone();
+    let mut compiled = String::new();
     let mut wave = None;
     if let Some(seed) = &request.seed_note_id {
         if !request.permissions.can_read_note(seed) {
@@ -284,7 +338,13 @@ fn load_context(
         compiled.push_str(&format!("\n\n[所选技能说明]\n{}", json!(rule)));
     }
     compiled.push_str(&log_block);
-    Ok((compiled, wave, log_count))
+    let system = prompt_assembler::assemble(store, &request.permissions, compiled, allow_export, &request.space_scope.target_space_id)?;
+    Ok(Compiled { system, wave, log_count, space_ids: spaces, options })
+}
+
+#[tauri::command]
+pub fn harness_preview_prompt(state: State<'_, AppState>, mut request: RunRequest) -> Result<AssembledPrompt, String> {
+    with_store(&state, |store| Ok(load_context(store,&mut request,"preview")?.system))
 }
 
 fn insert(
@@ -292,7 +352,6 @@ fn insert(
     request: &mut RunRequest,
     sender: oneshot::Sender<()>,
 ) -> Result<Task, String> {
-    request.permissions.validate()?;
     if request.title.trim().is_empty()
         || request.title.len() > 400
         || request.prompt.trim().is_empty()
@@ -304,7 +363,7 @@ fn insert(
     let id = uuid::Uuid::new_v4().to_string();
     let state = app.state::<AppState>();
     with_store(&state, |store| {
-        let (context, wave, log_count) = load_context(store, request, &id)?;
+        let Compiled { system, wave, log_count, space_ids, options } = load_context(store, request, &id)?;
         let (backend, backend_id, model) = select_backend(app, store, request)?;
         let project = request
             .seed_note_id
@@ -351,7 +410,10 @@ fn insert(
         Ok(Task {
             id,
             backend,
-            context,
+            user_prompt: request.prompt.clone(),
+            system,
+            options,
+            space_ids,
             model,
             permissions: request.permissions.clone(),
             wave,
@@ -384,11 +446,9 @@ fn use_tool(
             Ok(json!({"content":content}))
         }
         "propose_file_write" => {
-            let conn = store.conn.lock().unwrap();
-            let export: bool = conn.query_row("SELECT allow_export FROM brain_spaces WHERE id=?1",
-                [&scope.target_space_id], |row| row.get(0)).map_err(db_error)?;
-            if !export { return Err("本脑区禁止导出文件".into()); }
-            drop(conn);
+            if !export_allowed(&store.conn.lock().unwrap(), &spaces)? {
+                return Err("任务读取范围含禁止导出的脑区".into());
+            }
             let id = staging::propose_workspace_file(
                 store,
                 policy,
@@ -487,19 +547,21 @@ async fn api_task(
     key: &str,
 ) -> Result<(), String> {
     let id = &task.id;
-    let mut history = vec![llm::Turn::User(task.context.clone())];
+    let mut history = vec![llm::Turn::User(task.user_prompt.clone())];
     let mut usage = Usage::default();
     let mut actions = 0;
     for step in 0..task.permissions.max_steps {
         let with_tools =
             step + 1 < task.permissions.max_steps && actions < task.permissions.max_steps;
-        let (reply, cost) = llm::stream(
+        let (reply, cost) = llm::stream_configured(
             provider,
             key,
             &task.model,
             &history,
             (task.permissions.max_budget_usd - usage.cost_usd).max(0.0),
             with_tools,
+            &task.system.final_prompt,
+            &task.options,
             |text| {
                 emit(
                     app,
@@ -515,6 +577,8 @@ async fn api_task(
         usage.token_out = usage.token_out.saturating_add(reply.output);
         usage.cost_usd += cost;
         save_usage(app, id, usage)?;
+        emit(app, HarnessEvent::StepUsage { run_id:id, step:step+1,
+            usage:Usage { token_in:reply.input, token_out:reply.output, cost_usd:cost } })?;
         if usage.cost_usd > task.permissions.max_budget_usd {
             return Err("模型返回的计费已达到任务上限".into());
         }
@@ -681,14 +745,15 @@ pub fn harness_start_run(app: AppHandle, mut request: RunRequest) -> Result<Stri
         if let Some(wave) = &task.wave {
             let _ = app.emit("brain://activation-wave", wave);
         }
-        let result = match emit(
+        let assembled = emit(&app, HarnessEvent::PromptAssembled { run_id:&task.id, prompt:&task.system, space_ids:&task.space_ids });
+        let result = match assembled.and_then(|()| emit(
             &app,
             HarnessEvent::ContextActivated {
                 run_id: &task.id,
                 wave: task.wave.as_ref(),
                 attached_log_count: task.log_count,
             },
-        ) {
+        )) {
             Err(error) => Err(error),
             Ok(()) => match task.backend {
                 Backend::Api(ref provider, ref key) => tokio::select! {
@@ -704,7 +769,7 @@ pub fn harness_start_run(app: AppHandle, mut request: RunRequest) -> Result<Stri
                         &task.permissions,
                         &task.scope,
                         route,
-                        task.context,
+                        format!("{}\n\n[任务]\n{}", task.system.final_prompt, task.user_prompt),
                         cancel,
                     )
                     .await
@@ -800,20 +865,20 @@ pub fn staging_resolve_diff(
     accept: bool,
 ) -> Result<(), String> {
     let completed = with_store(&state, |store| {
-        let (diff, status, policy) = {
+        let (diff, status, policy, space, project) = {
             let conn = store.conn.lock().unwrap();
             let diff = staging::get(&conn, &diff_id)?;
-            let (status, raw): (String, String) = conn
+            let (status, raw, space, project): (String, String, String, String) = conn
                 .query_row(
-                    "SELECT status,permission_manifest_json FROM harness_runs WHERE id=?1",
+                    "SELECT status,permission_manifest_json,space_id,project_id FROM harness_runs WHERE id=?1",
                     [&diff.run_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(db_error)?;
             (
                 diff,
                 status,
-                serde_json::from_str::<PermissionManifest>(&raw).map_err(db_error)?,
+                serde_json::from_str::<PermissionManifest>(&raw).map_err(db_error)?, space, project,
             )
         };
         if status == "running" || diff.status != "pending" {
@@ -821,8 +886,20 @@ pub fn staging_resolve_diff(
         }
         if accept {
             match diff.target_kind.as_str() {
-                "workspace_file" => staging::approve_file(store, &policy, &diff)?,
-                "brain_note" => staging::approve_note(store, &policy, &diff)?,
+                "workspace_file" => {
+                    if !export_allowed(&store.conn.lock().unwrap(), &[space.clone()])? {
+                        return Err("此脑区禁止导出文件".into());
+                    }
+                    staging::approve_file(store, &policy, &diff)?;
+                }
+                "brain_note" if diff.base_sha256 == "absent" && policy.allow_brain_note_propose =>
+                    staging::approve_new_note(store, &diff, &project, &space)?,
+                "brain_note" => {
+                    if brain_spaces::note_space(&store.conn.lock().unwrap(), &diff.target_ref)? != space {
+                        return Err("暂存笔记已不在任务写入脑区".into());
+                    }
+                    staging::approve_note(store, &policy, &diff)?;
+                }
                 _ => return Err("不支持该变更类型".into()),
             }
         }
@@ -856,4 +933,47 @@ pub fn staging_resolve_diff(
         let _ = app.emit("brain://changed", ());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_uses_profile_limits_and_only_authorized_rules() -> Result<(), String> {
+        let root = std::env::temp_dir().join(format!("plate-s11-m2-{}",uuid::Uuid::new_v4()));
+        let result = (|| {
+            let workspace = root.join("notes");
+            let rules = root.join("authorized");
+            std::fs::create_dir_all(&rules).map_err(db_error)?;
+            std::fs::write(rules.join("AGENTS.md"),"AUTHORIZED_WORK_RULE").map_err(db_error)?;
+            std::fs::write(root.join("CLAUDE.md"),"OTHER_PRIVATE_RULE").map_err(db_error)?;
+            let store = NoteStore::new(&workspace)?;
+            let template = PermissionManifest { writable_dirs: vec![rules.canonicalize().map_err(db_error)?],
+                allow_network:true, ..Default::default() };
+            {
+                let conn = store.conn.lock().unwrap();
+                conn.execute("UPDATE brain_settings SET global_system_prompt='GLOBAL_FIXTURE' WHERE singleton=1",[]).map_err(db_error)?;
+                conn.execute("INSERT INTO model_profiles(id,name,backend_kind,backend_id,max_steps,max_budget_usd,default_permissions_json,updated_at)
+                    VALUES('p','Fixture','api_key','',3,0.2,?1,1)",[serde_json::to_string(&template).map_err(db_error)?]).map_err(db_error)?;
+            }
+            let mut req = RunRequest { title:"test".into(),prompt:"user input".into(), backend_kind:BackendKind::ApiKey,
+                backend_id:String::new(),model_override:None,profile_id:Some("p".into()),seed_note_id:None,skill_id:None,
+                attached_log_session_ids:vec![],space_scope:SpaceScopePolicy {
+                    target_space_id:"work".into(),readable_space_ids:vec!["personal".into()],
+                }, permissions:PermissionManifest { writable_dirs:vec![rules,root.clone()], ..template } };
+            let preview = load_context(&store,&mut req,"preview")?;
+            assert_eq!(preview.space_ids,["work"]);
+            assert_eq!(req.permissions.max_steps,3);
+            assert_eq!(req.permissions.max_budget_usd,0.2);
+            assert_eq!(req.permissions.writable_dirs.len(),1);
+            assert!(preview.system.final_prompt.contains("GLOBAL_FIXTURE"));
+            assert!(preview.system.final_prompt.contains("AUTHORIZED_WORK_RULE"));
+            assert!(!preview.system.final_prompt.contains("OTHER_PRIVATE_RULE"));
+            assert_eq!(serde_json::to_value(&preview.system).map_err(db_error)?["layers"].as_array().unwrap().len(),4);
+            Ok(())
+        })();
+        std::fs::remove_dir_all(root).map_err(db_error)?;
+        result
+    }
 }

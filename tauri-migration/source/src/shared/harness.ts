@@ -75,12 +75,31 @@ export interface PermissionManifest {
   maxBudgetUsd: number
 }
 
+export interface ModelProfile {
+  id: string
+  name: string
+  backendKind: BackendKind
+  backendId: string
+  modelName: string
+  reasoningEffort: 'low' | 'medium' | 'high'
+  temperature: number
+  maxSteps: number
+  maxBudgetUsd: number
+  defaultSpaceId: string
+  defaultPermissions: PermissionManifest
+}
+
+export interface PromptLayer { layerName: string; sourceLabel: string; content: string; approxTokens: number }
+export interface AssembledPrompt { layers: PromptLayer[]; finalPrompt: string; totalApproxTokens: number }
+
 export interface HarnessRunRequest {
   title: string
   prompt: string
   backendKind: BackendKind
   backendId: string
   modelOverride?: string
+  profileId?: string
+  spaceScope?: import('./brain').SpaceScope
   seedNoteId?: string
   skillId?: string
   attachedLogSessionIds: string[]
@@ -108,6 +127,7 @@ export interface StagedDiff {
   runId: string
   targetKind: 'workspace_file' | 'brain_note'
   targetRef: string
+  executionMode: 'shadow'
   baseSha256: string
   proposedContent: string
   unifiedDiff: string
@@ -119,6 +139,8 @@ export interface StagedDiff {
 export type HarnessEvent = { runId: string } & (
   | { kind: 'run_started'; prompt: string }
   | { kind: 'context_activated'; wave: import('./brain').BrainActivationWave | null; attachedLogCount: number }
+  | { kind: 'prompt_assembled'; prompt: AssembledPrompt; spaceIds: string[] }
+  | ({ kind: 'step_usage'; step: number } & Usage)
   | { kind: 'token_delta'; delta: string }
   | { kind: 'tool_call'; toolName: string; summary: string; allowed: boolean }
   | { kind: 'diff_proposed'; diffId: string }
@@ -126,6 +148,12 @@ export type HarnessEvent = { runId: string } & (
 )
 
 export interface HarnessApi {
+  preview(request: HarnessRunRequest): Promise<AssembledPrompt>
+  profiles(): Promise<ModelProfile[]>
+  saveProfile(profile: ModelProfile): Promise<ModelProfile>
+  deleteProfile(id: string): Promise<void>
+  globalPrompt(): Promise<string>
+  saveGlobalPrompt(prompt: string): Promise<void>
   start(request: HarnessRunRequest): Promise<string>
   cancel(runId: string): Promise<void>
   list(): Promise<HarnessRun[]>

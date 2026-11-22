@@ -4,6 +4,7 @@ import { BrainHudBar, CaptureForm, ConsolidationDialog, CorticalZonesLayer, Epis
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
+import { useWorkbench } from './store'
 import { noteRelations } from './relation-directions'
 import { frameNodes, interpolateCamera, type Camera, type Point } from './relationship-camera'
 import { cardWidth, connectCards, measureCards, port, type CardBox } from './relationship-geometry'
@@ -180,18 +181,14 @@ export function RelationshipGraph({
     setBrainError('')
     try { await work() } catch (error) { setBrainError(String(error)) }
   }
-  const consolidate = async (ids: string[], title: string, target?: string, synthesis?: string) => {
+  const promote = async (event: EpisodicEvent) => {
     const root = section.current
     const bounds = root?.getBoundingClientRect()
-    const visible = ids.map(id => root?.querySelector('[data-event-id="' + CSS.escape(id) + '"]'))
-      .find(card => {
-        const rect = card?.getBoundingClientRect()
-        const lane = card?.parentElement?.getBoundingClientRect()
-        return rect && lane && rect.top >= lane.top && rect.bottom <= lane.bottom
-      })
+    const visible = root?.querySelector('[data-event-id="' + CSS.escape(event.id) + '"]')
     const origin = visible?.getBoundingClientRect()
-    const text = visible?.querySelector('p')?.textContent ?? ''
-    const id = await window.workbench.brain.consolidate(ids, title, target, synthesis)
+    const text = event.rawText
+    const id = await window.workbench.brain.promote(event.id, event.spaceId)
+    await brain.refresh()
     if (origin && bounds) {
       setMigration({ id, text, width: origin.width,
         from: { x: origin.left + origin.width / 2 - bounds.left, y: origin.top + origin.height / 2 - bounds.top } })
@@ -935,11 +932,7 @@ export function RelationshipGraph({
           setFresh(undefined)
           setConsolidation(undefined)
         }}
-        promote={async event => {
-          await window.workbench.brain.promote(event.id, event.spaceId)
-          await brain.refresh()
-          reload()
-        }}
+        promote={promote}
         composer={<CaptureForm spaceId={brain.spaceId} project={activeProject} projectLabel={projectLabel} captured={captured}/>}/>
       {flight && <div className="brain-memory-flight" aria-hidden="true"
         style={{
@@ -961,12 +954,15 @@ export function RelationshipGraph({
       <SkillDock skills={brain.skills} wave={brain.wave} inspect={setSkill} create={() => setSkill('new')}/>
     </>}
     {stale && <ContextRotDialog items={stale} close={() => setStale(undefined)} propose={id => {
-      setStale(undefined); open(id)
+      setStale(undefined); useWorkbench.getState().requestMemoryReview(id)
     }}/>}
     {capture && <QuickCaptureBar spaceId={brain.spaceId} project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
       captured={captured}/>}
     {consolidation && (consolidation.length ? <ConsolidationDialog events={consolidation} nodes={nodes}
-      close={() => setConsolidation(undefined)} consolidate={consolidate}/> :
+      close={() => setConsolidation(undefined)} consolidate={async (ids, title, target, synthesis) => {
+        const run = await window.workbench.brain.stageDream(ids, title, target, synthesis)
+        useWorkbench.getState().showShadow(run)
+      }}/> :
       <EditorDialog title="做梦整理" close={() => setConsolidation(undefined)} kind="brain" cancelLabel="关闭">
         <p>当前范围没有可整理的闪念。</p>
       </EditorDialog>)}

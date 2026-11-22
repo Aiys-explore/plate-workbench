@@ -22,13 +22,14 @@ pub struct StagedDiff {
     pub unified_diff: String,
     pub rationale: String,
     pub status: String,
+    pub execution_mode: String,
     pub created_at: i64,
     #[serde(skip)]
     previous_excerpt: String,
 }
 
 const SELECT: &str = "SELECT id,run_id,target_kind,target_ref,base_sha256,proposed_content,
-    unified_diff,rationale,status,created_at,previous_excerpt FROM staged_diffs";
+    unified_diff,rationale,status,created_at,previous_excerpt,execution_mode FROM staged_diffs";
 
 fn row_to_diff(row: &Row<'_>) -> rusqlite::Result<StagedDiff> {
     Ok(StagedDiff {
@@ -43,6 +44,7 @@ fn row_to_diff(row: &Row<'_>) -> rusqlite::Result<StagedDiff> {
         status: row.get(8)?,
         created_at: row.get(9)?,
         previous_excerpt: row.get(10)?,
+        execution_mode: row.get(11)?,
     })
 }
 
@@ -236,6 +238,16 @@ pub fn resolve_record(conn: &Connection, diff: &StagedDiff, accepted: bool) -> R
     if changed == 0 {
         return Err("该条变更已处理".into());
     }
+    Ok(())
+}
+
+pub fn approve_new_note(store: &NoteStore, diff: &StagedDiff, project: &str, space: &str) -> Result<(), String> {
+    let (title, body) = diff.proposed_content.split_once('\n').ok_or("缺少新笔记标题")?;
+    let title = title.strip_prefix("# ").ok_or("缺少新笔记标题")?;
+    let marker = format!("<!-- plate-brain-write:{} -->",diff.id);
+    store.create_memory_note(&diff.target_ref,project,title,&format!("{marker}\n{body}"),&marker)?;
+    store.conn.lock().unwrap().execute("UPDATE note SET space_id=?2 WHERE id=?1",
+        params![diff.target_ref,space]).map_err(|e| e.to_string())?;
     Ok(())
 }
 

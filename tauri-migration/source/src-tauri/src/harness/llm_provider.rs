@@ -352,16 +352,55 @@ fn event(
     Ok(())
 }
 
+#[derive(Clone, Default)]
+pub struct ModelOptions {
+    pub temperature: Option<f64>,
+    pub reasoning_effort: Option<String>,
+}
+
+fn configured_body(kind: ProviderKind, model: &str, history: &[Turn], limit: u64, tools: bool,
+    system: &str, options: &ModelOptions) -> Value {
+    let mut payload = body(kind, model, history, limit, tools);
+    if !system.is_empty() {
+        match kind {
+            ProviderKind::Openai | ProviderKind::OpenaiCompatible => {
+                payload["messages"].as_array_mut().unwrap().insert(0, json!({"role":"system","content":system}));
+            }
+            ProviderKind::Anthropic => payload["system"] = json!(system),
+            ProviderKind::Gemini => payload["systemInstruction"] = json!({"parts":[{"text":system}]}),
+        }
+    }
+    let reasoning = kind == ProviderKind::Openai
+        && ["o1","o3","o4","gpt-5"].iter().any(|prefix| model.starts_with(prefix));
+    if reasoning {
+        if let Some(effort) = &options.reasoning_effort { payload["reasoning_effort"] = json!(effort); }
+    } else if let Some(temp) = options.temperature {
+        if kind == ProviderKind::Gemini { payload["generationConfig"]["temperature"] = json!(temp); }
+        else { payload["temperature"] = json!(temp); }
+    }
+    payload
+}
+
 pub async fn stream(
+    provider: &ProviderConfig, key: &str, model: &str, history: &[Turn],
+    remaining_cost: f64, allow_tools: bool,
+    delta: impl FnMut(&str) -> Result<(), String>,
+) -> Result<(Reply, f64), String> {
+    stream_configured(provider,key,model,history,remaining_cost,allow_tools,"",&ModelOptions::default(),delta).await
+}
+
+pub async fn stream_configured(
     provider: &ProviderConfig,
     key: &str,
     model: &str,
     history: &[Turn],
     remaining_cost: f64,
     allow_tools: bool,
+    system: &str,
+    options: &ModelOptions,
     mut delta: impl FnMut(&str) -> Result<(), String>,
 ) -> Result<(Reply, f64), String> {
-    let payload = body(provider.kind, model, history, 1024, allow_tools);
+    let payload = configured_body(provider.kind, model, history, 1024, allow_tools, system, options);
     let input_bound = payload.to_string().len() as u64 + 256;
     let estimated_input_cost = input_bound as f64 * provider.input_price_per_1m / 1_000_000.0;
     if estimated_input_cost > remaining_cost {
@@ -395,7 +434,7 @@ pub async fn stream(
     let request = provider_store::http_client()?
         .post(address)
         .timeout(Duration::from_secs(90))
-        .json(&body(provider.kind, model, history, limit, allow_tools));
+        .json(&configured_body(provider.kind, model, history, limit, allow_tools, system, options));
     let response = provider
         .kind
         .authenticate(request, key)

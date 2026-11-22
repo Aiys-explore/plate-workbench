@@ -75,6 +75,7 @@ export interface BrainApi {
   capture(projectId: string, rawText: string, spaceId?: string): Promise<string>
   events(projectId?: string, spaceId?: string): Promise<EpisodicEvent[]>
   consolidate(eventIds: string[], title: string, targetNoteId?: string, synthesis?: string): Promise<string>
+  stageDream(eventIds: string[], title: string, targetNoteId?: string, synthesis?: string): Promise<string>
   dreamSuggestion(eventIds: string[]): Promise<{ title: string; summary: string }>
   dream(projectId?: string, spaceId?: string): Promise<EpisodicEvent[]>
   skills(): Promise<BrainSkill[]>

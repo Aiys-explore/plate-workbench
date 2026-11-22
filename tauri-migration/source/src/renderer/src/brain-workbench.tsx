@@ -196,7 +196,7 @@ export function ContextRotDialog({ items, close, propose }: {
       {items.map(item => <article key={item.id}>
         <strong>{item.title}</strong>
         <p>{item.dormant ? '休眠' : '待复核'} · {date(item.updatedAt)}</p>
-        <button type="button" onClick={() => propose(item.id)}>复核记忆</button>
+        <button type="button" onClick={() => propose(item.id)}>发起更新提案</button>
       </article>)}
     </div>
   </EditorDialog>
@@ -220,7 +220,7 @@ export function ConsolidationDialog({ events, nodes, close, consolidate }: {
     try { await consolidate(selected, title, target || undefined, synthesis || undefined); close() }
     catch (issue) { setError(message(issue)); setBusy(false) }
   }
-  return <EditorDialog title="固化闪念" close={close} kind="brain">
+  return <EditorDialog title="做梦整理" close={close} kind="brain">
     <form className="brain-form" onSubmit={save}>
       <div className="brain-choice-list">
         {events.map(event => <label key={event.id}>
@@ -249,7 +249,7 @@ export function ConsolidationDialog({ events, nodes, close, consolidate }: {
             setSynthesis(draft.summary)
           }).catch(cause => setError(message(cause))).finally(() => setBusy(false))
         }}>用模型整理所选闪念</button>
-        <button type="submit" className="button-primary" disabled={busy || !selected.length || !target && !title.trim()}>确认固化</button>
+        <button type="submit" className="button-primary" disabled={busy || !selected.length || !target && !title.trim()}>加入影子审阅</button>
       </div>
       {synthesis && <label>审阅排版和正文<textarea rows={5} value={synthesis} onChange={event => setSynthesis(event.target.value)}/></label>}
     </form>
