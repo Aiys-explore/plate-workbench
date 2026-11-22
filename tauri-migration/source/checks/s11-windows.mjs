@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { chromium } from 'playwright'
 
 const source = resolve(import.meta.dirname,'..')
+const packaged = process.argv.includes('--packaged')
 const temporary = await realpath(tmpdir())
 const sandbox = await mkdtemp(join(temporary,'plate-s11-check-'))
 const workspace = join(sandbox,'workspace')
@@ -149,8 +150,10 @@ await new Promise(done=>debug.close(done))
 const address='http://127.0.0.1:'+debugPort
 
 try {
-  vite=spawn(process.execPath,[join(source,'node_modules','vite','bin','vite.js'),'--strictPort'],{cwd:source,windowsHide:true,stdio:'ignore'})
-  await awaitHttp('http://127.0.0.1:5173',vite)
+  if (!packaged) {
+    vite=spawn(process.execPath,[join(source,'node_modules','vite','bin','vite.js'),'--strictPort'],{cwd:source,windowsHide:true,stdio:'ignore'})
+    await awaitHttp('http://127.0.0.1:5173',vite)
+  }
   app=spawn(resolve(process.argv[2] ?? join(source,'src-tauri','target','debug','plate-workbench.exe')),[],{
     cwd:sandbox,windowsHide:true,stdio:'inherit',env:{...process.env,PLATE_WORKSPACE_ROOT:workspace,
       PLATE_AGENT_SETTINGS_DIR:join(sandbox,'agent-settings'),WEBVIEW2_USER_DATA_FOLDER:join(sandbox,'webview'),

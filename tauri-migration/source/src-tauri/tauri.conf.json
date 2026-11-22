@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Plate Workbench S10 Preview",
+  "productName": "Plate Workbench S11 Preview",
   "version": "0.7.0-s11",
-  "identifier": "local.plate.workbench.s10-preview",
+  "identifier": "local.plate.workbench.s11-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:5173",
@@ -47,10 +47,10 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFQTczQ0ZCM0NGNkY0RkYKUldULzlQWTgrenluWGpLNzNMSjBlbWNUS0gyck5CbXEvTzlHdzB0Qmp5Z0VFQkxDUW9DTzF6RUUK",
       "endpoints": [
-        "https://raw.githubusercontent.com/fundops-notes/plate-workbench/checkpoint/tauri-s10/tauri-migration/updates/windows-x64-s10.json"
+        "https://raw.githubusercontent.com/fundops-notes/plate-workbench/checkpoint/tauri-s11/tauri-migration/updates/windows-x64-s11.json"
       ],
       "requireSignedVersion": true
     }
   },
-  "mainBinaryName": "plate-workbench-s10"
+  "mainBinaryName": "plate-workbench-s11"
 }

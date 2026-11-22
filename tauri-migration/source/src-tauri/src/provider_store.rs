@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
 
-const SERVICE: &str = "local.plate.workbench.providers";
+const SERVICE: &str = "local.plate.workbench.s11.providers";
 const SELECT: &str = "SELECT id, name, kind, base_url, default_model, roles_json, key_hint,
     input_price_per_1m, output_price_per_1m, enabled, updated_at FROM llm_providers";
 
@@ -217,7 +217,8 @@ fn upsert(conn: &Connection, input: UpsertProviderInput) -> Result<ProviderConfi
     }) {
         return Err("API Key 含有不支持的字符或长度超限".into());
     }
-    let existing = input.id.as_deref().map(|id| get(conn, id)).transpose()?;
+    let existing = input.id.as_deref().map(|id| get(conn, id)).transpose()?
+        .map(preview_credential_hint);
     if let Some(old) = &existing {
         if !old.key_hint.is_empty()
             && key.is_none()
@@ -275,6 +276,15 @@ fn upsert(conn: &Connection, input: UpsertProviderInput) -> Result<ProviderConfi
     get(conn, &id)
 }
 
+fn preview_credential_hint(mut provider: ProviderConfig) -> ProviderConfig {
+    if !provider.key_hint.is_empty()
+        && !entry(&provider.id).and_then(|entry| read_secret(&entry)).is_ok_and(|key| key.is_some())
+    {
+        provider.key_hint.clear();
+    }
+    provider
+}
+
 fn delete(conn: &Connection, id: &str) -> Result<(), String> {
     let provider = get(conn, id)?;
     let tx = conn.unchecked_transaction().map_err(db_error)?;
@@ -307,7 +317,9 @@ pub fn http_client() -> Result<Client, String> {
 
 #[tauri::command]
 pub fn provider_list(state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
-    with_store(&state, |store| list(&store.conn.lock().unwrap()))
+    with_store(&state, |store| {
+        Ok(list(&store.conn.lock().unwrap())?.into_iter().map(preview_credential_hint).collect())
+    })
 }
 
 #[tauri::command]

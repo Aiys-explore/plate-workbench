@@ -44,7 +44,7 @@ fn with_store<T>(state: &State<'_, AppState>, f: impl FnOnce(&NoteStore) -> Resu
 }
 
 const MARKER: &str = "plate-workbench.json";
-const WORKSPACE_DIRECTORY: &str = "Plate Workbench S10 Preview";
+const WORKSPACE_DIRECTORY: &str = "Plate Workbench S11 Preview";
 
 fn workspace_override() -> Option<PathBuf> {
     std::env::var_os("PLATE_WORKSPACE_ROOT")

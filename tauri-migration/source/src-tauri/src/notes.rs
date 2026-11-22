@@ -137,9 +137,13 @@ pub fn check_project(id: &str) -> Result<(), String> {
 }
 
 pub fn check_note_id(id: &str) -> Result<(), String> {
-    let ok = id.len() == 36
-        && id.chars().filter(|&c| c == '-').count() == 4
-        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    let (uuid, suffix) = id.split_once("-conflict-").map_or((id, None), |(uuid, suffix)| (uuid, Some(suffix)));
+    let legacy_stamp = |suffix: &str| {
+        let b = suffix.as_bytes();
+        b.len() == 16 && b[8].eq_ignore_ascii_case(&b't') && b[15].eq_ignore_ascii_case(&b'z')
+            && b[..8].iter().all(u8::is_ascii_digit) && b[9..15].iter().all(u8::is_ascii_digit)
+    };
+    let ok = uuid.len() == 36 && uuid::Uuid::parse_str(uuid).is_ok() && suffix.is_none_or(legacy_stamp);
     if ok { Ok(()) } else { Err("笔记 ID 无效".into()) }
 }
 
@@ -397,9 +401,40 @@ impl NoteStore {
                 conn.execute("DELETE FROM note WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
             }
         }
+        self.rebase_draft_paths(&conn)?;
         drop(conn);
         *self.refs.lock().unwrap() = found.iter()
             .map(|f| (f.id.clone(), f.meta.references.clone())).collect();
+        Ok(())
+    }
+
+    // A copied workspace must restore and save drafts against its own note files.
+    fn rebase_draft_paths(&self, conn: &Connection) -> Result<(), String> {
+        let pending = {
+            let mut stmt = conn.prepare(
+                "SELECT d.note_id,d.project_id,d.path,n.path FROM note_draft d
+                 LEFT JOIN note n ON n.id=d.note_id WHERE n.path IS NULL OR n.path<>d.path",
+            ).map_err(|error| error.to_string())?;
+            let rows = stmt.query_map([], |row| Ok((
+                row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?,
+            ))).map_err(|error| error.to_string())?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())?
+        };
+        for (id, project, stored, indexed) in pending {
+            check_note_id(&id)?;
+            check_project(&project)?;
+            let current = indexed.map(PathBuf::from)
+                .unwrap_or_else(|| self.projects_dir.join(project).join(format!("{id}.md")));
+            if !current.starts_with(&self.projects_dir) {
+                return Err("恢复草稿的笔记路径超出当前工作区".into());
+            }
+            let current = current.to_string_lossy();
+            if current != stored {
+                conn.execute("UPDATE note_draft SET path=?2 WHERE note_id=?1", params![id,current])
+                    .map_err(|error| error.to_string())?;
+            }
+        }
         Ok(())
     }
 
@@ -410,7 +445,8 @@ impl NoteStore {
         conn.execute(
             "INSERT INTO note (id, path, title, project_id, kind, created_at, updated_at,space_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,COALESCE((SELECT space_id FROM note_space_assignments WHERE note_id=?1),'learning'))
-             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3, kind=?5, project_id=?4, updated_at=?7,
+             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3,
+             kind=CASE WHEN note.kind='conflict' THEN note.kind ELSE ?5 END, project_id=?4, updated_at=?7,
              space_id=COALESCE((SELECT space_id FROM note_space_assignments WHERE note_id=?1),note.space_id)",
             params![id, path.to_string_lossy(), meta.title, project_id, kind, created_at, updated_at],
         ).map_err(|e| e.to_string())?;
@@ -585,15 +621,8 @@ impl NoteStore {
     }
 
     fn keep_both(&self, row: &NoteSummary, content: &str) -> Result<SaveResult, String> {
-        let src = Path::new(&row.path);
-        let dir = src.parent().unwrap();
-        let stem = src.file_stem().unwrap().to_string_lossy().to_string();
-        let stamp = chrono_stamp();
-        let copy_path = dir.join(format!("{stem}-conflict-{stamp}.md"));
-        write_new_file(&copy_path, content)?;
-        self.scan()?;
-        let copy_id = copy_path.file_stem().unwrap().to_string_lossy().to_string().to_lowercase();
-        Ok(SaveResult::Conflict { current: self.read(&row.id).ok(), copy: self.read(&copy_id)? })
+        let copy = self.write_conflict_copy(&row.id, Path::new(&row.path), content)?;
+        Ok(SaveResult::Conflict { current: self.read(&row.id).ok(), copy })
     }
 
     pub fn delete(&self, id: &str, revision: Option<String>) -> Result<String, String> {
@@ -871,14 +900,23 @@ impl NoteStore {
     pub fn draft_save_copy(&self, id: &str, version: &str) -> Result<Note, String> {
         let stored = self.draft_row(id)?.ok_or("恢复草稿不存在")?;
         if stored.version != version { return Err("草稿版本已变化，请刷新后重试".into()); }
-        let src = Path::new(&stored.path);
-        let dir = src.parent().unwrap();
-        let stem = src.file_stem().unwrap().to_string_lossy().to_string();
-        let copy_path = dir.join(format!("{stem}-conflict-{}.md", chrono_stamp()));
-        write_new_file(&copy_path, &stored.content)?;
+        self.write_conflict_copy(id, Path::new(&stored.path), &stored.content)
+    }
+
+    fn write_conflict_copy(&self, source_id: &str, source_path: &Path, content: &str) -> Result<Note, String> {
+        let directory = source_path.parent().filter(|parent| parent.starts_with(&self.projects_dir))
+            .ok_or("草稿的原笔记不在当前工作区")?;
+        let space: String = self.conn.lock().unwrap().query_row(
+            "SELECT COALESCE((SELECT space_id FROM note_space_assignments WHERE note_id=?1),
+                (SELECT space_id FROM note WHERE id=?1), 'learning')", [source_id], |row| row.get(0),
+        ).map_err(|error| error.to_string())?;
+        let id = uuid::Uuid::new_v4().to_string();
+        self.reserve_note_space(&id, &space)?;
+        write_new_file(&directory.join(format!("{id}.md")), content)?;
         self.scan()?;
-        let copy_id = copy_path.file_stem().unwrap().to_string_lossy().to_string().to_lowercase();
-        self.read(&copy_id)
+        self.conn.lock().unwrap().execute("UPDATE note SET kind='conflict' WHERE id=?1", [&id])
+            .map_err(|error| error.to_string())?;
+        self.read(&id)
     }
 
     pub fn connect_nodes(&self, source_id: &str, target_id: &str, downstream: bool) -> Result<Note, String> {
@@ -934,24 +972,6 @@ fn write_new_file(path: &Path, content: &str) -> Result<(), String> {
     })
 }
 
-fn chrono_stamp() -> String {
-    let secs = now_ms() / 1000;
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let mth = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if mth <= 2 { y + 1 } else { y };
-    format!("{year:04}{mth:02}{d:02}T{h:02}{m:02}{s:02}Z")
-}
-
 fn urlencoding_min(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
@@ -961,4 +981,38 @@ fn urlencoding_min(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+#[test]
+fn copied_private_draft_uses_current_library_and_preserves_space() -> Result<(), String> {
+    let sandbox = std::env::temp_dir().join(format!("plate-s11-draft-test-{}",uuid::Uuid::new_v4()));
+    let result = (|| {
+        let store = NoteStore::new(&sandbox.join("copy"))?;
+        let original = store.create("Private draft",DEFAULT_PROJECT,"blank","personal")?;
+        let draft = "# Edited draft\n";
+        store.draft_write(&original.summary.id,draft,&original.revision,Some("fixture".into()))?;
+        let old_dir = sandbox.join("old");
+        std::fs::create_dir(&old_dir).map_err(|e| e.to_string())?;
+        let stale = old_dir.join(format!("{}.md",original.summary.id));
+        std::fs::write(&stale,&original.content).map_err(|e| e.to_string())?;
+        store.conn.lock().unwrap().execute("UPDATE note_draft SET path=?2 WHERE note_id=?1",
+            params![original.summary.id,stale.to_string_lossy()]).map_err(|e| e.to_string())?;
+        store.scan()?;
+        assert!(matches!(store.draft_restore(&original.summary.id)?,DraftRecovery::Restored { .. }));
+        let saved = store.draft_save_copy(&original.summary.id,"fixture")?;
+        assert_eq!(saved.content,draft);
+        assert_eq!(saved.summary.kind,"conflict");
+        assert!(Path::new(&saved.summary.path).starts_with(&store.projects_dir));
+        assert_eq!(crate::brain_spaces::note_space(&store.conn.lock().unwrap(),&saved.summary.id)?,"personal");
+        store.scan()?;
+        assert_eq!(store.read(&saved.summary.id)?.summary.kind,"conflict");
+        assert_eq!(std::fs::read_dir(old_dir).map_err(|e| e.to_string())?.count(),1);
+        assert_eq!(std::fs::read_to_string(stale).map_err(|e| e.to_string())?, original.content);
+        Ok(())
+    })();
+    let resolved = sandbox.canonicalize().map_err(|e| e.to_string())?;
+    assert_eq!(resolved.parent(),Some(std::env::temp_dir().canonicalize().map_err(|e| e.to_string())?.as_path()));
+    std::fs::remove_dir_all(resolved).map_err(|e| e.to_string())?;
+    result
 }
