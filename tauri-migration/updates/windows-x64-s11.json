@@ -1,0 +1,11 @@
+{
+  "version": "0.7.0-s11",
+  "notes": "S11 Windows x64 独立预览，支持多脑区记忆、办公 Harness 与 S10.1 笔记副本迁移。",
+  "pub_date": "2026-11-22T09:19:07Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVULzlQWTgrenluWHVKNVdxbmJIUXg4eXc5RTgxVlJOQ21PUk1wdDVocXRaMU1LblpIWjI0QkNOWHpQckxNbU1rOGNOL2hCeDNYaExVckhUZENmcXVaczhPT0RWSFRUaHdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzM5MDM2CWZpbGU6UGxhdGUtUzExLTAuNy4wLXMxMS1TZXR1cC14NjQuZXhlCXZlcnNpb246MC43LjAtczExClV4ck92cnJ6Y29UYmVXSElVMlMraDV5UnoyWnJORHJtRjVLOCt5anAzMHZrdWRhRlplVkxWZE5MTGVHUkZQQkxFWXh4WUFBTW12eGNEUXVMZ0FzV0RnPT0K",
+      "url": "https://github.com/fundops-notes/plate-workbench/releases/download/v0.7.0-s11/Plate-S11-0.7.0-s11-Setup-x64.exe"
+    }
+  }
+}
