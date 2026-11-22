@@ -71,3 +71,5 @@
 - 合成验收截图 [复合输入岛](evidence/s10-m4/composer.png) · [暂存审阅](evidence/s10-m4/workbench-review.png) · [大脑 HUD](evidence/s10-m4/brain-hud.png)。
 
 后续 Windows x64 预览包的安装、签名和旧库兼容结果见 [S10 发布验收](S10-RELEASE-ACCEPTANCE.md)。
+
+根据交互原型完成的后续前端精修见 [S10 界面精修验收](S10-UIUX-ACCEPTANCE.md)。
