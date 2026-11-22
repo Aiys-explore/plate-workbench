@@ -1,0 +1,11 @@
+{
+  "version": "0.6.0-s10.0",
+  "notes": "S10 首个 Windows x64 预览版。独立安装，支持用笔记库副本试用。",
+  "pub_date": "2026-11-22T00:18:32Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVULzlQWTgrenluWG56YVAybWVmUnFPZVZrdVoxRCtDTXZoOE5hZmlJYVg4WVYweUVhUWlKZzFzWVRmU3I1a0dyWjdKRGVCN3BxMUFEbjhUMG5PZ01oSTY4dG1lNjBhTVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzA2NjEwCWZpbGU6UGxhdGUtUzEwLTAuNi4wLXMxMC4wLVNldHVwLXg2NC5leGUJdmVyc2lvbjowLjYuMC1zMTAuMAo1SVV2c1B3b2t6WkJpSHNlNU1SNFUraW93aGhVWmNBUGp5dTZ1UEY1ak5KeW1DVmEvUnBlUUJWVnhGR0kvSExxK0JCWkFDN2tLcUw3ZFRQTjMwQklEQT09Cg==",
+      "url": "https://github.com/fundops-notes/plate-workbench/releases/download/v0.6.0-s10.0/Plate-S10-0.6.0-s10.0-Setup-x64.exe"
+    }
+  }
+}
