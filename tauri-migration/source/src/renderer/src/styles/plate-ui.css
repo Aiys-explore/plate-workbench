@@ -107,7 +107,7 @@
 }
 .plate-ui .note-create-panel > button:first-child:hover:not(:disabled) { color: var(--color-text-primary); }
 .plate-ui .notes-views { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); margin: var(--space-1) var(--space-3) var(--space-1); padding: 0; }
-.plate-ui .tree-row { inset-inline: 8px; font-size: var(--plate-list-font); border-radius: var(--plate-radius); }
+.plate-ui .tree-row { inset-inline: 8px; font-size: var(--plate-list-font); border-radius: var(--radius-md); }
 .plate-ui .tree-row small { font-size: var(--plate-caption-font); }
 .plate-ui .tree-row[aria-current='page'] { background: var(--state-selected); }
 .plate-ui .tree-row[aria-current='page']:hover { background: var(--state-selected-hover); }

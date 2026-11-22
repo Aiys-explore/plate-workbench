@@ -34,7 +34,7 @@ export function ActivityRail() {
   return <nav className="s10-activity-rail" aria-label="主导航">
     {items.map(({ id, icon, key }) => <IconAction key={id} icon={icon} label={viewLabels[id]} size={18}
       className={id === 'settings' ? 's10-rail-settings' : undefined}
-      shortcut={'Ctrl+' + key} active={active === id} aria-current={active === id ? 'page' : undefined}
+      shortcut={'Ctrl+' + key} active={active === id} data-tip-side="right" aria-current={active === id ? 'page' : undefined}
       badge={id === 'workbench' ? pending : undefined} onClick={() => navigate(id)}/>)}
   </nav>
 }

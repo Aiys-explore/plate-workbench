@@ -4,6 +4,7 @@ import type { WorkbenchApi } from '../../shared/ipc'
 import { PaletteHost } from './palette'
 import { PaletteRegistry, RegistryContext, target, usePaletteOwner, type Source } from './palette-registry'
 import { Layout } from './layout'
+import { ActionTooltips } from './icon-action'
 import { HelpDialog } from './help'
 import { StartupGate } from './startup'
 import { useWorkbench } from './store'
@@ -63,6 +64,7 @@ function Workbench({ registry, notePath }: { registry: PaletteRegistry; notePath
   return (
     <div className="shell plate-ui plate-map-shell" ref={shell}>
       <Layout openAgentSettings={openSettings}/>
+      <ActionTooltips/>
       {helpOrigin && <HelpDialog notePath={notePath} restore={helpOrigin.restore} paletteBound={paletteBound} readAppInfo={window.workbench.getAppInfo} onClose={() => setHelpOrigin(undefined)}/>}
       {agentSettings && <AgentSettingsDialog onClose={() => setAgentSettings(false)}/>}
       <PaletteHost registry={registry} shell={shell} fallback={fallback} binding={setPaletteBound}/>

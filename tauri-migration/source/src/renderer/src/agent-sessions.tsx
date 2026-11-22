@@ -730,7 +730,7 @@ function MetricChip({ metric, label, data, failed, open }: {
   const value = metricValue(metric, data, failed)
   const unknown = value === '未知'
   return <button type="button" className={`metric-chip metric-chip-${metric}`} onClick={() => open(metric)}
-    title={unknown ? unknownHint : undefined}
+    data-tip={unknown ? unknownHint : undefined}
     aria-label={unknown ? `${label}：${unknownHint}` : undefined}>
     <span className="metric-status-dot" data-unknown={unknown || undefined} aria-hidden="true" />
     <span>{label}</span>

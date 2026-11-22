@@ -39,6 +39,9 @@ interface WorkbenchState {
   setActiveRunId(id: string): void
   trySkill(id: string): void
   setPendingDiffCount(count: number): void
+  draftNoteIds: string[]
+  attachNoteToWorkbench(id: string): void
+  setDraftNoteIds(ids: string[]): void
   draftAttachedLogs: Pick<ExternalAgentSession, 'id' | 'title'>[]
   attachLogToWorkbench(log: Pick<ExternalAgentSession, 'id' | 'title'>): void
   detachLogFromWorkbench(id: string): void
@@ -67,6 +70,13 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   setActiveRunId: activeRunId => set({ activeRunId }),
   trySkill: id => set({ draftSkillId: id, activeView: 'workbench', activeRunId: '' }),
   setPendingDiffCount: pendingDiffCount => set({ pendingDiffCount }),
+  draftNoteIds: [],
+  attachNoteToWorkbench: id => set(state => ({
+    activeView: 'workbench',
+    activeRunId: '',
+    draftNoteIds: state.draftNoteIds.includes(id) ? state.draftNoteIds : [...state.draftNoteIds, id],
+  })),
+  setDraftNoteIds: draftNoteIds => set({ draftNoteIds }),
   draftAttachedLogs: [],
   attachLogToWorkbench: ({ id, title }) => set(state => ({
     activeView: 'workbench',

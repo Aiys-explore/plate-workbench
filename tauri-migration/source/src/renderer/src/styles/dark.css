@@ -1,5 +1,23 @@
 .theme-dark {
   color-scheme: dark;
+  --bg-rail: #18181b;
+  --bg-sidebar: #151518;
+  --bg-canvas: #121215;
+  --bg-hover: rgb(244 244 245 / .07);
+  --bg-active: rgb(96 165 250 / .15);
+  --border-subtle: rgb(244 244 245 / .10);
+  --border-strong: rgb(244 244 245 / .18);
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --ui-placeholder: #8e8e99;
+  --ui-accent: #93c5fd;
+  --ui-accent-strong: #bfdbfe;
+  --ui-focus-border: rgb(147 197 253 / .55);
+  --ui-memory: #6ee7b7;
+  --ui-memory-bg: rgb(110 231 183 / .12);
+  --shadow-composer: 0 2px 12px rgb(0 0 0 / .22), 0 1px 2px rgb(0 0 0 / .15);
+  --shadow-composer-focus: 0 8px 28px rgb(0 0 0 / .32), 0 0 0 1px rgb(147 197 253 / .12);
+  --shadow-popover: 0 14px 38px rgb(0 0 0 / .45), 0 2px 8px rgb(0 0 0 / .2);
 
   /* Alma 语义色 — dark（本文件是深色主题的唯一真相源）
      plate-ui.css 只引用这里的 token，不再自带色值。 */

@@ -29,6 +29,7 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
   onBrainOpenChange: (open: boolean) => void
 }) {
   const drawerWidth = useWorkbench((state) => state.noteDrawerWidth)
+  const attachNote = useWorkbench(state => state.attachNoteToWorkbench)
   const setDrawerWidthStored = useWorkbench((state) => state.setNoteDrawerWidth)
   const api = window.workbench.notes
   const [index, setIndex] = useState<LinkIndex>({ nodes: [], edges: [], bindings: [] })
@@ -722,7 +723,7 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
   const hudLeft = <>
     <PlateWordmark />
     <button type="button" ref={searchButton} className="plate-map-search-entry" aria-haspopup="dialog"
-      title="搜索或跳转 (Ctrl+K)" onClick={() => openSearch()}>⌕ 搜索 <kbd>Ctrl+K</kbd></button>
+      data-tip="搜索或跳转 (Ctrl+K)" onClick={() => openSearch()}>⌕ 搜索 <kbd>Ctrl+K</kbd></button>
     <select aria-label="导图分区" value={project} onChange={event => setProject(event.target.value)}>
       <option value="">全部导图</option>
       {projects.filter(item => item.archivedAt === null).map(item =>
@@ -737,7 +738,11 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
   </>
   return <>
     {searchOpen && <QuickNodePopover visible={visible} filters={searchFilters} label={label}
-      locate={locateNode} close={() => closeSearch()} searchAll={() => { setProject(''); setTag('') }}/>}
+      locate={locateNode} attach={id => {
+        closeSearch(false)
+        attachNote(id)
+        requestAnimationFrame(() => document.querySelector<HTMLElement>('#s10-prompt')?.focus())
+      }} close={() => closeSearch()} searchAll={() => { setProject(''); setTag('') }}/>}
     <main className="pane editor notes-editor notes-stage" aria-label="编辑区" onKeyDown={saveShortcut}>
       <RelationshipGraph nodes={visible} edges={visibleEdges} selected={activeId} focusId={focusId} hudLeft={hudLeft} hudRight={hudRight}
         brainOpen={brainOpen} onBrainOpenChange={onBrainOpenChange}
@@ -820,7 +825,7 @@ export function NotesWorkspace({ hudRight, brainOpen, onBrainOpenChange }: {
       {conflict && <div role="alert" className="note-notice conflict-notice">
         <strong>保存冲突</strong>
         <p>{conflict.originalExists ? '已保留外部编辑的原文件。' : '原文件已在磁盘上移除。'}本次草稿已另存为：</p>
-        <code title={conflict.copy.path}>{fileName(conflict.copy.path)}</code>
+        <code data-tip={conflict.copy.path}>{fileName(conflict.copy.path)}</code>
         {note?.id !== conflict.copy.id && <button type="button" disabled={busy} onClick={() => select(conflict.copy.id)}>打开冲突副本</button>}
       </div>}
       {external && <div className="note-notice" role="status">

@@ -7,6 +7,9 @@ export {
   KeyRound as IconApiKey, ShieldCheck as IconShield, ChevronRight as IconChevron, Focus as IconFocus,
   Minus as IconMinus, Layers3 as IconZones, Flame as IconHeat, Workflow as IconMotion,
   Palette as IconStyle, Info as IconInfo, FolderPlus as IconFolder, Upload as IconUpload,
-  CalendarClock as IconTime, Trash2 as IconDelete, SquarePen as IconEdit,
+  CalendarClock as IconTime, Trash2 as IconDelete, SquarePen as IconEdit, ChevronUp as IconChevronUp,
+  Undo2 as IconUndo, Redo2 as IconRedo, Bold as IconBold, Italic as IconItalic, Heading as IconHeading,
+  Link2 as IconLink, Image as IconImage, Table as IconTable, List as IconList, ListOrdered as IconListOrdered,
+  ListTodo as IconTodo, Quote as IconQuote, Code as IconCode, Save as IconSave,
 } from 'lucide-react'
 export type { LucideIcon } from 'lucide-react'

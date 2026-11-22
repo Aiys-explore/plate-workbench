@@ -1,13 +1,14 @@
 import { IconAction } from './icon-action'
-import { IconReject } from './components/icons'
+import { IconAttachNote, IconReject } from './components/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { NoteFilters, NoteSummary, SearchResult } from '../../shared/ipc'
 
-export function QuickNodePopover({ visible, filters, label, locate, close, searchAll }: {
+export function QuickNodePopover({ visible, filters, label, locate, attach, close, searchAll }: {
   visible: NoteSummary[]
   filters: NoteFilters
   label: (note: NoteSummary) => string
   locate: (id: string) => void
+  attach: (id: string) => void
   close: () => void
   searchAll: () => void
 }) {
@@ -54,10 +55,13 @@ export function QuickNodePopover({ visible, filters, label, locate, close, searc
       </form>
       {problem ? <p role="alert">{problem}</p> : !rows ? <p role="status">搜索中…</p> :
         !rows.length ? <p role="status">没有匹配的笔记</p> :
-          <ul>{choices.map(({ note }) => <li key={note.id}>
-            <button type="button" onClick={() => locate(note.id)} title={label(note)}>
+          <ul>{choices.map(({ note }) => <li key={note.id} className="s10-row">
+            <button type="button" className="s10-row-label" onClick={() => locate(note.id)} data-tip={label(note)}>
               <span>{note.title}</span><small>{label(note).split(' · ').slice(-2).join(' · ')}</small>
             </button>
+            <div className="s10-row-actions">
+              <IconAction icon={IconAttachNote} label={'引用到工作台：' + note.title} onClick={() => attach(note.id)}/>
+            </div>
           </li>)}</ul>}
       {rows && rows.length > choices.length && <p role="status">显示前 {choices.length} 项，请缩小搜索范围。</p>}
       {(filters.projectId || filters.tags?.length) && <button type="button" onClick={searchAll}>搜索全部导图</button>}

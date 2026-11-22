@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { ActivityRail, viewLabels } from './components/activity-rail'
-import { IconInspector, IconSearch } from './components/icons'
+import { IconBrain, IconInspector, IconSearch } from './components/icons'
 import { IconAction } from './icon-action'
 import { openCommandPalette } from './palette'
 import { usePaletteOwner } from './palette-registry'
@@ -9,7 +9,7 @@ import { NoteIndexNotice, useNoteIndex } from './note-index-status'
 import { useWorkbench } from './store'
 import { LibraryAndLogsView } from './views/library-and-logs-view'
 import { SettingsView } from './views/settings-view'
-import { WorkbenchView } from './views/workbench-view'
+import { WorkbenchView, type WorkbenchHeader } from './views/workbench-view'
 import { SkillsView } from './views/skills-view'
 import './styles/workbench-shell.css'
 
@@ -21,6 +21,7 @@ export function Layout({ openAgentSettings }: { openAgentSettings: () => void })
   const toggleInspector = useWorkbench(state => state.toggleInspector)
   const pending = useWorkbench(state => state.pendingDiffCount)
   const [libraryTab, setLibraryTab] = useState<'notes' | 'logs'>('notes')
+  const [workbenchHeader, setWorkbenchHeader] = useState<WorkbenchHeader>({ activated: 0 })
   const switchBrain = useCallback((open: boolean) => {
     if (!open) setLibraryTab('notes')
     navigate(open ? 'brain' : 'library')
@@ -38,8 +39,13 @@ export function Layout({ openAgentSettings }: { openAgentSettings: () => void })
     <ActivityRail/>
     <div className="s10-frame">
       <header className="s10-header">
-        <strong>{viewLabels[active]}</strong>
-        <div>
+        <div className="s10-header-title">
+          <strong>{(active === 'workbench' && workbenchHeader.title) || viewLabels[active]}</strong>
+          {active === 'workbench' && workbenchHeader.activated > 0 && <span className="s10-activated-memory">
+            <IconBrain size={14} strokeWidth={1.65} aria-hidden="true"/>已激活 {workbenchHeader.activated} 条记忆
+          </span>}
+        </div>
+        <div className="s10-header-actions">
           <IconAction icon={IconSearch} label="命令面板" shortcut="Ctrl+P" className="s10-palette-entry" onClick={openCommandPalette}/>
           {active === 'workbench' && <IconAction icon={IconInspector} label="暂存审阅" active={inspector}
             aria-expanded={inspector} badge={pending} onClick={toggleInspector}/>}
@@ -58,7 +64,7 @@ export function Layout({ openAgentSettings }: { openAgentSettings: () => void })
         </div>
         {!notesVisible && !logsVisible && <main className="s10-page">
           {active === 'settings' && <SettingsView openAgentSettings={openAgentSettings}/>}
-          {active === 'workbench' && <WorkbenchView/>}
+          {active === 'workbench' && <WorkbenchView onHeaderChange={setWorkbenchHeader}/>}
           {active === 'skills' && <SkillsView/>}
         </main>}
       </div>

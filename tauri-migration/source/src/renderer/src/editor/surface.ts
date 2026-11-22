@@ -861,6 +861,7 @@ export class EditorSurface {
     const source = this.host.ownerDocument.createElement('textarea')
     source.dataset.editorHost = 'source'
     source.setAttribute('aria-label', 'Markdown 正文原文')
+    source.placeholder = '输入开始笔记，支持 Markdown 语法…'
     source.spellcheck = false
     this.source = source
     const signal = this.abort.signal

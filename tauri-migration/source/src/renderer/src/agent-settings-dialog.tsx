@@ -282,12 +282,12 @@ export function AgentSettingsDialog({ onClose }: { onClose: () => void }) {
                   <span>选择</span>
                 </label>}
                 {manageMode ? <span className="plate-agent-order" draggable={!busy} aria-hidden="true">⋮⋮</span>
-                  : <span className="plate-agent-grip" draggable={!busy} title="拖动调整优先级" aria-hidden="true">⋮⋮</span>}
+                  : <span className="plate-agent-grip" draggable={!busy} data-tip="拖动调整优先级" aria-hidden="true">⋮⋮</span>}
                 <AgentPluginIcon id={plugin.icon || plugin.id} className="plate-plugin-icon"/>
                 <div className="plate-agent-name">
                   <strong>{displayName(plugin)}</strong>
                   <small>{versionText(plugin) || '未探测到版本'}</small>
-                  <span data-status={plugin.status} title={plugin.hint}>
+                  <span data-status={plugin.status} data-tip={plugin.hint}>
                     <i/>{statusLabel(plugin)}<em>{plugin.hint}</em>
                   </span>
                 </div>
@@ -297,7 +297,7 @@ export function AgentSettingsDialog({ onClose }: { onClose: () => void }) {
                 {!manageMode && <select className="plate-agent-model" value={plugin.selectedModel ?? ''}
                   aria-label={displayName(plugin) + ' 执行模型'}
                   disabled={busy || !plugin.supportsModel || !plugin.models.length}
-                  title={plugin.modelSource === 'local' ? '本机模型记录' : plugin.models.length ? '预设模型，使用权限由 CLI 决定' : plugin.hint}
+                  data-tip={plugin.modelSource === 'local' ? '本机模型记录' : plugin.models.length ? '预设模型，使用权限由 CLI 决定' : plugin.hint}
                   onChange={event => {
                     const model = event.target.value
                     if (expandedId === plugin.id) setDetail(current => ({ ...current, model }))
@@ -410,7 +410,7 @@ export function AgentSettingsDialog({ onClose }: { onClose: () => void }) {
             <AgentPluginIcon id={plugin.icon || plugin.id} className="plate-plugin-icon"/>
             <div className="plate-agent-name">
               <strong>{displayName(plugin)}</strong>
-              <span data-status={plugin.executable ? 'available' : 'off'} title={plugin.hint}>
+              <span data-status={plugin.executable ? 'available' : 'off'} data-tip={plugin.hint}>
                 <i/>{statusLabel(plugin)}<em>{plugin.hint}</em>
               </span>
             </div>

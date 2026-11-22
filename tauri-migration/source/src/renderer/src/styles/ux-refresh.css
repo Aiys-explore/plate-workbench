@@ -7,7 +7,7 @@
 /* 仅保留与颜色无关的跨主题几何 token */
 .theme-light,.theme-dark {
   --transition-fast-duration:160ms; --transition-normal-duration:160ms; --transition-smooth-duration:240ms;
-  --component-modal-radius:var(--radius-lg); --component-button-font-weight:500;
+  --component-modal-radius:var(--radius-xl); --component-button-font-weight:500;
 }
 
 button { min-width:0; padding-inline:12px; border-color:transparent; background:transparent;

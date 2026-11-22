@@ -34,7 +34,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px 4px 12px;
-  border-radius: 24px;
+  border-radius: var(--radius-pill);
 }
 .brain-run-status { font-variant-numeric: tabular-nums; }
 .brain-run-status::before {
@@ -43,7 +43,7 @@
   margin-inline-end: 7px;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--brain-green);
 }
 .brain-run-status[data-active='true'] { color: var(--brain-green); }
@@ -96,7 +96,7 @@
 .brain-episodic-card {
   padding: 7px 8px;
   border: 1px dashed var(--brain-gold);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--brain-amber-paper);
   overflow: hidden;
 }
@@ -117,7 +117,7 @@
   pointer-events: none;
   padding: 7px 8px;
   border: 1px dashed var(--brain-gold);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--brain-amber-paper);
   color: var(--color-text-primary);
   white-space: nowrap;
@@ -144,7 +144,7 @@
   color: var(--brain-violet);
   background: var(--brain-violet-paper);
   border: 1px solid var(--brain-violet);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .brain-skill-list button[data-attached='true'] { outline: 2px solid var(--brain-green); outline-offset: -2px; }
 .brain-skill-list button small { margin-inline-start: 5px; font-variant-numeric: tabular-nums; }
@@ -161,6 +161,24 @@
   padding: 6px 8px;
 }
 .brain-form textarea { resize: vertical; }
+.brain-form textarea::placeholder { color: var(--ui-placeholder); }
+.brain-capture-inline {
+  pointer-events: auto;
+  position: relative;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 7px;
+}
+.brain-capture-inline:focus-within { border-color: var(--ui-focus-border); }
+.brain-capture-inline textarea, .brain-capture-inline textarea:focus {
+  field-sizing: content;
+  min-height: 44px;
+  max-height: 104px;
+  padding: 0; border: 0; outline: 0; resize: none;
+  background: transparent;
+}
+.brain-capture-inline > button { justify-self: end; }
 .brain-form p, .brain-timeline p { margin: 0; }
 .brain-choice-list { max-height: 240px; overflow: auto; }
 .brain-choice-list label { display: flex; align-items: start; overflow-wrap: anywhere; gap: 7px; padding: 4px; }

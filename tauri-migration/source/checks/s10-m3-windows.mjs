@@ -134,6 +134,7 @@ try {
   await nav.getByRole('button', { name: /工作台/ }).click()
 
   await page.getByRole('button', { name: '模型与引擎' }).click()
+  await page.getByText('任务设置', { exact: true }).click()
   await page.getByLabel('任务标题').fill('API 打开与暂存')
   await page.getByLabel('任务内容').fill('Create a staged change in the approved directory.')
   await page.getByRole('button', { name: '任务权限' }).click()

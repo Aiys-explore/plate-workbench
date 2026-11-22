@@ -5,14 +5,17 @@ import { plateTitle } from '../../shared/plate-title'
 import { EditorSession, boxes, imagePath, safeLink, visible, type Bookmark } from './editor/session'
 import { EditorSurface } from './editor/surface'
 import type { Box } from './editor/projection'
+import { IconAction } from './icon-action'
+import { IconBold, IconCode, IconDelete, IconHeading, IconImage, IconItalic, IconLink, IconList, IconListOrdered,
+  IconMore, IconQuote, IconRedo, IconSave, IconTable, IconTodo, IconUndo } from './components/icons'
 
 const commonTools = ['undo','redo','strong','em','heading','list','quote','link','more'] as const
 const narrowTools = commonTools.filter(id=>id!=='list' && id!=='quote' && id!=='link')
 const tools = [
-  ['undo', '撤销', '↶'], ['redo', '重做', '↷'], ['strong', '加粗', 'B'], ['em', '斜体', 'I'],
-  ['heading', '标题', '正文'], ['link', '链接', '↗'], ['image', '图片', '▧'], ['table', '表格', '▦'],
-  ['list', '无序列表', '≡'], ['ordered', '有序列表', '1.'], ['task', '任务列表', '☑'], ['quote', '引用', '❞'],
-  ['code', '代码', '</>'], ['more', '更多', '⋯']
+  ['undo', '撤销', IconUndo], ['redo', '重做', IconRedo], ['strong', '加粗', IconBold], ['em', '斜体', IconItalic],
+  ['heading', '标题', IconHeading], ['link', '链接', IconLink], ['image', '图片', IconImage], ['table', '表格', IconTable],
+  ['list', '无序列表', IconList], ['ordered', '有序列表', IconListOrdered], ['task', '任务列表', IconTodo], ['quote', '引用', IconQuote],
+  ['code', '代码', IconCode], ['more', '更多', IconMore]
 ] as const
 type Tool = typeof tools[number][0]
 type Field = { name: string; initial: string; multiline?: boolean }
@@ -37,6 +40,7 @@ type Props = {
 export function NoteEditor(props: Props) {
   const { session, surface, readOnly, note } = props
   const [composingTitle, setComposingTitle] = useState<string>()
+  const [composingBody, setComposingBody] = useState(false)
   const commitTitle = (title: string) => surface.current?.outsideEdit(() => session.changeTitle(title))
   const host = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -152,9 +156,7 @@ export function NoteEditor(props: Props) {
   const findInput = useRef<HTMLInputElement>(null)
   const [wideTable, setWideTable] = useState(false)
   const [control, setControl] = useState<Tool>('undo')
-  const [tooltip, setTooltip] = useState<{ label: string; anchor: HTMLElement }>()
   const reasonId = "editor-tool-reason"
-  const tooltipTimer = useRef<number | undefined>(undefined)
   const [rawList, setRawList] = useState(false)
   const [tableRemoval, setTableRemoval] = useState<{ title: string; run: () => boolean; mark: Bookmark }>()
 
@@ -198,15 +200,6 @@ export function NoteEditor(props: Props) {
   }, [])
   useEffect(() => { setMenu(undefined); setForm(undefined); setTablePicker(undefined); setIssue(''); setRawList(false); setFind(false) }, [session])
   useEffect(() => { if (readOnly) setMenu(undefined) }, [readOnly])
-  useEffect(() => () => window.clearTimeout(tooltipTimer.current), [])
-
-  function clearTooltip() { window.clearTimeout(tooltipTimer.current); setTooltip(undefined) }
-  function showTooltip(label: string, anchor: HTMLElement) {
-    clearTooltip()
-    tooltipTimer.current = window.setTimeout(() => {
-      if (anchor.isConnected) setTooltip({ label, anchor })
-    }, 500)
-  }
 
   function apply(action: () => unknown) {
     const result = surface.current?.command(action) ?? false
@@ -383,7 +376,6 @@ export function NoteEditor(props: Props) {
 
   return <section data-editor-surface onKeyDown={event => {
     if (handleTaskAutocompleteKey(event, autocomplete)) return
-    if (event.key === 'Escape' && tooltip) clearTooltip()
     const target = event.target as HTMLElement
     if (!event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey) && !event.shiftKey &&
       event.key.toLowerCase() === 'f' && (host.current?.contains(target) || findInput.current === target)) {
@@ -394,7 +386,7 @@ export function NoteEditor(props: Props) {
     }
   }}>
     <div data-editor-meta>
-      <input type="text" data-editor-meta-title aria-label="笔记标题" placeholder="未命名笔记" maxLength={240}
+      <input type="text" data-editor-meta-title aria-label="笔记标题" placeholder="输入笔记标题…" maxLength={240}
         value={composingTitle ?? plateTitle(session.raw)?.title ?? note.title} readOnly={readOnly}
         onCompositionStart={event => setComposingTitle(event.currentTarget.value)}
         onCompositionEnd={event => { setComposingTitle(undefined); commitTitle(event.currentTarget.value) }}
@@ -408,8 +400,8 @@ export function NoteEditor(props: Props) {
           }
         }}/>
       <div data-editor-meta-actions>
-        <button type="button" className="button-primary" disabled={readOnly || !session.dirty} onClick={props.save}>保存</button>
-        <button type="button" disabled={readOnly} onClick={props.remove}>删除</button>
+        <IconAction icon={IconSave} label="保存" disabled={readOnly || !session.dirty} onClick={props.save}/>
+        <IconAction icon={IconDelete} label="删除" danger disabled={readOnly} onClick={props.remove}/>
       </div>
     </div>
     {session.mode === 'source' ? <div data-editor-toolbar><button type="button" disabled={readOnly}
@@ -422,23 +414,22 @@ export function NoteEditor(props: Props) {
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? shown.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + shown.length) % shown.length
         ;(toolbar.current?.querySelectorAll<HTMLElement>('[data-editor-tool]')[next])?.focus()
       }}>
-        {shown.map(([id, label, icon]) => {
+        {shown.map(([id, label, Icon]) => {
           const reason=toolReason(id)
           const disabled=!!reason
           return <Fragment key={id}>
           {['strong','list','link'].includes(id) && <span className="plate-toolbar-divider" aria-hidden="true" />}
           <button type="button" data-editor-tool={id} data-editor-tool-heading={id === 'heading' ? '' : undefined}
-            aria-label={label} aria-disabled={disabled} aria-describedby={reason && id===activeTool ? reasonId : undefined} title={reason || undefined} tabIndex={id === activeTool ? 0 : -1}
+            aria-label={label} aria-disabled={disabled} aria-describedby={reason && id===activeTool ? reasonId : undefined}
+            data-tip={reason ? label + ' · ' + reason : label} tabIndex={id === activeTool ? 0 : -1}
             aria-pressed={id === 'strong' || id === 'em' ? session.formatState(id) : undefined}
-            onFocus={event => { setControl(id); showTooltip(label, event.currentTarget) }} onBlur={clearTooltip}
-            onPointerEnter={event => showTooltip(label, event.currentTarget)} onPointerLeave={clearTooltip}
+            onFocus={() => setControl(id)}
             onPointerDown={() => { pointerMark.current = surface.current?.captureBookmark() }}
             onClick={event => {
               const mark = (event.detail ? pointerMark.current : undefined) ?? surface.current?.captureBookmark()
-              clearTooltip()
               pointerMark.current = undefined
               if (mark) command(id, mark, event.currentTarget)
-            }}>{id === 'heading' && heading ? 'H' + heading : icon}</button>
+            }}>{id === 'heading' && heading ? 'H' + heading : <Icon size={16} strokeWidth={1.65} aria-hidden="true"/>}</button>
           </Fragment>
         })}
         <button type="button" disabled={readOnly} onClick={() => apply(() => session.appendTask())}>＋ 任务</button>
@@ -491,7 +482,9 @@ export function NoteEditor(props: Props) {
           </>}
           <button type="button" disabled={readOnly} onClick={event => tableActions(event.currentTarget)}>表格操作</button>
         </div>}
-        <div data-editor-surface-host ref={host} />
+        <div data-editor-surface-host ref={host}
+          data-editor-blank={session.mode === 'render' && !composingBody && !session.raw.slice(session.projection.titleEnd).trim() || undefined}
+          onCompositionStart={() => setComposingBody(true)} onCompositionEnd={() => setComposingBody(false)}/>
         <TaskCaretHint state={autocomplete} />
         <TaskAutocomplete state={autocomplete} surface={surface} />
         {session.mode === 'render' && session.projection.protected.some(node => node.role !== 'plate-title') && <>
@@ -504,9 +497,6 @@ export function NoteEditor(props: Props) {
       </div>
     </div>
     <div data-editor-status role="status">{props.status}</div>
-    {tooltip && !form && !menu && <span data-editor-tooltip role="tooltip" style={{ position: 'fixed',
-      left: Math.min(tooltip.anchor.getBoundingClientRect().left, innerWidth - 120),
-      top: tooltip.anchor.getBoundingClientRect().bottom + 4 }}>{tooltip.label}</span>}
     {menu && <EditorMenu menu={menu} close={() => setMenu(undefined)} />}
     {form && <EditorDialog title={form.title} close={() => {
       setForm(undefined); setIssue(''); requestAnimationFrame(() => formMark && surface.current?.restoreBookmark(formMark))
@@ -618,7 +608,7 @@ function EditorMenu({ menu, close }: { menu: Menu; close: () => void }) {
     const at = items.indexOf(document.activeElement as HTMLButtonElement)
     items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length]?.focus()
   }}>{menu.detail && <p className="editor-float-detail">{menu.detail}</p>}{menu.choices.map(choice => <button key={choice.label} tabIndex={-1} role="menuitem" data-editor-float-item type="button" disabled={choice.disabled}
-    aria-description={choice.reason} title={choice.reason} onClick={() => { close(); choice.run() }}>{choice.label}</button>)}</div>
+    aria-description={choice.reason} data-tip={choice.reason} onClick={() => { close(); choice.run() }}>{choice.label}</button>)}</div>
 }
 
 function P10Tasks({noteId,revision,readOnly}:{noteId:string;revision:string;readOnly:boolean}) {

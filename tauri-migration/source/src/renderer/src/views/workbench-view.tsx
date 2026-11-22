@@ -7,7 +7,7 @@ import type {
 import { useWorkbench } from '../store'
 import { readPreferences } from '../s10-preferences'
 import { IconAction } from '../icon-action'
-import { IconAccept, IconAttachLog, IconAttachNote, IconDiff, IconModel, IconNew, IconPermission,
+import { IconAccept, IconAttachLog, IconAttachNote, IconChevronUp, IconDiff, IconDream, IconModel, IconNew, IconPermission,
   IconReject, IconSend, IconStop } from '../components/icons'
 import type { ExternalAgentSession } from '../../../shared/harness'
 
@@ -16,6 +16,13 @@ const statusLabel: Record<RunStatus, string> = {
 }
 const issue = (error: unknown) => error instanceof Error ? error.message : String(error)
 const api = () => window.workbench.harness
+const panelLabels = { notes: '引用笔记', logs: '引用记录', permissions: '任务权限', models: '模型与引擎' } as const
+const starters = [
+  ['整理本机排错记录并沉淀笔记', '整理我挂载的本机排错记录，提取问题、修复步骤和可复用经验，生成一条待审阅的笔记。'],
+  ['基于大脑笔记审查权限策略', '结合我挂载的笔记，检查当前任务的权限范围，列出需要补充或收紧的地方。'],
+  ['从闪念提炼可复用技能', '根据我提供的闪念找出可以复用的流程，整理为一份技能草稿。'],
+] as const
+export type WorkbenchHeader = { title?: string; activated: number }
 
 function Timeline({ events, notes }: { events: HarnessEvent[]; notes: NoteSummary[] }) {
   const output = events.flatMap(event => event.kind === 'token_delta' ? [event.delta] : []).join('')
@@ -45,7 +52,7 @@ function Timeline({ events, notes }: { events: HarnessEvent[]; notes: NoteSummar
   </div>
 }
 
-export function WorkbenchView() {
+export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: WorkbenchHeader) => void }) {
   const [runs, setRuns] = useState<HarnessRun[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [diffs, setDiffs] = useState<StagedDiff[]>([])
@@ -66,9 +73,15 @@ export function WorkbenchView() {
   const inspector = useWorkbench(state => state.inspectorOpen)
   const toggleInspector = useWorkbench(state => state.toggleInspector)
   const attach = useWorkbench(state => state.attachLogToWorkbench)
-  const [extraNotes, setExtraNotes] = useState<string[]>([])
+  const extraNotes = useWorkbench(state => state.draftNoteIds)
+  const setExtraNotes = useWorkbench(state => state.setDraftNoteIds)
   const [localLogs, setLocalLogs] = useState<ExternalAgentSession[]>([])
-  const [panel, setPanel] = useState<'notes' | 'logs' | 'permissions' | 'models'>()
+  const [panel, setPanel] = useState<keyof typeof panelLabels>()
+  const composer = useRef<HTMLFormElement>(null)
+  const promptInput = useRef<HTMLTextAreaElement>(null)
+  const panelTrigger = useRef<HTMLButtonElement>(null)
+  const panelElement = useRef<HTMLElement>(null)
+  const enterPanel = useRef(false)
   const [dirs, setDirs] = useState('')
   const [allowNetwork, setAllowNetwork] = useState(false)
   const [allowShell, setAllowShell] = useState(false)
@@ -87,6 +100,56 @@ export function WorkbenchView() {
   const selectedRef = useRef(runId)
   selectedRef.current = runId
   const selected = runs.find(run => run.id === runId)
+  const activated = events.reduce((count, event) => event.kind === 'context_activated'
+    ? event.wave?.activatedNoteIds.length ?? 0 : count, 0)
+
+  useEffect(() => {
+    onHeaderChange({ title: selected?.title, activated })
+  }, [selected?.title, activated, onHeaderChange])
+
+  useEffect(() => {
+    const count = diffs.filter(diff => diff.runId === runId && diff.status === 'pending').length
+    setPendingDiffCount(count || (runs.some(run => run.status === 'review_ready') ? 1 : 0))
+  }, [diffs, runId, runs, setPendingDiffCount])
+
+  useEffect(() => {
+    if (!panel) return
+    const form = composer.current
+    const surface = form?.parentElement
+    const popover = panelElement.current
+    const fit = () => {
+      if (!form || !surface || !popover) return
+      const space = form.getBoundingClientRect().top - surface.getBoundingClientRect().top - 18
+      popover.style.setProperty('--s10-panel-space', Math.max(52, space) + 'px')
+    }
+    fit()
+    const resize = new ResizeObserver(fit)
+    if (form && surface) {
+      resize.observe(form)
+      resize.observe(surface)
+    }
+    if (enterPanel.current) {
+      panelElement.current?.querySelector<HTMLElement>('button:not([disabled]), input, select, textarea')?.focus({ preventScroll: true })
+    }
+    enterPanel.current = false
+    function outside(event: PointerEvent) {
+      if (event.target instanceof Node && !composer.current?.contains(event.target)) setPanel(undefined)
+    }
+    function escape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing
+        || document.querySelector('dialog[open]')) return
+      event.preventDefault()
+      setPanel(undefined)
+      if (composer.current?.contains(document.activeElement)) panelTrigger.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => {
+      resize.disconnect()
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [panel])
 
   const refreshRuns = useCallback(async () => {
     const version = ++refreshId.current
@@ -101,8 +164,7 @@ export function WorkbenchView() {
     if (selectedRef.current !== id || version !== detailsId.current) return
     setEvents(items)
     setDiffs(proposals)
-    setPendingDiffCount(proposals.filter(diff => diff.status === 'pending').length)
-  }, [setPendingDiffCount])
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -145,9 +207,12 @@ export function WorkbenchView() {
 
   function submit(event: FormEvent) {
     event.preventDefault()
+    if (busy || !prompt.trim()) return
+    setPanel(undefined)
     const logIds = draft.map(log => log.id)
     const permissions: PermissionManifest = {
-      readableNoteIds: [...new Set([seed, ...extraNotes].filter(Boolean))], allowAllNotesRead: allNotes, readableLogSessionIds: logIds,
+      readableNoteIds: [seed, ...chosenExtras.map(note => note.id)].filter(Boolean),
+      allowAllNotesRead: allNotes, readableLogSessionIds: logIds,
       writableDirs: dirs.split(/\r?\n/).map(path => path.trim()).filter(Boolean),
       allowNetwork, allowShell: kind === 'local_cli' && allowShell, allowBrainNotePropose: allowNoteDraft,
       maxSteps: steps, maxBudgetUsd: budget,
@@ -165,14 +230,29 @@ export function WorkbenchView() {
 
   const chosenNote = notes.find(note => note.id === seed)
   const chosenSkill = skills.find(item => item.id === skill)
-  const selectPanel = (name: 'notes' | 'logs' | 'permissions' | 'models') => {
+  const chosenExtras = notes.filter(note => note.id !== seed && extraNotes.includes(note.id))
+  const selectedBackend = (kind === 'api_key' ? providers : agents).find(item => item.id === backend)?.name
+    ?? (kind === 'api_key' ? 'API Key' : '本机 CLI')
+  const backendChoices = [
+    { engine: 'api_key' as const, id: '', label: '使用工作台角色配置', detail: 'API Key · 使用默认模型' },
+    ...providers.map(service => ({ engine: 'api_key' as const, id: service.id, label: service.name,
+      detail: 'API Key · ' + service.defaultModel })),
+    ...agents.map(agent => ({ engine: 'local_cli' as const, id: agent.id, label: agent.name,
+      detail: '本机 CLI' + (agent.model ? ' · ' + agent.model : '') })),
+    ...(agents.length ? [] : [{ engine: 'local_cli' as const, id: '', label: '本机 CLI', detail: '尚无已启用的本机 Agent' }]),
+  ]
+  const selectPanel = (name: keyof typeof panelLabels, trigger: HTMLButtonElement, keyboard: boolean) => {
+    panelTrigger.current = trigger
+    enterPanel.current = keyboard && panel !== name
     setPanel(current => current === name ? undefined : name)
-    if (name === 'logs') void window.workbench.agentLogs.list(0).then(setLocalLogs).catch(cause => setError(issue(cause)))
+    if (name === 'logs' && panel !== name) {
+      void window.workbench.agentLogs.list(0).then(setLocalLogs).catch(cause => setError(issue(cause)))
+    }
   }
 
   return <section className="s10-workbench" data-inspector={inspector} aria-label="工作台">
     <aside aria-label="任务历史">
-      <div className="s10-section-header"><h2>任务</h2>
+      <div className="s10-section-header"><h2>工作台任务</h2>
         <IconAction icon={IconNew} label="新建任务" onClick={() => { setRunId(''); setError('') }}/>
       </div>
       <ul className="s10-provider-list">
@@ -197,28 +277,58 @@ export function WorkbenchView() {
     <div className="s10-run-main">
       {error && <p role="alert" className="s10-error">{error}</p>}
       {selected ? <>
-        <h2>{selected.title}</h2>
-        <p role="status">{statusLabel[selected.status]} · {selected.modelName || selected.backendId}
+        <div className="s10-run-transcript">
+        <p role="status" className="s10-run-status">{statusLabel[selected.status]} · {selected.modelName || selected.backendId}
           {selected.backendKind === 'api_key' && <> · {selected.tokenIn} 输入 / {selected.tokenOut} 输出 · 估计 ${selected.costUsd.toFixed(4)}</>}</p>
         <Timeline events={events} notes={notes}/>
+        </div>
         {selected.status === 'running' && <div className="s10-running-composer">
           <IconAction icon={IconStop} label="停止任务" disabled={busy} className="s10-send"
             onClick={() => void action(() => api().cancel(selected.id))}/>
         </div>}
-      </> : <form onSubmit={submit} className="s10-run-form s10-composer" aria-label="任务输入"
+      </> : <>
+      <section className="s10-workbench-empty" aria-labelledby="s10-empty-title">
+        <span className="s10-empty-icon"><IconDream size={18} strokeWidth={1.65} aria-hidden="true"/></span>
+        <h2 id="s10-empty-title">从一个任务或一份资料开始</h2>
+        <p>输入目标即可调度本机 CLI 或 API 模型。笔记与文件修改先进入暂存审阅。</p>
+        <div className="s10-starters">
+          {starters.map(([label, text]) => <button key={label} type="button" onClick={() => {
+            setPrompt(text)
+            setPanel(undefined)
+            promptInput.current?.focus()
+          }}>{label}</button>)}
+        </div>
+      </section>
+      <form ref={composer} onSubmit={submit} className="s10-run-form s10-composer composer-island" aria-label="任务输入"
         onKeyDown={event => {
-          if (event.key === 'Escape' && panel) { event.stopPropagation(); setPanel(undefined) }
-          if (event.ctrlKey && event.key === 'Enter' && !event.nativeEvent.isComposing && !busy) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229
+            && (event.target === promptInput.current || event.ctrlKey) && !busy) {
             event.preventDefault()
             event.currentTarget.requestSubmit()
           }
         }}>
         <label className="s10-visually-hidden" htmlFor="s10-prompt">任务内容</label>
-        <textarea id="s10-prompt" value={prompt} rows={4} maxLength={8000} required placeholder="要完成什么任务？"
+        {(chosenNote || chosenExtras.length > 0 || chosenSkill || draft.length > 0) && <ul className="s10-composer-chips" aria-label="任务引用">
+          {chosenNote && <li>{chosenNote.title}<IconAction icon={IconReject} size={14} label="移除种子笔记" onClick={() => setSeed('')}/></li>}
+          {chosenExtras.map(note => <li key={note.id}>{note.title}<IconAction icon={IconReject} size={14}
+            label={'移除引用 ' + note.title} onClick={() => setExtraNotes(extraNotes.filter(id => id !== note.id))}/></li>)}
+          {chosenSkill && <li>{chosenSkill.title}<IconAction icon={IconReject} size={14} label="移除技能" onClick={() => trySkill('')}/></li>}
+          {draft.map(log => <li key={log.id}>{log.title}
+            <IconAction icon={IconReject} size={14} label={'移除引用 ' + log.title} onClick={() => detach(log.id)}/>
+          </li>)}
+        </ul>}
+        <textarea ref={promptInput} className="composer-textarea" id="s10-prompt" value={prompt} rows={2} maxLength={8000} required
+          placeholder="输入任务目标，或点击下方图标挂载笔记、本机 Agent 记录与权限边界…"
           onChange={event => setPrompt(event.target.value)}/>
-        {panel && <div className="s10-composer-panel" id="s10-composer-panel">
+        {panel && <section ref={panelElement} className="s10-composer-panel floating-popover" id="s10-composer-panel"
+          aria-label={panelLabels[panel]} data-panel={panel}>
+          <h3>{panelLabels[panel]}</h3>
           {panel === 'notes' && <>
-            <label>种子笔记<select aria-label="种子笔记" value={seed} onChange={e => setSeed(e.target.value)}>
+            <label>种子笔记<select aria-label="种子笔记" value={seed} onChange={e => {
+              const id = e.target.value
+              setSeed(id)
+              setExtraNotes(extraNotes.filter(note => note !== id))
+            }}>
               <option value="">不引用笔记</option>
               {notes.map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
             </select></label>
@@ -230,7 +340,7 @@ export function WorkbenchView() {
           {panel === 'logs' && <div className="s10-log-picker">
             {localLogs.length === 0 && <p>尚无导入的本机记录。</p>}
             {localLogs.map(item => <button type="button" key={item.id} onClick={() => {
-              attach(item); setPanel(undefined)
+              attach(item); setPanel(undefined); promptInput.current?.focus()
             }}>{item.title}</button>)}
             <button type="button" onClick={() => navigate('library')}>打开资料与记录</button>
           </div>}
@@ -248,48 +358,61 @@ export function WorkbenchView() {
             </div>
           </>}
           {panel === 'models' && <>
-            <label>任务标题<input value={title} maxLength={130} onChange={e => setTitle(e.target.value)}/></label>
-            <div className="s10-price-inputs">
-              <label>执行引擎<select value={kind} onChange={e => { setKind(e.target.value as BackendKind); setBackend(''); setModel('') }}>
-                <option value="api_key">API Key</option><option value="local_cli">本机 CLI</option>
-              </select></label>
-              <label>{kind === 'api_key' ? '模型服务商' : '本机 Agent'}<select value={backend} onChange={e => setBackend(e.target.value)}>
-                <option value="">{kind === 'api_key' ? '使用工作台角色配置' : '请选择已启用 Agent'}</option>
-                {kind === 'api_key' ? providers.map(item => <option value={item.id} key={item.id}>{item.name}</option>)
-                  : agents.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
-              </select></label>
+            <div className="s10-backend-list" role="group" aria-label="执行引擎与模型">
+              {backendChoices.map(choice => {
+                const current = choice.engine === kind && choice.id === backend
+                return <button type="button" aria-pressed={current} key={choice.engine + ':' + choice.id} onClick={() => {
+                  if (choice.engine !== kind) setModel('')
+                  setKind(choice.engine)
+                  setBackend(choice.id)
+                }}>
+                  <span>{choice.label}<small>{choice.detail}</small></span>
+                  {current && <IconAccept size={14} strokeWidth={1.65} aria-hidden="true"/>}
+                </button>
+              })}
             </div>
-            {kind === 'api_key' && <label>模型覆盖<input value={model} onChange={e => setModel(e.target.value)}/></label>}
-            <label>任务技能<select value={skill} onChange={e => trySkill(e.target.value)}>
-              <option value="">不使用技能</option>
-              {skills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-            </select></label>
+            <details className="s10-model-options">
+              <summary>任务设置</summary>
+              <label>任务标题<input value={title} maxLength={130} onChange={e => setTitle(e.target.value)}/></label>
+              {kind === 'api_key' && <label>模型覆盖<input value={model} onChange={e => setModel(e.target.value)}/></label>}
+              <label>任务技能<select value={skill} onChange={e => trySkill(e.target.value)}>
+                <option value="">不使用技能</option>
+                {skills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select></label>
+            </details>
           </>}
-        </div>}
-        {(chosenNote || chosenSkill || draft.length > 0) && <ul className="s10-composer-chips" aria-label="任务引用">
-          {chosenNote && <li>{chosenNote.title}<IconAction icon={IconReject} size={14} label="移除种子笔记" onClick={() => setSeed('')}/></li>}
-          {chosenSkill && <li>{chosenSkill.title}<IconAction icon={IconReject} size={14} label="移除技能" onClick={() => trySkill('')}/></li>}
-          {draft.map(log => <li key={log.id}>{log.title}
-            <IconAction icon={IconReject} size={14} label={'移除引用 ' + log.title} onClick={() => detach(log.id)}/>
-          </li>)}
-        </ul>}
+        </section>}
         <div className="s10-composer-footer">
           <div className="s10-actions">
-            <IconAction icon={IconAttachNote} label="引用笔记" aria-expanded={panel === 'notes'} active={!!seed} onClick={() => selectPanel('notes')}/>
-            <IconAction icon={IconAttachLog} label="引用记录" aria-expanded={panel === 'logs'} badge={draft.length} onClick={() => selectPanel('logs')}/>
-            <IconAction icon={IconPermission} label="任务权限" aria-expanded={panel === 'permissions'} active={allowNetwork || !!dirs} onClick={() => selectPanel('permissions')}/>
-            <IconAction icon={IconModel} label="模型与引擎" aria-expanded={panel === 'models'} onClick={() => selectPanel('models')}/>
+            <IconAction icon={IconAttachNote} label={panelLabels.notes} aria-expanded={panel === 'notes'}
+              aria-controls={panel === 'notes' ? 's10-composer-panel' : undefined}
+              active={panel === 'notes' || !!seed || chosenExtras.length > 0} onClick={event => selectPanel('notes', event.currentTarget, event.detail === 0)}/>
+            <IconAction icon={IconAttachLog} label={panelLabels.logs} aria-expanded={panel === 'logs'}
+              aria-controls={panel === 'logs' ? 's10-composer-panel' : undefined}
+              active={panel === 'logs'} badge={draft.length} onClick={event => selectPanel('logs', event.currentTarget, event.detail === 0)}/>
+            <IconAction icon={IconPermission} label={panelLabels.permissions} aria-expanded={panel === 'permissions'}
+              aria-controls={panel === 'permissions' ? 's10-composer-panel' : undefined}
+              active={panel === 'permissions' || allowNetwork || !!dirs}
+              onClick={event => selectPanel('permissions', event.currentTarget, event.detail === 0)}/>
+            <IconAction icon={IconModel} label={panelLabels.models} aria-expanded={panel === 'models'} active={panel === 'models'}
+              aria-controls={panel === 'models' ? 's10-composer-panel' : undefined}
+              size={14} className="s10-model-trigger" onClick={event => selectPanel('models', event.currentTarget, event.detail === 0)}>
+              <span>{selectedBackend}</span><IconChevronUp size={14} strokeWidth={1.65} aria-hidden="true"/>
+            </IconAction>
           </div>
-          <IconAction type="submit" icon={IconSend} label="开始任务" shortcut="Ctrl+Enter" size={18} className="s10-send" disabled={busy}/>
+          <IconAction type="submit" icon={IconSend} label="开始任务" shortcut="Enter" size={16}
+            className="s10-send" disabled={busy || !prompt.trim()}/>
         </div>
-      </form>}
+      </form></>}
     </div>
     {inspector && <aside className="s10-diff-panel" aria-label="暂存审阅">
-      <h2>暂存审阅</h2>
-      {diffs.length === 0 && <p>当前没有暂存变更。</p>}
+      <div className="s10-section-header"><h2>暂存审阅</h2>
+        <IconAction icon={IconReject} label="收起审阅" onClick={toggleInspector}/>
+      </div>
+      {diffs.length === 0 && <p className="s10-quiet-empty">当前没有暂存变更。</p>}
       {diffs.map(diff => <article key={diff.id} className="s10-diff-card">
         <header className="s10-diff-card-header">
-          <strong title={diff.targetRef}>{diff.targetKind === 'brain_note'
+          <strong data-tip={diff.targetRef}>{diff.targetKind === 'brain_note'
             ? notes.find(note => note.id === diff.targetRef)?.title ?? diff.targetRef
             : diff.targetRef.startsWith("\\\\?\\") ? diff.targetRef.slice(4) : diff.targetRef} · {{ pending: '待审阅', accepted: '已应用', rejected: '已驳回' }[diff.status]}</strong>
         {diff.status === 'pending' && selected?.status !== 'running' && <div className="s10-actions">

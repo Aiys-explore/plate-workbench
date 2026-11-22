@@ -1,5 +1,5 @@
 import type { BrainSkill, EpisodicEvent } from '../../shared/brain'
-import { BrainHudBar, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionBadge, EvolutionTimelineModal,
+import { BrainHudBar, CaptureForm, ConsolidationDialog, CorticalZonesLayer, EpisodicLane, EvolutionBadge, EvolutionTimelineModal,
   QuickCaptureBar, SkillDialog, SkillDock, useBrainWorkbench } from './brain-workbench'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Note, NoteEdge, NoteSummary, RelationshipNote } from '../../shared/ipc'
@@ -846,6 +846,14 @@ export function RelationshipGraph({
   }}>适合画布</button>
     <button type="button" onClick={resetLayout}>重置布局</button>
     <button type="button" aria-disabled={!undoMove} onClick={()=>{if (undoMove) { restoreMovement(undoMove); setUndoMove(undefined) }}}>撤销移动</button></>
+  function captured(id: string, text: string) {
+    void brain.refresh()
+    const lower = text.toLowerCase()
+    setFresh({ id, probe: nodes.filter(note => note.projectId === activeProject &&
+      [note.title, ...(note.tags ?? [])].some(label => label.length > 1 && lower.includes(label.toLowerCase())))
+      .slice(0, 5).map(note => note.id) })
+  }
+
   return <section ref={section} className="relations relationship-flow" data-flow-style={style} data-wide="true"
     data-motion={live?'live':'still'} data-brain-open={brainOpen} data-brain-zones={brainOpen && brainZones}
     data-brain-vitality={brainOpen && brainVitality} aria-label="笔记关系图" onKeyDown={event => {
@@ -912,7 +920,8 @@ export function RelationshipGraph({
       {!!fresh?.probe.length && <svg ref={probeOverlay} className="brain-probes" aria-hidden="true">
         {fresh.probe.map(id => <path key={id} data-probe-note={id} className="brain-edge--synaptic-flowing"/>)}
       </svg>}
-      <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}/>
+      <EpisodicLane events={brain.events} fresh={fresh?.id} openCapture={() => setCapture(true)} consolidate={setConsolidation}
+        composer={<CaptureForm project={activeProject} projectLabel={projectLabel} captured={captured}/>}/>
       {flight && <div className="brain-memory-flight" aria-hidden="true"
         style={{
           left: flight.from.x, top: flight.from.y, width: flight.width,
@@ -920,7 +929,7 @@ export function RelationshipGraph({
         } as CSSProperties}
         onAnimationEnd={() => finishFlight(flight.id)}>{flight.text}</div>}
       <div className="brain-context-control">
-        <label title="启用后，任务会把当前项目的相关笔记、闪念与匹配技能交给选定的 Agent。">
+        <label data-tip="启用后，任务会把当前项目的相关笔记、闪念与匹配技能交给选定的 Agent。">
           <input type="checkbox" checked={!!brain.status?.contextEnabled} disabled={!brain.status}
             onChange={event => {
               const enabled = event.target.checked
@@ -933,13 +942,7 @@ export function RelationshipGraph({
       <SkillDock skills={brain.skills} wave={brain.wave} inspect={setSkill} create={() => setSkill('new')}/>
     </>}
     {capture && <QuickCaptureBar project={activeProject} projectLabel={projectLabel} close={() => setCapture(false)}
-      captured={(id, text) => {
-        void brain.refresh()
-        const lower = text.toLowerCase()
-        setFresh({ id, probe: nodes.filter(note => note.projectId === activeProject &&
-          [note.title, ...(note.tags ?? [])].some(label => label.length > 1 && lower.includes(label.toLowerCase())))
-          .slice(0, 5).map(note => note.id) })
-      }}/>}
+      captured={captured}/>}
     {consolidation && (consolidation.length ? <ConsolidationDialog events={consolidation} nodes={nodes}
       close={() => setConsolidation(undefined)} consolidate={consolidate}/> :
       <EditorDialog title="做梦整理" close={() => setConsolidation(undefined)} kind="brain" cancelLabel="关闭">

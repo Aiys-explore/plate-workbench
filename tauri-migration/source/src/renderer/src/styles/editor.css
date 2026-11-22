@@ -243,6 +243,13 @@
   animation: editor-caret-blink var(--caret-cycle) step-end infinite;
 }
 [data-editor-surface-host] { position: relative; }
+[data-editor-surface-host][data-editor-blank='true']::before {
+  content: '输入开始笔记，支持 Markdown 语法…';
+  position: absolute; inset: 0 0 auto; pointer-events: none;
+  color: var(--ui-placeholder);
+  font: var(--font-size-markdown-body)/var(--line-height-markdown-body) var(--font-family-markdown);
+}
+:is([data-editor-meta-title], [data-editor-host='source'])::placeholder { color: var(--ui-placeholder); }
 [data-editor-surface-host]:has(> [data-editor-caret]) > [data-editor-host] { caret-color: transparent; }
 ::highlight(note-selection) {
   text-decoration: underline 2px var(--color-border-focus);
@@ -546,21 +553,6 @@
   height: var(--border-width-line);
   margin: var(--spacing-1) 0;
   background: var(--color-border-decorative);
-}
-
-/* D1 5.8 Tooltip */
-[data-editor-tooltip] {
-  position: absolute;
-  z-index: var(--z-index-tooltip);
-  max-width: var(--component-tooltip-max-width);
-  padding: var(--component-tooltip-padding);
-  border: var(--border-width-line) solid var(--color-border-decorative);
-  border-radius: var(--component-tooltip-radius);
-  background: var(--color-surface-bar);
-  box-shadow: var(--shadow-level-3);
-  color: var(--color-text-primary);
-  font-size: var(--component-tooltip-font-size);
-  line-height: var(--line-height-ui-small);
 }
 
 /* ── 属性窗 / 确认窗（P03.linkForm / imageForm / tablePicker / leave / confirm） ── */

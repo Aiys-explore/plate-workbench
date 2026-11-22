@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { BrainActivationWave, BrainHistory, BrainNoteMetadata, BrainSkill, EpisodicEvent } from '../../shared/brain'
 import type { RelationshipNote } from '../../shared/ipc'
 import { EditorDialog } from './note-editor'
 import { IconAction } from './icon-action'
-import { IconDream, IconHeat, IconNew, IconZones } from './components/icons'
+import { IconDream, IconHeat, IconNew, IconSend, IconZones } from './components/icons'
 import './styles/brain-dynamics.css'
 
 const api = () => window.workbench.brain
@@ -74,9 +74,15 @@ export function CorticalZonesLayer() {
   </div>
 }
 
-export function QuickCaptureBar({ project, projectLabel, close, captured }: {
-  project: string; projectLabel: string; close: () => void; captured: (id: string, text: string) => void
-}) {
+type CaptureProps = { project: string; projectLabel: string; captured: (id: string, text: string) => void }
+
+export function QuickCaptureBar({ close, ...props }: CaptureProps & { close: () => void }) {
+  return <EditorDialog title="捕获闪念" close={close} kind="brain">
+    <CaptureForm {...props} onSaved={close}/>
+  </EditorDialog>
+}
+
+export function CaptureForm({ project, projectLabel, captured, onSaved }: CaptureProps & { onSaved?: () => void }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -85,13 +91,17 @@ export function QuickCaptureBar({ project, projectLabel, close, captured }: {
     if (!text.trim() || busy) return
     setBusy(true)
     setError('')
-    try { captured(await api().capture(project, text), text); close() }
-    catch (issue) { setError(message(issue)); setBusy(false) }
+    try {
+      captured(await api().capture(project, text), text)
+      setText('')
+      onSaved?.()
+    } catch (issue) { setError(message(issue)) }
+    finally { setBusy(false) }
   }
-  return <EditorDialog title="捕获闪念" close={close} kind="brain">
-    <form className="brain-form" onSubmit={save}>
-      <label>保存至 {projectLabel}
-        <textarea aria-label="闪念内容" rows={4} value={text} placeholder="写下刚想到的事…"
+  return <form className={onSaved ? 'brain-form' : 'brain-form brain-capture-inline'} onSubmit={save}>
+      <label>{onSaved && <>保存至 {projectLabel}</>}
+        <textarea aria-label={onSaved ? '闪念内容' : '输入海马体闪念'} rows={onSaved ? 4 : 2} value={text} disabled={busy}
+          placeholder="输入学习闪念，按 Enter 存入海马体…"
           onChange={event => setText(event.target.value)}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
@@ -101,21 +111,22 @@ export function QuickCaptureBar({ project, projectLabel, close, captured }: {
           }}/>
       </label>
       {error && <p role="alert">{error}</p>}
-      <button type="submit" className="button-primary" disabled={busy || !text.trim()}>保存闪念</button>
+      {onSaved ? <button type="submit" className="button-primary" disabled={busy || !text.trim()}>保存闪念</button>
+        : <IconAction type="submit" icon={IconSend} label={'保存闪念至 ' + projectLabel} shortcut="Enter" disabled={busy || !text.trim()}/>}
     </form>
-  </EditorDialog>
 }
 
-export function EpisodicLane({ events, fresh, openCapture, consolidate }: {
-  events: EpisodicEvent[]; fresh?: string; openCapture: () => void; consolidate: (events: EpisodicEvent[]) => void
+export function EpisodicLane({ events, fresh, openCapture, consolidate, composer }: {
+  events: EpisodicEvent[]; fresh?: string; openCapture: () => void; consolidate: (events: EpisodicEvent[]) => void; composer: ReactNode
 }) {
   return <aside className="brain-episodic" aria-label="海马体 · 短期闪念">
     <div className="brain-lane-header">
       <span><small>海马体</small><strong>短期闪念</strong></span>
       <IconAction icon={IconNew} label="捕获闪念" shortcut="Ctrl+Shift+Space" onClick={openCapture}/>
     </div>
+    {composer}
     <div className="brain-event-list">
-      {events.length === 0 && <p className="brain-muted">按 Ctrl+Shift+Space 捕获闪念。</p>}
+      {events.length === 0 && <p className="brain-muted">还没有闪念。</p>}
       {events.map(event => <article key={event.id} className="brain-episodic-card" data-event-id={event.id} data-new={fresh === event.id}>
         <p>{event.rawText}</p>
         <footer><time dateTime={new Date(event.createdAt).toISOString()}>{date(event.createdAt)}</time>

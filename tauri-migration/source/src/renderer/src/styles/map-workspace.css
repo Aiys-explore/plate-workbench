@@ -91,7 +91,7 @@
   color: var(--color-text-primary);
   background: var(--color-surface-editor);
   border: 1px solid var(--color-border-decorative);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-level-2);
 }
 .plate-node-search::backdrop { background: var(--color-surface-overlay); }
@@ -100,7 +100,11 @@
 .plate-node-search h2 { font-size: var(--font-size-ui-title); margin: 0; text-wrap: balance; }
 .plate-node-search input { width: 100%; min-height: 34px; padding-inline: 9px; background: var(--color-surface-control); color: inherit; }
 .plate-node-search ul { list-style: none; margin: 8px 0; padding: 0; }
-.plate-node-search li button { width: 100%; text-align: start; display: grid; padding: 6px 9px; gap: 2px; overflow-wrap: anywhere; }
+.plate-node-search .s10-row-label {
+  text-align: start; display: grid; height: auto; padding: 6px 9px; gap: 2px; overflow-wrap: anywhere;
+  border-radius: var(--radius-md);
+}
+.plate-node-search .s10-row-actions { margin-inline-end: 4px; }
 .plate-node-search small { color: var(--color-text-secondary); }
 .plate-node-search p { color: var(--color-text-secondary); text-wrap: pretty; }
 

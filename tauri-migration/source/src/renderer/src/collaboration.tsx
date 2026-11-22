@@ -86,7 +86,7 @@ function RequestCard({ request, onConfirm, onCancel, onCopy, onJump, onError }: 
         <span>{materialLabel(material)}</span>
         {material.kind === 'note-selection' && material.noteId &&
           <button type="button" disabled={!request.sourceAvailableNow}
-            title={request.sourceAvailableNow ? '跳转到当前来源' : '来源已失效，仅保留发送快照'}
+            data-tip={request.sourceAvailableNow ? '跳转到当前来源' : '来源已失效，仅保留发送快照'}
             onClick={() => material.noteId && onJump(material.noteId)}>查看当前来源</button>}
         <code title={material.snapshotText}>{material.snapshotText.length > 60
           ? material.snapshotText.slice(0, 60) + '…' : material.snapshotText}</code>
@@ -97,7 +97,7 @@ function RequestCard({ request, onConfirm, onCancel, onCopy, onJump, onError }: 
     <footer>
       {request.status === 'draft' && <>
         <button type="button" onClick={() => act(() => onConfirm(request.requestId, 'copy'))}>复制发送</button>
-        <button type="button" title="未接入已验证投递管道时会明确报错，不会伪造成已发出"
+        <button type="button" data-tip="未接入已验证投递管道时会明确报错，不会伪造成已发出"
           onClick={() => act(() => onConfirm(request.requestId, 'pipe'))}>管道发送</button>
         <button type="button" onClick={() => act(() => onCancel(request.requestId))}>取消</button>
       </>}
@@ -208,7 +208,7 @@ export function CollaborationView({ pending, onConsumePending, onOpenNote }: {
           <h2 tabIndex={-1}>{task.title}</h2>
           <div className="collab-actions">
             <button type="button" onClick={() => setDialog('review')}>发给…</button>
-            <button type="button" disabled={task.slots.length < 2} title="至少两个槽位才能转交" onClick={openHandoff}>转交给…</button>
+            <button type="button" disabled={task.slots.length < 2} data-tip={task.slots.length < 2 ? '至少两个槽位才能转交' : undefined} onClick={openHandoff}>转交给…</button>
           </div>
         </header>
         <SlotTabs slots={task.slots} active={activeSlot?.slotId ?? null}

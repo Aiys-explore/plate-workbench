@@ -98,14 +98,15 @@ export function LibraryAndLogsView() {
         setMessages([])
       })
     }}>
-      <label>搜索消息 <input type="search" value={query} onChange={event => setQuery(event.target.value)}/></label>
+      <input aria-label="搜索消息" type="search" placeholder="搜索本机记录…" value={query}
+        onChange={event => setQuery(event.target.value)}/>
       <IconAction type="submit" icon={IconSearch} label="搜索会话" disabled={loading}/>
     </form>
     <p role="status">{loading ? '处理中…' : status}</p>
     {error && <p role="alert" className="s10-error">{error}</p>}
     <div className="s10-settings-grid" aria-busy={loading}>
       <aside aria-label="会话列表">
-        {!loading && sessions.length === 0 && <p>{searched ? '没有匹配会话。' : '没有已索引会话。'}</p>}
+        {!loading && sessions.length === 0 && <p className="s10-quiet-empty">{searched ? '没有匹配会话。' : '没有已索引会话。'}</p>}
         <ul className="s10-provider-list">
           {sessions.map(item => <li key={item.id} className="s10-row">
             <button type="button" className="s10-row-label" disabled={loading}

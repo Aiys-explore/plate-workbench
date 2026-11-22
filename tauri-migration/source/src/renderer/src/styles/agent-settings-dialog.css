@@ -5,7 +5,7 @@
   background: var(--color-surface-bar);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border-control);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
 }
 .plate-agent-dialog:not([open]) { display: none; }
 .plate-agent-center-dialog {
@@ -55,7 +55,7 @@
 .plate-agent-card {
   overflow: hidden;
   border: 1px solid var(--color-border-decorative);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface-bar);
 }
 .plate-agent-list { list-style: none; margin: 0; padding: 0; }
@@ -115,11 +115,11 @@
   min-width: 0; width: 196px; height: 32px; padding: 3px 8px;
   color: inherit; font: inherit; font-size: 12.5px;
   background: var(--color-surface-control);
-  border: 1px solid var(--color-border-control); border-radius: 6px;
+  border: 1px solid var(--color-border-control); border-radius: var(--radius-md);
 }
 .plate-agent-dialog .plate-agent-switch {
   width: 40px; height: 22px; padding: 2px; display: inline-flex; justify-content: flex-start;
-  border-radius: 999px; background: #d4d4d8; transition: background .16s ease;
+  border-radius: var(--radius-pill); background: #d4d4d8; transition: background .16s ease;
 }
 .theme-dark .plate-agent-dialog .plate-agent-switch { background: #52525b; }
 .plate-agent-switch > span { width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .16s ease; }
@@ -144,7 +144,7 @@
   min-width: 0; min-height: 32px; padding: 4px 8px;
   color: var(--color-text-primary); font: inherit; font-size: 12.5px;
   background: var(--color-surface-control);
-  border: 1px solid var(--color-border-control); border-radius: 6px;
+  border: 1px solid var(--color-border-control); border-radius: var(--radius-md);
 }
 .plate-agent-detail p, .plate-agent-import p { grid-column: 1 / -1; margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
 .plate-agent-detail-actions, .plate-agent-detail-save { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
@@ -170,7 +170,7 @@
 
 .plate-agent-confirm {
   display: grid; gap: 8px; margin-top: 12px; padding: 10px 12px;
-  border: 1px solid var(--color-border-control); border-radius: 8px;
+  border: 1px solid var(--color-border-control); border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--color-functional-danger-text, #b91c1c) 7%, var(--color-surface-bar));
 }
 .plate-agent-confirm p { margin: 0; color: var(--color-text-primary); font-size: 13px; line-height: 19px; }
@@ -185,7 +185,7 @@
 .plate-agent-section-toggle { display: block; width: 100%; text-align: start; }
 .plate-agent-catalog ul {
   list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 6px 0 0; padding: 0; overflow: hidden;
-  border: 1px solid var(--color-border-decorative); border-radius: 10px; background: var(--color-surface-bar);
+  border: 1px solid var(--color-border-decorative); border-radius: var(--radius-lg); background: var(--color-surface-bar);
 }
 .plate-agent-catalog li {
   display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px;
@@ -200,7 +200,7 @@
 .plate-agent-more-banner {
   display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 8px; align-items: center;
   width: 100%; min-height: 54px; margin-top: 14px; padding: 8px 12px; text-align: start;
-  border: 1px solid color-mix(in srgb, #c25100 18%, var(--color-border-control)); border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #c25100 18%, var(--color-border-control)); border-radius: var(--radius-lg);
   color: #9a3f00; background: color-mix(in srgb, #c25100 7%, var(--color-surface-bar));
 }
 .theme-dark .plate-agent-more-banner { color: #f8b98d; background: color-mix(in srgb, #c25100 16%, var(--color-surface-bar)); }
@@ -211,7 +211,7 @@
 
 .plate-agent-import {
   display: grid; gap: 8px; margin-top: 10px; padding: 10px 12px;
-  border: 1px solid var(--color-border-decorative); border-radius: 10px; background: var(--color-surface-bar);
+  border: 1px solid var(--color-border-decorative); border-radius: var(--radius-lg); background: var(--color-surface-bar);
 }
 .plate-agent-import label { min-width: 0; display: grid; gap: 5px; color: var(--color-text-secondary); font-size: 12px; }
 .plate-agent-import textarea { min-height: 126px; resize: vertical; overflow: auto; font-family: var(--font-family-code); line-height: 1.5; }
