@@ -73,3 +73,5 @@
 后续 Windows x64 预览包的安装、签名和旧库兼容结果见 [S10 发布验收](S10-RELEASE-ACCEPTANCE.md)。
 
 根据交互原型完成的后续前端精修见 [S10 界面精修验收](S10-UIUX-ACCEPTANCE.md)。
+
+模型菜单定位、有内容的组合挂载和最终签名包见 [S10.1 发布验收](S10.1-RELEASE-ACCEPTANCE.md)。

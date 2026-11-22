@@ -1,0 +1,22 @@
+{
+  "version": "0.6.0-s10.1",
+  "packaged": true,
+  "notesCreated": 4,
+  "notesAuthorized": 3,
+  "logsImported": 4,
+  "logsAuthorized": 3,
+  "firstCallSeedAndLogsVerified": true,
+  "removedReferencesExcluded": true,
+  "allSixChipsVisible": true,
+  "modelAnchorPx": 8,
+  "testedViewportWidths": [
+    1280,
+    860
+  ],
+  "rendererErrors": 0,
+  "screenshots": [
+    "loaded-model-anchor.png",
+    "loaded-six-attachments.png",
+    "loaded-task-result.png"
+  ]
+}

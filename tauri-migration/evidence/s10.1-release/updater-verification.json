@@ -1,0 +1,17 @@
+{
+  "s10_0": {
+    "version": "0.6.0-s10.0",
+    "update": "0.6.0-s10.1",
+    "downloadEvents": [
+      "Started",
+      "Progress",
+      "Finished"
+    ],
+    "bytes": 6165424
+  },
+  "s10_1": {
+    "version": "0.6.0-s10.1",
+    "current": true
+  },
+  "installerExecuted": false
+}
