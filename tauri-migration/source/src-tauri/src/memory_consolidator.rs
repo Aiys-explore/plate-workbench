@@ -22,6 +22,7 @@ pub struct Skill {
     pub allow_shell: bool,
     pub allow_network: bool,
     pub space_id: String,
+    pub default_profile_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -46,22 +47,26 @@ fn skill_fields(input: &SkillInput) -> Result<(&str, String, &str), String> {
 fn save_skill(conn: &Connection, input: &SkillInput, agent: Option<&str>) -> Result<String, String> {
     let (title,tags,prompt)=skill_fields(input)?;
     let slug = title.to_lowercase();
-    conn.query_row(
+    let skill = conn.query_row(
         "INSERT INTO procedural_skills(id,slug,title,trigger_tags_json,preferred_agent_id,system_prompt,created_at,updated_at,space_id)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?7,'work') ON CONFLICT(slug) DO NOTHING RETURNING id",
         params![id(), slug, title, tags, agent, prompt, now_ms()],
-        |row| row.get(0),
-    ).optional().map_err(err)?.ok_or_else(|| "已有同名技能，请使用其他名称".to_string())
+        |row| row.get::<_,String>(0),
+    ).optional().map_err(err)?.ok_or_else(|| "已有同名技能，请使用其他名称".to_string())?;
+    crate::harness::prompt_versions::baseline(conn,&skill).map_err(err)?;
+    Ok(skill)
 }
 
 pub fn skills(conn: &Connection) -> rusqlite::Result<Vec<Skill>> {
-    let mut stmt = conn.prepare("SELECT id,title,trigger_tags_json,preferred_agent_id,system_prompt,usage_count,success_count,allow_shell,allow_network,space_id
-        FROM procedural_skills ORDER BY updated_at DESC,id")?;
+    let mut stmt = conn.prepare("SELECT s.id,s.title,s.trigger_tags_json,s.preferred_agent_id,COALESCE(v.system_prompt,s.system_prompt),
+        s.usage_count,s.success_count,s.allow_shell,s.allow_network,s.space_id,s.default_profile_id
+        FROM procedural_skills s LEFT JOIN prompt_versions v ON v.id=s.active_prompt_version_id AND v.skill_id=s.id
+        ORDER BY s.updated_at DESC,s.id")?;
     let rows = stmt.query_map([], |r| {
         let raw: String = r.get(2)?;
         let tags = serde_json::from_str(&raw).map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?;
         Ok(Skill { id: r.get(0)?, title: r.get(1)?, tags, preferred_agent_id: r.get(3)?,
-            system_prompt: r.get(4)?, usage_count: r.get(5)?, success_count: r.get(6)?, allow_shell: r.get(7)?, allow_network: r.get(8)?, space_id: r.get(9)? })
+            system_prompt: r.get(4)?, usage_count: r.get(5)?, success_count: r.get(6)?, allow_shell: r.get(7)?, allow_network: r.get(8)?, space_id: r.get(9)?, default_profile_id:r.get(10)? })
     })?;
     rows.collect()
 }
@@ -511,7 +516,13 @@ pub fn list_procedural_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, 
 #[tauri::command]
 pub fn save_procedural_skill(app: AppHandle, state: State<'_, AppState>, input: SkillInput, preferred_agent_id: Option<String>)
     -> Result<String, String> {
-    let skill = with_store(&state, |store| save_skill(&store.conn.lock().unwrap(), &input, preferred_agent_id.as_deref()))?;
+    let skill = with_store(&state, |store| {
+        let conn = store.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction().map_err(err)?;
+        let id = save_skill(&tx,&input,preferred_agent_id.as_deref())?;
+        tx.commit().map_err(err)?;
+        Ok(id)
+    })?;
     changed(&app);
     Ok(skill)
 }
@@ -698,7 +709,8 @@ pub async fn dream_model_suggestion(
 #[tauri::command]
 pub fn save_workbench_skill(
     app: AppHandle, state: State<'_,AppState>, skill_id: Option<String>, input: SkillInput,
-    preferred_agent_id: Option<String>, allow_shell: bool, allow_network: bool,
+    preferred_agent_id: Option<String>, allow_shell: bool, allow_network: bool, space_id: Option<String>,
+    default_profile_id: Option<String>,
 ) -> Result<String,String> {
     let result = with_store(&state,|store| {
         let conn=store.conn.lock().unwrap();
@@ -716,8 +728,13 @@ pub fn save_workbench_skill(
             }
             None => save_skill(&tx,&input,agent)?,
         };
-        tx.execute("UPDATE procedural_skills SET allow_shell=?2,allow_network=?3 WHERE id=?1",
-            params![skill_id,allow_shell,allow_network]).map_err(err)?;
+        if let Some(space) = &space_id { require_space(&tx,space)?; }
+        if let Some(profile) = &default_profile_id {
+            if !profile.is_empty() { crate::harness::profiles::get(&tx,profile)?; }
+        }
+        tx.execute("UPDATE procedural_skills SET allow_shell=?2,allow_network=?3,space_id=COALESCE(?4,space_id),
+            default_profile_id=CASE WHEN ?5 IS NULL THEN default_profile_id ELSE NULLIF(?5,'') END WHERE id=?1",
+            params![skill_id,allow_shell,allow_network,space_id,default_profile_id]).map_err(err)?;
         tx.commit().map_err(err)?;
         Ok(skill_id)
     })?;

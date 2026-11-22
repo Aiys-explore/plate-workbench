@@ -43,6 +43,7 @@ pub struct RunRequest {
     profile_id: Option<String>,
     seed_note_id: Option<String>,
     skill_id: Option<String>,
+    prompt_version_id: Option<String>,
     attached_log_session_ids: Vec<String>,
     permissions: PermissionManifest,
     #[serde(default)]
@@ -313,7 +314,16 @@ fn load_context(
             ).map_err(|_| "找不到所选技能")?;
             if !spaces.contains(&space) { return Err("所选技能不在任务脑区范围内".into()); }
             request.permissions.restrict_with_skill(shell, network);
-            selected_skill = Some(prompt);
+            let version = match request.prompt_version_id.as_deref() {
+                Some(id) => {
+                    let version = super::prompt_versions::get(&conn,skill_id,id)?;
+                    if version.status == "retired" { return Err("请先将已退役版本恢复为测试".into()); }
+                    version
+                }
+                None => super::prompt_versions::production(&conn,skill_id)?,
+            };
+            selected_skill = Some(json!({"version":version.version_tag,"status":version.status,
+                "instruction":if version.system_prompt.is_empty() { prompt } else { version.system_prompt }}));
         }
     }
     let mut compiled = String::new();
@@ -958,7 +968,7 @@ mod tests {
                     VALUES('p','Fixture','api_key','',3,0.2,?1,1)",[serde_json::to_string(&template).map_err(db_error)?]).map_err(db_error)?;
             }
             let mut req = RunRequest { title:"test".into(),prompt:"user input".into(), backend_kind:BackendKind::ApiKey,
-                backend_id:String::new(),model_override:None,profile_id:Some("p".into()),seed_note_id:None,skill_id:None,
+                backend_id:String::new(),model_override:None,profile_id:Some("p".into()),seed_note_id:None,skill_id:None,prompt_version_id:None,
                 attached_log_session_ids:vec![],space_scope:SpaceScopePolicy {
                     target_space_id:"work".into(),readable_space_ids:vec!["personal".into()],
                 }, permissions:PermissionManifest { writable_dirs:vec![rules,root.clone()], ..template } };

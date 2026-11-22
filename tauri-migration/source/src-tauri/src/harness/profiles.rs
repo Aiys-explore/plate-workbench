@@ -93,7 +93,10 @@ pub fn profile_upsert(state: State<'_, AppState>, mut profile: ModelProfile) -> 
 #[tauri::command]
 pub fn profile_delete(state: State<'_, AppState>, id: String) -> Result<(), String> {
     with_store(&state, |store| {
-        store.conn.lock().unwrap().execute("DELETE FROM model_profiles WHERE id=?1", [id]).map_err(|e| e.to_string())?;
-        Ok(())
+        let conn = store.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute("UPDATE procedural_skills SET default_profile_id=NULL WHERE default_profile_id=?1", [&id]).map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM model_profiles WHERE id=?1", [id]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())
     })
 }

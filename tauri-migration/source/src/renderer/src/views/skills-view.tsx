@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { parseDocument } from 'yaml'
-import type { BrainSkill } from '../../../shared/brain'
+import type { ModelProfile } from '../../../shared/harness'
+import type { BrainSkill, BrainSpace } from '../../../shared/brain'
 import { IconAction } from '../icon-action'
 import { IconEdit, IconMore, IconNew, IconSkills, IconUpload, IconWorkbench } from '../components/icons'
 import { useWorkbench } from '../store'
+import { SkillGovernance } from './skill-governance'
 
 const api = () => window.workbench.brain
-const newDraft = () => ({ id: '', title: '', tags: '', prompt: '', preferred: '', allowShell: false, allowNetwork: false })
+const newDraft = () => ({ id: '', title: '', tags: '', prompt: '', preferred: '', allowShell: false, allowNetwork: false, spaceId: 'work', defaultProfileId: '' })
 const issue = (cause: unknown) => cause instanceof Error ? cause.message : String(cause)
 
 export function SkillsView() {
   const [skills, setSkills] = useState<BrainSkill[]>([])
   const [agents, setAgents] = useState<Awaited<ReturnType<typeof window.workbench.agentPlugins.active>>>([])
+  const [tab, setTab] = useState<'versions' | 'evals' | 'basic'>('basic')
+  const [spaces, setSpaces] = useState<BrainSpace[]>([])
+  const [profiles, setProfiles] = useState<ModelProfile[]>([])
   const [draft, setDraft] = useState(newDraft)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -28,6 +33,9 @@ export function SkillsView() {
     refresh()
     void window.workbench.agentPlugins.active().then(items => { if (live) setAgents(items) })
       .catch(cause => { if (live) setError(issue(cause)) })
+    void Promise.all([api().spaces(), window.workbench.harness.profiles()])
+      .then(([areas, models]) => { if (live) { setSpaces(areas); setProfiles(models) } })
+      .catch(cause => { if (live) setError(issue(cause)) })
     const off = api().onChanged(refresh)
     return () => { live = false; off() }
   }, [])
@@ -36,7 +44,9 @@ export function SkillsView() {
     setDraft(skill ? {
       id: skill.id, title: skill.title, tags: skill.tags.join('、'), prompt: skill.systemPrompt,
       preferred: skill.preferredAgentId ?? '', allowShell: skill.allowShell, allowNetwork: skill.allowNetwork,
+      spaceId: skill.spaceId, defaultProfileId: skill.defaultProfileId ?? '',
     } : newDraft())
+    setTab(skill ? 'versions' : 'basic')
     setStatus('')
     setError('')
     titleField.current?.focus()
@@ -73,6 +83,7 @@ export function SkillsView() {
     void api().saveWorkbenchSkill({
       skillId: draft.id || undefined, input: { title: draft.title,
         tags: draft.tags.split(/[,，、]/).map(tag => tag.trim()).filter(Boolean), system_prompt: draft.prompt },
+      spaceId:draft.spaceId, defaultProfileId:draft.defaultProfileId,
       preferredAgentId: draft.preferred || undefined, allowShell: draft.allowShell, allowNetwork: draft.allowNetwork,
     }).then(id => {
       setDraft(current => ({ ...current, id }))
@@ -110,6 +121,12 @@ export function SkillsView() {
           </div>
         </li>)}
       </ul>
+      <section className="s11-skill-detail">
+        {current && <div className="s11-segments" role="group" aria-label="技能详情">
+          {([['versions','提示词版本'],['evals','回归评测'],['basic','基础配置']] as const).map(([id,label]) =>
+            <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        </div>}
+        {current && tab !== 'basic' ? <SkillGovernance key={current.id} skill={current} tab={tab}/> :
       <form onSubmit={save} className="s10-run-form" aria-label="技能编辑器">
         <label>技能名称<input ref={titleField} value={draft.title} required maxLength={100}
           onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
@@ -119,8 +136,15 @@ export function SkillsView() {
           {draft.preferred && !agents.some(agent => agent.id === draft.preferred) && <option value={draft.preferred}>{draft.preferred}</option>}
           {agents.map(agent => <option value={agent.id} key={agent.id}>{agent.name}</option>)}
         </select></label>
-        <label>任务指令<textarea rows={8} value={draft.prompt} required maxLength={4000}
-          onChange={e => setDraft({ ...draft, prompt: e.target.value })}/></label>
+        <label>所属脑区<select value={draft.spaceId} onChange={event => setDraft({ ...draft,spaceId:event.target.value })}>
+          {spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+        </select></label>
+        <label>默认 Profile<select value={draft.defaultProfileId} onChange={event => setDraft({ ...draft,defaultProfileId:event.target.value })}>
+          <option value="">由任务选择</option>
+          {profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+        </select></label>
+        {!current && <label>任务指令<textarea rows={8} value={draft.prompt} required maxLength={4000}
+          onChange={e => setDraft({ ...draft, prompt: e.target.value })}/></label>}
         <label className="s10-check"><input type="checkbox" checked={draft.allowNetwork}
           onChange={e => setDraft({ ...draft, allowNetwork: e.target.checked })}/>可使用已获任务授权的模型连接</label>
         <label className="s10-check"><input type="checkbox" checked={draft.allowShell}
@@ -131,7 +155,8 @@ export function SkillsView() {
         </div>
         <p role="status">{status}</p>
         {error && <p role="alert" className="s10-error">{error}</p>}
-      </form>
+      </form>}
+      </section>
     </div>
   </section>
 }

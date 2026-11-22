@@ -48,6 +48,7 @@ export interface BrainSkill {
   allowShell: boolean
   allowNetwork: boolean
   spaceId: string
+  defaultProfileId: string | null
 }
 
 export interface BrainDelta {
@@ -81,7 +82,7 @@ export interface BrainApi {
   skills(): Promise<BrainSkill[]>
   saveSkill(input: SkillInput): Promise<string>
   saveWorkbenchSkill(input: { skillId?: string; input: SkillInput; preferredAgentId?: string;
-    allowShell: boolean; allowNetwork: boolean }): Promise<string>
+    allowShell: boolean; allowNetwork: boolean; spaceId?: string; defaultProfileId?: string }): Promise<string>
   history(noteId: string): Promise<BrainHistory>
   applyDelta(runId: string): Promise<void>
   recalculate(): Promise<void>

@@ -102,6 +102,7 @@ export interface HarnessRunRequest {
   spaceScope?: import('./brain').SpaceScope
   seedNoteId?: string
   skillId?: string
+  promptVersionId?: string
   attachedLogSessionIds: string[]
   permissions: PermissionManifest
 }
@@ -147,7 +148,35 @@ export type HarnessEvent = { runId: string } & (
   | ({ kind: 'run_status_changed'; status: RunStatus; error: string | null } & Usage)
 )
 
+export type PromptStatus = 'testing' | 'production' | 'retired'
+export interface PromptVersion {
+  id: string; skillId: string; versionTag: string; status: PromptStatus; systemPrompt: string; changeNote: string; createdAt: number
+}
+export type EvalAssertion =
+  | { kind: 'max_chars'; limit: number }
+  | { kind: 'must_contain' | 'must_not_contain'; text: string }
+  | { kind: 'must_have_citation_link' }
+  | { kind: 'llm_rubric'; criterion: string }
+export interface EvalCase {
+  id: string; skillId: string; title: string; inputPrompt: string; attachedContext: unknown; assertions: EvalAssertion[]
+}
+export interface EvalResult {
+  caseId: string; title: string; output: string; passed: boolean; error?: string
+  checks: { assertion: EvalAssertion; passed: boolean; reason?: string }[]
+}
+export interface EvalRun {
+  id: string; skillId: string; promptVersionId: string; totalCases: number; passedCases: number; results: EvalResult[]; createdAt: number
+}
+
 export interface HarnessApi {
+  promptVersions(skillId: string): Promise<PromptVersion[]>
+  createVersion(input: { skillId: string; versionTag: string; systemPrompt: string; changeNote: string }): Promise<PromptVersion>
+  setVersionStatus(id: string, status: PromptStatus): Promise<void>
+  evalCases(skillId: string): Promise<EvalCase[]>
+  saveEvalCase(sample: EvalCase): Promise<EvalCase>
+  deleteEvalCase(skillId: string, id: string): Promise<void>
+  runEval(skillId: string, promptVersionId: string): Promise<EvalRun[]>
+  evalRuns(skillId: string): Promise<EvalRun[]>
   preview(request: HarnessRunRequest): Promise<AssembledPrompt>
   profiles(): Promise<ModelProfile[]>
   saveProfile(profile: ModelProfile): Promise<ModelProfile>

@@ -239,6 +239,25 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
 pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute_batch("
+        CREATE TABLE IF NOT EXISTS prompt_versions (
+          id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES procedural_skills(id) ON DELETE CASCADE,
+          version_tag TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('testing','production','retired')),
+          system_prompt TEXT NOT NULL, change_note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+          UNIQUE(skill_id,version_tag)
+        ) STRICT;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_production ON prompt_versions(skill_id) WHERE status='production';
+        CREATE TABLE IF NOT EXISTS eval_cases (
+          id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES procedural_skills(id) ON DELETE CASCADE,
+          title TEXT NOT NULL, input_prompt TEXT NOT NULL, attached_context_json TEXT NOT NULL DEFAULT '{}',
+          assertions_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS eval_runs (
+          id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES procedural_skills(id) ON DELETE CASCADE,
+          prompt_version_id TEXT NOT NULL REFERENCES prompt_versions(id), total_cases INTEGER NOT NULL,
+          passed_cases INTEGER NOT NULL, results_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS idx_eval_cases_skill ON eval_cases(skill_id,created_at);
+        CREATE INDEX IF NOT EXISTS idx_eval_runs_skill ON eval_runs(skill_id,created_at DESC);
         CREATE TABLE IF NOT EXISTS model_profiles (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, backend_kind TEXT NOT NULL, backend_id TEXT NOT NULL,
           model_name TEXT NOT NULL DEFAULT '', reasoning_effort TEXT NOT NULL DEFAULT 'medium',
@@ -262,6 +281,8 @@ pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
         ("episodic_events", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
         ("episodic_events", "review_status", "TEXT NOT NULL DEFAULT 'candidate'"),
         ("episodic_events", "source_run_id", "TEXT"),
+        ("procedural_skills", "default_profile_id", "TEXT"),
+        ("procedural_skills", "active_prompt_version_id", "TEXT"),
         ("procedural_skills", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
         ("brain_note_writes", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
         ("harness_runs", "space_id", "TEXT NOT NULL DEFAULT 'learning'"),
@@ -279,6 +300,11 @@ pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
     tx.execute_batch("
+        INSERT OR IGNORE INTO prompt_versions(id,skill_id,version_tag,status,system_prompt,created_at)
+          SELECT id || ':v1',id,'v1','production',system_prompt,created_at FROM procedural_skills WHERE active_prompt_version_id IS NULL;
+        UPDATE procedural_skills SET active_prompt_version_id=(
+          SELECT id FROM prompt_versions WHERE skill_id=procedural_skills.id AND status='production'
+        ) WHERE active_prompt_version_id IS NULL;
         CREATE INDEX IF NOT EXISTS idx_note_space ON note(space_id,updated_at);
         CREATE INDEX IF NOT EXISTS idx_episodic_space ON episodic_events(space_id,archived_at,created_at);
     ")?;

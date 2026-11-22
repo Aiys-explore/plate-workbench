@@ -374,6 +374,11 @@
 .s11-governance form, form.s11-governance { display: grid; align-items: start; gap: 12px; }
 .s11-governance .s10-actions { flex-wrap: wrap; }
 .s11-governance label { min-width: 0; }
+.s11-skill-detail { min-width: 0; display: grid; gap: 12px; align-content: start; }
+.s11-skill-detail :where(form, .s11-governance) { display: grid; gap: 10px; }
+.s11-assertion { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.s11-assertion label { flex: 1 1 120px; }
+.s11-skill-detail details > form { padding-block: 8px; }
 .s10-composer-panel h3 { margin: 0; font-size: 12px; color: var(--text-secondary); }
 .s10-composer-panel :is(select, textarea, input:not([type="checkbox"])) {
   border-color: var(--border-strong); background: var(--bg-canvas);

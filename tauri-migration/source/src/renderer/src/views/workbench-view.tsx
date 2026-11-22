@@ -4,7 +4,7 @@ import { EditorDialog } from '../note-editor'
 import type { BrainNoteMetadata, BrainSkill, BrainSpace } from '../../../shared/brain'
 import type { NoteSummary } from '../../../shared/ipc'
 import type {
-  AssembledPrompt, BackendKind, HarnessEvent, HarnessRunRequest, ModelProfile, HarnessRun, PermissionManifest, ProviderConfig, RunStatus, StagedDiff,
+  AssembledPrompt, BackendKind, HarnessEvent, HarnessRunRequest, ModelProfile, PromptVersion, HarnessRun, PermissionManifest, ProviderConfig, RunStatus, StagedDiff,
 } from '../../../shared/harness'
 import { useWorkbench } from '../store'
 import { readPreferences } from '../s10-preferences'
@@ -99,6 +99,9 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
   const [backend, setBackend] = useState('')
   const [model, setModel] = useState('')
   const [seed, setSeed] = useState('')
+  const [promptVersion, setPromptVersion] = useState('')
+  const [skillVersions, setSkillVersions] = useState<PromptVersion[]>([])
+  const appliedSkill = useRef('')
   const skill = useWorkbench(state => state.draftSkillId)
   const trySkill = useWorkbench(state => state.trySkill)
   const inspector = useWorkbench(state => state.inspectorOpen)
@@ -280,6 +283,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     const taskTitle = title.trim() || prompt.trim().split(/\r?\n/)[0].slice(0,100)
     return { title:taskTitle, prompt, backendKind:kind, backendId:backend, profileId:profileId || undefined,
       modelOverride:model.trim() || undefined, seedNoteId:chosenNote?.id, skillId:chosenSkill?.id,
+      promptVersionId:skillVersions.find(version => version.skillId === chosenSkill?.id && version.id === promptVersion)?.id,
       attachedLogSessionIds:logIds, permissions, spaceScope: { targetSpaceId:targetSpace, readableSpaceIds:readableSpaces } }
   }
 
@@ -320,6 +324,28 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     setAllNotes(profile.defaultPermissions.allowAllNotesRead)
     setAllowNoteDraft(profile.defaultPermissions.allowBrainNotePropose)
   }
+  const profileForSkill = skills.find(item => item.id === skill)
+  useEffect(() => {
+    setPromptVersion('')
+    setSkillVersions([])
+    if (!skill) return
+    let live = true
+    const refresh = () => void api().promptVersions(skill).then(items => { if (live) setSkillVersions(items) })
+      .catch(cause => { if (live) setError(issue(cause)) })
+    const off = window.workbench.brain.onChanged(refresh)
+    refresh()
+    return () => { live = false; off() }
+  }, [skill])
+  useEffect(() => {
+    if (!skill) { appliedSkill.current = ''; return }
+    if (!profileForSkill || appliedSkill.current === skill) return
+    appliedSkill.current = skill
+    const profile = profiles.find(item => item.id === profileForSkill.defaultProfileId)
+    if (profile) applyProfile(profile)
+    const space = spaces.find(item => item.id === profileForSkill.spaceId)
+    if (space?.isolated || !profile) setTargetSpace(profileForSkill.spaceId)
+    else if (space && space.id !== profile.defaultSpaceId) setReadableSpaces([space.id])
+  }, [skill, profileForSkill, profiles, spaces])
   const selectedBackend = (kind === 'api_key' ? providers : agents).find(item => item.id === backend)?.name
     ?? (kind === 'api_key' ? 'API Key' : '本机 CLI')
   const backendChoices = [
@@ -488,6 +514,11 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
                 <option value="">不使用技能</option>
                 {eligibleSkills.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
               </select></label>
+              {skillVersions.some(item => item.status === 'testing') && <label>提示词版本<select value={promptVersion}
+                onChange={event => setPromptVersion(event.target.value)}>
+                <option value="">当前生产版本</option>
+                {skillVersions.filter(item => item.status === 'testing').map(item => <option key={item.id} value={item.id}>{item.versionTag} · 测试</option>)}
+              </select></label>}
             </details>
           </>}
         </section>}
