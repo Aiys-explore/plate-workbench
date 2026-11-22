@@ -1,11 +1,11 @@
 {
-  "version": "0.6.0-s10.0",
-  "notes": "S10 首个 Windows x64 预览版。独立安装，支持用笔记库副本试用。",
-  "pub_date": "2026-11-22T00:18:32Z",
+  "version": "0.6.0-s10.1",
+  "notes": "S10.1 Windows x64 预览。模型菜单随按钮定位，支持笔记和本机 Agent 记录的组合挂载。",
+  "pub_date": "2026-11-22T02:03:26Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVULzlQWTgrenluWG56YVAybWVmUnFPZVZrdVoxRCtDTXZoOE5hZmlJYVg4WVYweUVhUWlKZzFzWVRmU3I1a0dyWjdKRGVCN3BxMUFEbjhUMG5PZ01oSTY4dG1lNjBhTVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzA2NjEwCWZpbGU6UGxhdGUtUzEwLTAuNi4wLXMxMC4wLVNldHVwLXg2NC5leGUJdmVyc2lvbjowLjYuMC1zMTAuMAo1SVV2c1B3b2t6WkJpSHNlNU1SNFUraW93aGhVWmNBUGp5dTZ1UEY1ak5KeW1DVmEvUnBlUUJWVnhGR0kvSExxK0JCWkFDN2tLcUw3ZFRQTjMwQklEQT09Cg==",
-      "url": "https://github.com/fundops-notes/plate-workbench/releases/download/v0.6.0-s10.0/Plate-S10-0.6.0-s10.0-Setup-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVULzlQWTgrenluWG13OTdrRnBFRURsSXB2MVNJcHpxbzRnL3BYZmNHT00zSy9LdUZDSzJGdlZEa2ZOSlA0Vml6T0Flc1BJcTVlU1F6Wlo2TzJIL1dHK1crNm1vUVpvZkFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzEyOTY4CWZpbGU6UGxhdGUtUzEwLTAuNi4wLXMxMC4xLVNldHVwLXg2NC5leGUJdmVyc2lvbjowLjYuMC1zMTAuMQpvRVMwYjdrSkp5Mk5DakhVajN3WHlyZzBTR0EyeGp4L2o0ZEVzTUd3MTNpeEV4ZVB2cmhJTnF3Ukc5UWpDejF0WmZ4RUU5R3JpS2hnOWZzSXJLOTNBQT09Cg==",
+      "url": "https://github.com/fundops-notes/plate-workbench/releases/download/v0.6.0-s10.1/Plate-S10-0.6.0-s10.1-Setup-x64.exe"
     }
   }
 }
