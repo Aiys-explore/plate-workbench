@@ -143,7 +143,11 @@ try {
     await panel.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)))
     assert.deepEqual(await composer.boundingBox(), position, name + ' moved the composer')
     assert.equal(await panel.evaluate(node => getComputedStyle(node).borderRadius), '14px')
-    assert.ok(Math.abs((await panel.boundingBox()).y + (await panel.boundingBox()).height - position.y + 10) <= 1)
+    const panelRect = await panel.boundingBox()
+    const anchor = name === '模型与引擎' ? await trigger.boundingBox() : position
+    const gap = name === '模型与引擎' ? 8 : 10
+    assert.ok(Math.abs(panelRect.y + panelRect.height - anchor.y + gap) <= 1)
+    if (name === '模型与引擎') assert.ok(Math.abs(panelRect.x - anchor.x) <= 1)
     if (name === '模型与引擎') {
       const cli = panel.getByRole('button', { name: /本机 CLI/ }).first()
       await cli.click()

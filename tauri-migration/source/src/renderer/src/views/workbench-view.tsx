@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import type { BrainSkill } from '../../../shared/brain'
 import type { NoteSummary } from '../../../shared/ipc'
 import type {
@@ -31,8 +31,9 @@ function Timeline({ events, notes }: { events: HarnessEvent[]; notes: NoteSummar
       if (event.kind === 'run_started') return <p key={i} className="s10-user-message">{event.prompt}</p>
       if (event.kind === 'context_activated' && (event.wave || event.attachedLogCount)) {
         return <div key={i} className="s10-context" role="status">
-          <span>已激活 {event.wave?.activatedNoteIds.length ?? 0} 篇关联笔记</span>
-          {event.attachedLogCount > 0 && <span> · 引用 {event.attachedLogCount} 个会话</span>}
+          {event.wave && <span>{event.wave.activatedNoteIds.length
+            ? `已激活 ${event.wave.activatedNoteIds.length} 篇关联笔记` : '已引用种子笔记'}</span>}
+          {event.attachedLogCount > 0 && <span>{event.wave ? ' · ' : ''}引用 {event.attachedLogCount} 个会话</span>}
           {event.wave && <ul aria-label="激活的长期记忆">
             {[event.wave.seedNoteId, ...event.wave.activatedNoteIds].map(id => <li key={id}>
               {notes.find(note => note.id === id)?.title ?? id}
@@ -52,7 +53,11 @@ function Timeline({ events, notes }: { events: HarnessEvent[]; notes: NoteSummar
   </div>
 }
 
-export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: WorkbenchHeader) => void }) {
+export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
+  visible: boolean
+  onHeaderChange: (header: WorkbenchHeader) => void
+  openLogs: () => void
+}) {
   const [runs, setRuns] = useState<HarnessRun[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [diffs, setDiffs] = useState<StagedDiff[]>([])
@@ -93,7 +98,6 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
   const [error, setError] = useState('')
   const draft = useWorkbench(state => state.draftAttachedLogs)
   const detach = useWorkbench(state => state.detachLogFromWorkbench)
-  const navigate = useWorkbench(state => state.setActiveView)
   const setPendingDiffCount = useWorkbench(state => state.setPendingDiffCount)
   const refreshId = useRef(0)
   const detailsId = useRef(0)
@@ -112,15 +116,28 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
     setPendingDiffCount(count || (runs.some(run => run.status === 'review_ready') ? 1 : 0))
   }, [diffs, runId, runs, setPendingDiffCount])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!visible) {
+      setPanel(undefined)
+      return
+    }
     if (!panel) return
     const form = composer.current
     const surface = form?.parentElement
     const popover = panelElement.current
+    const anchor = panel === 'models' ? panelTrigger.current : null
     const fit = () => {
       if (!form || !surface || !popover) return
-      const space = form.getBoundingClientRect().top - surface.getBoundingClientRect().top - 18
+      const formRect = form.getBoundingClientRect()
+      const triggerRect = anchor?.getBoundingClientRect()
+      const space = (triggerRect?.top ?? formRect.top) - surface.getBoundingClientRect().top - 18
       popover.style.setProperty('--s10-panel-space', Math.max(52, space) + 'px')
+      if (triggerRect) {
+        const left = triggerRect.left - formRect.left - form.clientLeft
+        const bottom = formRect.top + form.clientTop + form.clientHeight - triggerRect.top + 8
+        popover.style.setProperty('--s10-panel-left', Math.max(0, Math.min(left, form.clientWidth - popover.offsetWidth)) + 'px')
+        popover.style.setProperty('--s10-panel-bottom', bottom + 'px')
+      }
     }
     fit()
     const resize = new ResizeObserver(fit)
@@ -128,12 +145,15 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
       resize.observe(form)
       resize.observe(surface)
     }
+    if (anchor) resize.observe(anchor)
     if (enterPanel.current) {
       panelElement.current?.querySelector<HTMLElement>('button:not([disabled]), input, select, textarea')?.focus({ preventScroll: true })
     }
     enterPanel.current = false
     function outside(event: PointerEvent) {
-      if (event.target instanceof Node && !composer.current?.contains(event.target)) setPanel(undefined)
+      if (event.target instanceof Node && !popover?.contains(event.target) && !panelTrigger.current?.contains(event.target)) {
+        setPanel(undefined)
+      }
     }
     function escape(event: KeyboardEvent) {
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing
@@ -149,7 +169,7 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
       document.removeEventListener('pointerdown', outside)
       document.removeEventListener('keydown', escape)
     }
-  }, [panel])
+  }, [panel, visible])
 
   const refreshRuns = useCallback(async () => {
     const version = ++refreshId.current
@@ -167,6 +187,7 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
   }, [])
 
   useEffect(() => {
+    if (!visible) return
     let live = true
     void refreshRuns().catch(cause => { if (live) setError(issue(cause)) })
     void Promise.all([
@@ -189,13 +210,14 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
       }, 110)
     })
     return () => { live = false; off(); clearTimeout(timer); refreshId.current++; detailsId.current++ }
-  }, [refreshDetail, refreshRuns])
+  }, [refreshDetail, refreshRuns, visible])
 
   useEffect(() => {
+    if (!visible) return
     setEvents([])
     setDiffs([])
     void refreshDetail(runId).catch(cause => setError(issue(cause)))
-  }, [runId, refreshDetail])
+  }, [runId, refreshDetail, visible])
 
   async function action(work: () => Promise<void>) {
     setBusy(true)
@@ -342,7 +364,7 @@ export function WorkbenchView({ onHeaderChange }: { onHeaderChange: (header: Wor
             {localLogs.map(item => <button type="button" key={item.id} onClick={() => {
               attach(item); setPanel(undefined); promptInput.current?.focus()
             }}>{item.title}</button>)}
-            <button type="button" onClick={() => navigate('library')}>打开资料与记录</button>
+            <button type="button" onClick={openLogs}>打开资料与记录</button>
           </div>}
           {panel === 'permissions' && <>
             <label>授权文件目录（每行一个绝对路径）<textarea value={dirs} rows={2} onChange={e => setDirs(e.target.value)}/></label>

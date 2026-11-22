@@ -22,6 +22,10 @@ export function Layout({ openAgentSettings }: { openAgentSettings: () => void })
   const pending = useWorkbench(state => state.pendingDiffCount)
   const [libraryTab, setLibraryTab] = useState<'notes' | 'logs'>('notes')
   const [workbenchHeader, setWorkbenchHeader] = useState<WorkbenchHeader>({ activated: 0 })
+  const openLogs = useCallback(() => {
+    setLibraryTab('logs')
+    navigate('library')
+  }, [navigate])
   const switchBrain = useCallback((open: boolean) => {
     if (!open) setLibraryTab('notes')
     navigate(open ? 'brain' : 'library')
@@ -62,9 +66,11 @@ export function Layout({ openAgentSettings }: { openAgentSettings: () => void })
           </div>
           {logsVisible && <main className="s10-page"><LibraryAndLogsView/></main>}
         </div>
-        {!notesVisible && !logsVisible && <main className="s10-page">
+        <main className="s10-page" hidden={active !== 'workbench'}>
+          <WorkbenchView visible={active === 'workbench'} onHeaderChange={setWorkbenchHeader} openLogs={openLogs}/>
+        </main>
+        {(active === 'settings' || active === 'skills') && <main className="s10-page">
           {active === 'settings' && <SettingsView openAgentSettings={openAgentSettings}/>}
-          {active === 'workbench' && <WorkbenchView onHeaderChange={setWorkbenchHeader}/>}
           {active === 'skills' && <SkillsView/>}
         </main>}
       </div>
