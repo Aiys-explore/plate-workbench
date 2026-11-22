@@ -13,6 +13,7 @@ export default defineConfig({
   build: {
     outDir: '../../out/renderer',
     emptyOutDir: true,
+    assetsInlineLimit: file => /\.woff2?$/i.test(file) ? false : undefined,
     target: 'chrome140'
   }
 })

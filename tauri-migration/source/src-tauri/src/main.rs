@@ -43,9 +43,7 @@ fn with_store<T>(state: &State<'_, AppState>, f: impl FnOnce(&NoteStore) -> Resu
 }
 
 const MARKER: &str = "plate-workbench.json";
-const WORKSPACE_DIRECTORY: &str = "Plate Workbench";
-const LEGACY_WORKSPACE_DIRECTORY: &str = "Plate-Tauri-S9-试用笔记";
-const PLATE_IDENTIFIER: &str = "local.plate.workbench.s7-preview";
+const WORKSPACE_DIRECTORY: &str = "Plate Workbench S10 Preview";
 
 fn workspace_override() -> Option<PathBuf> {
     std::env::var_os("PLATE_WORKSPACE_ROOT")
@@ -176,13 +174,6 @@ fn startup_state(app: AppHandle, state: State<'_, AppState>) -> Result<serde_jso
         Ok(None) => (),
         Err(error) => return Ok(serde_json::json!({ "phase": "blocked", "error": error })),
     }
-    // Preserve an initialized S9 workspace at the former default path.
-    if let Some(home) = std::env::var_os("USERPROFILE").filter(|_| app.config().identifier == PLATE_IDENTIFIER) {
-        let legacy = PathBuf::from(home).join("Documents").join(LEGACY_WORKSPACE_DIRECTORY);
-        if is_registered_workspace(&legacy) {
-            return Ok(reopen_workspace(&app, &state, &legacy, false));
-        }
-    }
     let suggested = app.path().document_dir().ok()
         .filter(|path| path.is_absolute())
         .map(|path| path.join(WORKSPACE_DIRECTORY));
@@ -285,9 +276,14 @@ fn startup_exit() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn update_can_install(state: State<'_, AppState>, engine: State<'_, TaskEngine>) -> bool {
+fn update_can_install(
+    state: State<'_, AppState>,
+    engine: State<'_, TaskEngine>,
+    harness: State<'_, harness::engine::HarnessState>,
+) -> bool {
     let workspace = state.workspace.lock().unwrap();
-    !workspace.as_ref().is_some_and(|current| engine.has_running(&current.store.root))
+    !harness.has_running()
+        && !workspace.as_ref().is_some_and(|current| engine.has_running(&current.store.root))
 }
 
 #[tauri::command]

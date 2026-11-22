@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Plate Workbench S9 Preview",
-  "version": "0.5.0-s9.6",
-  "identifier": "local.plate.workbench.s7-preview",
+  "productName": "Plate Workbench S10 Preview",
+  "version": "0.6.0-s10.0",
+  "identifier": "local.plate.workbench.s10-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "[plate] — 本机试用版",
+        "title": "[plate] — S10 预览版",
         "width": 1280,
         "height": 860,
         "minWidth": 860,
@@ -34,7 +34,12 @@
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": [
+          "English",
+          "SimpChinese"
+        ]
       }
     }
   },
@@ -42,9 +47,10 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFQTczQ0ZCM0NGNkY0RkYKUldULzlQWTgrenluWGpLNzNMSjBlbWNUS0gyck5CbXEvTzlHdzB0Qmp5Z0VFQkxDUW9DTzF6RUUK",
       "endpoints": [
-        "https://raw.githubusercontent.com/fundops-notes/plate-workbench/checkpoint/tauri-s9/tauri-migration/updates/windows-x64.json"
+        "https://raw.githubusercontent.com/fundops-notes/plate-workbench/checkpoint/tauri-s10/tauri-migration/updates/windows-x64-s10.json"
       ],
       "requireSignedVersion": true
     }
-  }
+  },
+  "mainBinaryName": "plate-workbench-s10"
 }

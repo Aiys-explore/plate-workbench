@@ -1,6 +1,6 @@
 [package]
 name = "plate-workbench"
-version = "0.5.0-s9.6"
+version = "0.6.0-s10.0"
 description = "Plate 笔记 + Agent 工作台（Tauri v2 后端）"
 edition = "2021"
 
