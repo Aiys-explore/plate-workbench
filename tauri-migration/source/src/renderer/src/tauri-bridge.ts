@@ -206,7 +206,11 @@ export function createTauriBridge(): WorkbenchApi {
     agentPlugins: createAgentPluginsApi(),
     brain: createBrainApi(),
     harness: {
-      promptVersions: skillId => invoke('prompt_version_list', { skillId }),
+      hooks: () => invoke('hooks_list'),
+      saveHook: hook => invoke('hooks_upsert', { hook }),
+      trustHook: (id, expectedSha256) => invoke('hooks_trust', { id, expectedSha256 }),
+      toggleHook: (id, enabled) => invoke('hooks_toggle', { id, enabled }),
+      candidates: runId => invoke('harness_candidates', { runId }),      promptVersions: skillId => invoke('prompt_version_list', { skillId }),
       createVersion: input => invoke('prompt_version_create', input),
       setVersionStatus: (id, status) => invoke('prompt_version_set_status', { id, status }),
       evalCases: skillId => invoke('eval_case_list', { skillId }),

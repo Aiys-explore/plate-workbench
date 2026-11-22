@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Layers, ScanEye } from 'lucide-react'
 import { EditorDialog } from '../note-editor'
-import type { BrainNoteMetadata, BrainSkill, BrainSpace } from '../../../shared/brain'
+import { CandidateCard } from '../brain-workbench'
+import type { BrainNoteMetadata, BrainSkill, BrainSpace, EpisodicEvent } from '../../../shared/brain'
 import type { NoteSummary } from '../../../shared/ipc'
 import type {
   AssembledPrompt, BackendKind, HarnessEvent, HarnessRunRequest, ModelProfile, PromptVersion, HarnessRun, PermissionManifest, ProviderConfig, RunStatus, StagedDiff,
@@ -77,6 +78,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
   const [runs, setRuns] = useState<HarnessRun[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [diffs, setDiffs] = useState<StagedDiff[]>([])
+  const [candidates, setCandidates] = useState<EpisodicEvent[]>([])
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [agents, setAgents] = useState<Awaited<ReturnType<typeof window.workbench.agentPlugins.active>>>([])
   const [notes, setNotes] = useState<NoteSummary[]>([])
@@ -217,11 +219,12 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
 
   const refreshDetail = useCallback(async (id: string) => {
     const version = ++detailsId.current
-    if (!id) { setEvents([]); setDiffs([]); return }
-    const [items, proposals] = await Promise.all([api().events(id), api().diffs(id)])
+    if (!id) { setEvents([]); setDiffs([]); setCandidates([]); return }
+    const [items, proposals, memories] = await Promise.all([api().events(id), api().diffs(id), api().candidates(id)])
     if (selectedRef.current !== id || version !== detailsId.current) return
     setEvents(items)
     setDiffs(proposals)
+    setCandidates(memories)
   }, [])
 
   useEffect(() => {
@@ -243,7 +246,10 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
       setProfiles(modelProfiles)
     }).catch(cause => { if (live) setError(issue(cause)) })
     loadCatalogs()
-    const offCatalog = window.workbench.brain.onChanged(loadCatalogs)
+    const offCatalog = window.workbench.brain.onChanged(() => {
+      loadCatalogs()
+      void refreshDetail(selectedRef.current).catch(cause => setError(issue(cause)))
+    })
     let timer: ReturnType<typeof setTimeout> | undefined
     const off = api().onEvent(event => {
       if (event.kind === 'run_status_changed') void refreshRuns().catch(cause => setError(issue(cause)))
@@ -260,6 +266,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
     if (!visible) return
     setEvents([])
     setDiffs([])
+    setCandidates([])
     void refreshDetail(runId).catch(cause => setError(issue(cause)))
   }, [runId, refreshDetail, visible])
 
@@ -571,6 +578,13 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
             <p>脑区 · {event.spaceIds.map(id => spaces.find(space => space.id === id)?.name ?? id).join('、')}</p>
             <PromptLayers prompt={event.prompt}/>
           </section>
+          if (event.kind === 'hook_needs_trust') return <p key={index} role="status">
+            {event.eventName} · {event.name} · 待信任，已跳过
+          </p>
+          if (event.kind === 'hook_status') return <p key={index}>
+            {event.eventName} · {event.name} · {{ executed:'已执行', denied:'已拦截', skipped:'已跳过', error:'执行失败' }[event.status]}
+            {event.message && ' · ' + event.message}
+          </p>
           if (event.kind === 'step_usage') return <p key={index}>第 {event.step} 步 · {event.tokenIn} 输入 / {event.tokenOut} 输出 · ${event.costUsd.toFixed(4)}</p>
           if (event.kind === 'context_activated' && event.wave) return <details key={index}><summary>激活节点</summary>
             {[event.wave.seedNoteId, ...event.wave.activatedNoteIds].map(id => <p key={id}>{notes.find(note => note.id === id)?.title ?? id}</p>)}
@@ -579,7 +593,7 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
         })}
       </div>}
       {inspectTab === 'shadow' && <>
-      {diffs.length === 0 && <p className="s10-quiet-empty">当前没有暂存变更。</p>}
+      {diffs.length === 0 && candidates.length === 0 && <p className="s10-quiet-empty">当前没有暂存变更。</p>}
       {diffs.map(diff => <article key={diff.id} className="s10-diff-card">
         <header className="s10-diff-card-header">
           <strong data-tip={diff.targetRef}>{diff.targetKind === 'brain_note'
@@ -600,6 +614,11 @@ export function WorkbenchView({ visible, onHeaderChange, openLogs }: {
         <pre aria-label="变更对比">{diff.unifiedDiff.split('\n').map((line, i) => <span key={i}
           className={line.startsWith('+') ? 's10-diff-add' : line.startsWith('-') ? 's10-diff-remove' : undefined}>{line}{'\n'}</span>)}</pre>
       </article>)}
+      {candidates.length > 0 && <section className="s11-trace" aria-label="候选记忆">
+        <h3>候选记忆</h3>
+        {candidates.map(candidate => <CandidateCard key={candidate.id} event={candidate} spaces={spaces} fresh={false}
+          promote={async () => { await window.workbench.brain.promote(candidate.id,candidate.spaceId); await refreshDetail(runId) }}/>)}
+      </section>}
       </>}
     </aside>}
   </section>

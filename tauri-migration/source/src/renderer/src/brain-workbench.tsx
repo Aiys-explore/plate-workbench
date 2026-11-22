@@ -144,7 +144,7 @@ export function EpisodicLane({ events, spaces, spaceId, selectSpace, fresh, open
   </aside>
 }
 
-function CandidateCard({ event, spaces, fresh, promote }: {
+export function CandidateCard({ event, spaces, fresh, promote }: {
   event: EpisodicEvent; spaces: BrainSpace[]; fresh: boolean; promote: () => Promise<void>
 }) {
   const [editing, edit] = useState(false)

@@ -408,9 +408,10 @@ impl NoteStore {
         let kind = conflict_kind(path);
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO note (id, path, title, project_id, kind, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3, kind=?5, project_id=?4, updated_at=?7",
+            "INSERT INTO note (id, path, title, project_id, kind, created_at, updated_at,space_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,COALESCE((SELECT space_id FROM note_space_assignments WHERE note_id=?1),'learning'))
+             ON CONFLICT(id) DO UPDATE SET path=?2, title=?3, kind=?5, project_id=?4, updated_at=?7,
+             space_id=COALESCE((SELECT space_id FROM note_space_assignments WHERE note_id=?1),note.space_id)",
             params![id, path.to_string_lossy(), meta.title, project_id, kind, created_at, updated_at],
         ).map_err(|e| e.to_string())?;
         Ok(())
@@ -467,7 +468,7 @@ impl NoteStore {
             .ok_or_else(|| "笔记不存在".to_string())
     }
 
-    pub fn create(&self, title: &str, project_id: &str, template: &str) -> Result<Note, String> {
+    pub fn create(&self, title: &str, project_id: &str, template: &str, space: &str) -> Result<Note, String> {
         if title.len() > 240 || title.contains(['\r', '\n', '\0']) {
             return Err("请输入 1–240 个字符的单行标题".into());
         }
@@ -490,6 +491,7 @@ impl NoteStore {
         let id = uuid::Uuid::new_v4().to_string();
         let path = dir.join(format!("{id}.md"));
         let content = format!("<!-- plate-title:{} -->\n{}", urlencoding_min(title.trim()), body);
+        self.reserve_note_space(&id,space)?;
         write_new_file(&path, &content)?;
         self.scan()?;
         self.read(&id)
@@ -499,14 +501,29 @@ impl NoteStore {
         Ok(self.draft_row(&note.summary.id)?.is_some_and(|draft| draft.content != note.content))
     }
 
-    pub fn create_memory_note(&self, id: &str, project: &str, title: &str, body: &str, marker: &str) -> Result<Note, String> {
+    fn reserve_note_space(&self,id:&str,space:&str) -> Result<(),String> {
+        let conn=self.conn.lock().unwrap();
+        crate::memory_consolidator::require_space(&conn,space)?;
+        if space == "learning" { return Ok(()); }
+        conn.execute("INSERT OR IGNORE INTO note_space_assignments(note_id,space_id) VALUES(?1,?2)",
+            params![id,space]).map_err(|e|e.to_string())?;
+        let assigned:String=conn.query_row("SELECT space_id FROM note_space_assignments WHERE note_id=?1",[id],|row|row.get(0))
+            .map_err(|e|e.to_string())?;
+        if assigned != space { return Err("笔记与预留脑区不一致".into()); }
+        Ok(())
+    }
+
+    pub fn create_memory_note(&self, id: &str, project: &str, title: &str, body: &str, marker: &str, space: &str) -> Result<Note, String> {
         check_note_id(id)?;
         check_project(project)?;
         let path = self.projects_dir.join(project).join(format!("{id}.md"));
         match snapshot(&path)? {
-            Some(disk) if disk.content.lines().any(|line| line == marker) => {}
+            Some(disk) if disk.content.lines().any(|line| line == marker) => self.reserve_note_space(id,space)?,
             Some(_) => return Err("闪念固化目标文件已存在".into()),
-            None => write_new_file(&path, &format!("<!-- plate-title:{} -->\n{body}", urlencoding_min(title.trim())))?,
+            None => {
+                self.reserve_note_space(id,space)?;
+                write_new_file(&path, &format!("<!-- plate-title:{} -->\n{body}", urlencoding_min(title.trim())))?;
+            }
         }
         self.scan()?;
         self.read(id)

@@ -1,5 +1,6 @@
-import { FileText, SlidersHorizontal } from 'lucide-react'
+import { FileText, ShieldCheck, SlidersHorizontal } from 'lucide-react'
 import { ProfileSettings, GlobalPromptSettings } from './harness-settings'
+import { HookSettings } from './hook-settings'
 import { IconAction } from '../icon-action'
 import { IconApiKey, IconAttachLog, IconDelete, IconModel, IconNew, IconRefresh, IconShield } from '../components/icons'
 import { readPreferences, savePreferences } from '../s10-preferences'
@@ -24,7 +25,7 @@ const blankProvider = (): UpsertProviderInput => ({
 const describe = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export function SettingsView({ openAgentSettings }: { openAgentSettings: () => void }) {
-  const [tab, setTab] = useState<'agents' | 'providers' | 'logs' | 'limits' | 'profiles' | 'global'>('providers')
+  const [tab, setTab] = useState<'agents' | 'providers' | 'logs' | 'limits' | 'profiles' | 'global' | 'hooks'>('providers')
   const [prefs, setPrefs] = useState(readPreferences)
   const [prefsStatus, setPrefsStatus] = useState('')
   function saveLocalPreferences(event: FormEvent) {
@@ -98,7 +99,7 @@ export function SettingsView({ openAgentSettings }: { openAgentSettings: () => v
         {([
           ['agents','本机 CLI',IconModel], ['providers','API 模型服务商',IconApiKey],
           ['logs','本机记录来源',IconAttachLog], ['limits','默认任务上限',IconShield],
-          ['profiles','Model Profiles',SlidersHorizontal], ['global','全局系统提示词',FileText],
+          ['profiles','Model Profiles',SlidersHorizontal], ['global','全局系统提示词',FileText], ['hooks','Hooks 与信任',ShieldCheck],
         ] as const).map(([id,label,Icon]) => <button key={id} type="button" aria-pressed={tab === id}
           onClick={() => { setTab(id); setPrefsStatus('') }}>
           <Icon size={14} strokeWidth={1.65} aria-hidden="true"/>{label}
@@ -106,6 +107,7 @@ export function SettingsView({ openAgentSettings }: { openAgentSettings: () => v
       </nav>
       <div>
       {tab === 'profiles' && <ProfileSettings providers={providers}/>}
+      {tab === 'hooks' && <HookSettings/>}
       {tab === 'global' && <GlobalPromptSettings/>}
       {tab === 'agents' && <section>
         <h2>本机 CLI</h2>

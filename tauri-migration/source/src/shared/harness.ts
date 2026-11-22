@@ -142,6 +142,8 @@ export type HarnessEvent = { runId: string } & (
   | { kind: 'context_activated'; wave: import('./brain').BrainActivationWave | null; attachedLogCount: number }
   | { kind: 'prompt_assembled'; prompt: AssembledPrompt; spaceIds: string[] }
   | ({ kind: 'step_usage'; step: number } & Usage)
+  | { kind: 'hook_status'; hookId: string; name: string; eventName: HookEvent; status: 'executed' | 'denied' | 'skipped' | 'error'; message: string }
+  | { kind: 'hook_needs_trust'; hookId: string; name: string; eventName: HookEvent; scriptSha256: string }
   | { kind: 'token_delta'; delta: string }
   | { kind: 'tool_call'; toolName: string; summary: string; allowed: boolean }
   | { kind: 'diff_proposed'; diffId: string }
@@ -168,7 +170,19 @@ export interface EvalRun {
   id: string; skillId: string; promptVersionId: string; totalCases: number; passedCases: number; results: EvalResult[]; createdAt: number
 }
 
+export type HookEvent = 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop' | 'SessionEnd'
+export interface HarnessHook {
+  id: string; name: string; eventName: HookEvent; matcher: string
+  handlerKind: 'builtin' | 'command' | 'mcp_tool'; commandOrRef: string
+  scriptSha256: string; trustedSha256: string; timeoutSec: number; asyncRun: boolean; enabled: boolean; sourcePreview: string
+}
+
 export interface HarnessApi {
+  hooks(): Promise<HarnessHook[]>
+  saveHook(hook: HarnessHook): Promise<HarnessHook>
+  trustHook(id: string, expectedSha256: string): Promise<HarnessHook>
+  toggleHook(id: string, enabled: boolean): Promise<HarnessHook>
+  candidates(runId: string): Promise<import('./brain').EpisodicEvent[]>
   promptVersions(skillId: string): Promise<PromptVersion[]>
   createVersion(input: { skillId: string; versionTag: string; systemPrompt: string; changeNote: string }): Promise<PromptVersion>
   setVersionStatus(id: string, status: PromptStatus): Promise<void>

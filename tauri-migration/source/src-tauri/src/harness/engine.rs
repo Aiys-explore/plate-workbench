@@ -1,6 +1,14 @@
-use super::{llm_provider as llm, policy::PermissionManifest, profiles, prompt_assembler::{self, AssembledPrompt}, staging};
+use super::{
+    hooks, llm_provider as llm,
+    policy::PermissionManifest,
+    profiles,
+    prompt_assembler::{self, AssembledPrompt},
+    staging,
+};
 use crate::{
-    agent_log_harvester, brain_spaces::{self, SpaceScopePolicy}, context_compiler,
+    agent_log_harvester,
+    brain_spaces::{self, SpaceScopePolicy},
+    context_compiler,
     notes::{now_ms, NoteFilters, NoteStore},
     provider_store, with_store, AppState,
 };
@@ -52,7 +60,7 @@ pub struct RunRequest {
 
 #[derive(Default, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Usage {
+pub(crate) struct Usage {
     token_in: u64,
     token_out: u64,
     cost_usd: f64,
@@ -79,7 +87,7 @@ pub struct HarnessRun {
     rename_all = "snake_case",
     rename_all_fields = "camelCase"
 )]
-enum HarnessEvent<'a> {
+pub(crate) enum HarnessEvent<'a> {
     RunStarted {
         run_id: &'a str,
         prompt: &'a str,
@@ -89,8 +97,32 @@ enum HarnessEvent<'a> {
         wave: Option<&'a context_compiler::BrainActivationWave>,
         attached_log_count: usize,
     },
-    PromptAssembled { run_id: &'a str, prompt: &'a AssembledPrompt, space_ids: &'a [String] },
-    StepUsage { run_id: &'a str, step: u32, #[serde(flatten)] usage: Usage },
+    PromptAssembled {
+        run_id: &'a str,
+        prompt: &'a AssembledPrompt,
+        space_ids: &'a [String],
+    },
+    HookStatus {
+        run_id: &'a str,
+        hook_id: &'a str,
+        name: &'a str,
+        event_name: hooks::Event,
+        status: &'a str,
+        message: &'a str,
+    },
+    HookNeedsTrust {
+        run_id: &'a str,
+        hook_id: &'a str,
+        name: &'a str,
+        event_name: hooks::Event,
+        script_sha256: &'a str,
+    },
+    StepUsage {
+        run_id: &'a str,
+        step: u32,
+        #[serde(flatten)]
+        usage: Usage,
+    },
     TokenDelta {
         run_id: &'a str,
         delta: &'a str,
@@ -120,6 +152,8 @@ impl HarnessEvent<'_> {
             Self::RunStarted { run_id, .. }
             | Self::ContextActivated { run_id, .. }
             | Self::PromptAssembled { run_id, .. }
+            | Self::HookStatus { run_id, .. }
+            | Self::HookNeedsTrust { run_id, .. }
             | Self::StepUsage { run_id, .. }
             | Self::TokenDelta { run_id, .. }
             | Self::ToolCall { run_id, .. }
@@ -154,6 +188,7 @@ struct Task {
     wave: Option<context_compiler::BrainActivationWave>,
     log_count: usize,
     scope: SpaceScopePolicy,
+    spills: hooks::Spills,
 }
 
 fn record(conn: &Connection, event: &HarnessEvent<'_>) -> Result<(), String> {
@@ -173,7 +208,7 @@ fn record(conn: &Connection, event: &HarnessEvent<'_>) -> Result<(), String> {
     Ok(())
 }
 
-fn emit(app: &AppHandle, event: HarnessEvent<'_>) -> Result<(), String> {
+pub(crate) fn emit(app: &AppHandle, event: HarnessEvent<'_>) -> Result<(), String> {
     with_store(&app.state::<AppState>(), |store| {
         record(&store.conn.lock().unwrap(), &event)
     })?;
@@ -239,10 +274,12 @@ fn select_backend(
                     return Err("工作台隔离模式需要独立 Windows EXE".into());
                 }
                 if let Some(model) = &request.model_override {
-                    if model.is_empty() || model.len() > 240 || model.starts_with('-') || model.chars().any(char::is_control) {
+                    if !crate::agent_plugins::valid_model(model) {
                         return Err("模型标识无效".into());
                     }
-                    if route.model_flag.is_none() { return Err("该 CLI 无模型覆盖参数".into()); }
+                    if route.model_flag.is_none() {
+                        return Err("该 CLI 无模型覆盖参数".into());
+                    }
                     route.selected_model = model.clone();
                 }
                 let id = route.id.clone();
@@ -254,7 +291,9 @@ fn select_backend(
 }
 
 fn apply_profile(conn: &Connection, request: &mut RunRequest) -> Result<llm::ModelOptions, String> {
-    let Some(id) = request.profile_id.as_deref() else { return Ok(llm::ModelOptions::default()); };
+    let Some(id) = request.profile_id.as_deref() else {
+        return Ok(llm::ModelOptions::default());
+    };
     let profile = profiles::get(conn, id)?;
     request.backend_kind = profile.backend_kind;
     request.backend_id = profile.backend_id;
@@ -264,19 +303,33 @@ fn apply_profile(conn: &Connection, request: &mut RunRequest) -> Result<llm::Mod
     request.permissions.allow_brain_note_propose &= template.allow_brain_note_propose;
     request.permissions.allow_network &= template.allow_network;
     request.permissions.allow_shell &= template.allow_shell;
-    request.permissions.writable_dirs.retain(|path| template.writable_dirs.contains(path));
+    request
+        .permissions
+        .writable_dirs
+        .retain(|path| template.writable_dirs.contains(path));
     request.permissions.max_steps = request.permissions.max_steps.min(profile.max_steps);
-    request.permissions.max_budget_usd = request.permissions.max_budget_usd.min(profile.max_budget_usd);
+    request.permissions.max_budget_usd = request
+        .permissions
+        .max_budget_usd
+        .min(profile.max_budget_usd);
     Ok(llm::ModelOptions {
-        temperature: Some(profile.temperature), reasoning_effort: Some(profile.reasoning_effort),
+        temperature: Some(profile.temperature),
+        reasoning_effort: Some(profile.reasoning_effort),
     })
 }
 
 fn export_allowed(conn: &Connection, spaces: &[String]) -> Result<bool, String> {
     for space in spaces {
-        let allowed: bool = conn.query_row("SELECT allow_export FROM brain_spaces WHERE id=?1",
-            [space], |row| row.get(0)).map_err(db_error)?;
-        if !allowed { return Ok(false); }
+        let allowed: bool = conn
+            .query_row(
+                "SELECT allow_export FROM brain_spaces WHERE id=?1",
+                [space],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if !allowed {
+            return Ok(false);
+        }
     }
     Ok(true)
 }
@@ -289,11 +342,7 @@ struct Compiled {
     options: llm::ModelOptions,
 }
 
-fn load_context(
-    store: &NoteStore,
-    request: &mut RunRequest,
-    id: &str,
-) -> Result<Compiled, String> {
+fn load_context(store: &NoteStore, request: &mut RunRequest, id: &str) -> Result<Compiled, String> {
     let mut selected_skill = None;
     let (log_block, log_count, spaces, options, allow_export);
     request.permissions.validate()?;
@@ -301,6 +350,9 @@ fn load_context(
         let conn = store.conn.lock().unwrap();
         options = apply_profile(&conn, request)?;
         spaces = request.space_scope.allowed(&conn)?;
+        request.permissions.readable_note_ids.retain(|id| {
+            brain_spaces::note_space(&conn, id).is_ok_and(|space| spaces.contains(&space))
+        });
         allow_export = export_allowed(&conn, &spaces)?;
         (log_block, log_count) = context_compiler::compile_harness_logs(
             &conn,
@@ -312,18 +364,24 @@ fn load_context(
                 "SELECT system_prompt,allow_shell,allow_network,space_id FROM procedural_skills WHERE id=?1", [skill_id],
                 |row| Ok((row.get::<_, String>(0)?,row.get::<_, bool>(1)?,row.get::<_, bool>(2)?,row.get::<_, String>(3)?)),
             ).map_err(|_| "找不到所选技能")?;
-            if !spaces.contains(&space) { return Err("所选技能不在任务脑区范围内".into()); }
+            if !spaces.contains(&space) {
+                return Err("所选技能不在任务脑区范围内".into());
+            }
             request.permissions.restrict_with_skill(shell, network);
             let version = match request.prompt_version_id.as_deref() {
                 Some(id) => {
-                    let version = super::prompt_versions::get(&conn,skill_id,id)?;
-                    if version.status == "retired" { return Err("请先将已退役版本恢复为测试".into()); }
+                    let version = super::prompt_versions::get(&conn, skill_id, id)?;
+                    if version.status == "retired" {
+                        return Err("请先将已退役版本恢复为测试".into());
+                    }
                     version
                 }
-                None => super::prompt_versions::production(&conn,skill_id)?,
+                None => super::prompt_versions::production(&conn, skill_id)?,
             };
-            selected_skill = Some(json!({"version":version.version_tag,"status":version.status,
-                "instruction":if version.system_prompt.is_empty() { prompt } else { version.system_prompt }}));
+            selected_skill = Some(
+                json!({"version":version.version_tag,"status":version.status,
+                "instruction":if version.system_prompt.is_empty() { prompt } else { version.system_prompt }}),
+            );
         }
     }
     let mut compiled = String::new();
@@ -348,13 +406,30 @@ fn load_context(
         compiled.push_str(&format!("\n\n[所选技能说明]\n{}", json!(rule)));
     }
     compiled.push_str(&log_block);
-    let system = prompt_assembler::assemble(store, &request.permissions, compiled, allow_export, &request.space_scope.target_space_id)?;
-    Ok(Compiled { system, wave, log_count, space_ids: spaces, options })
+    let system = prompt_assembler::assemble(
+        store,
+        &request.permissions,
+        compiled,
+        allow_export,
+        &request.space_scope.target_space_id,
+    )?;
+    Ok(Compiled {
+        system,
+        wave,
+        log_count,
+        space_ids: spaces,
+        options,
+    })
 }
 
 #[tauri::command]
-pub fn harness_preview_prompt(state: State<'_, AppState>, mut request: RunRequest) -> Result<AssembledPrompt, String> {
-    with_store(&state, |store| Ok(load_context(store,&mut request,"preview")?.system))
+pub fn harness_preview_prompt(
+    state: State<'_, AppState>,
+    mut request: RunRequest,
+) -> Result<AssembledPrompt, String> {
+    with_store(&state, |store| {
+        Ok(load_context(store, &mut request, "preview")?.system)
+    })
 }
 
 fn insert(
@@ -373,7 +448,13 @@ fn insert(
     let id = uuid::Uuid::new_v4().to_string();
     let state = app.state::<AppState>();
     with_store(&state, |store| {
-        let Compiled { system, wave, log_count, space_ids, options } = load_context(store, request, &id)?;
+        let Compiled {
+            system,
+            wave,
+            log_count,
+            space_ids,
+            options,
+        } = load_context(store, request, &id)?;
         let (backend, backend_id, model) = select_backend(app, store, request)?;
         let project = request
             .seed_note_id
@@ -429,6 +510,7 @@ fn insert(
             wave,
             log_count,
             scope: request.space_scope.clone(),
+            spills: hooks::Spills::default(),
         })
     })
 }
@@ -438,6 +520,8 @@ fn use_tool(
     run: &str,
     policy: &PermissionManifest,
     scope: &SpaceScopePolicy,
+    original_spaces: &[String],
+    spills: &hooks::Spills,
     call: &llm::ToolCall,
 ) -> Result<Value, String> {
     let args = serde_json::from_str::<Value>(&call.args).map_err(|_| "工具参数不是有效 JSON")?;
@@ -446,87 +530,103 @@ fn use_tool(
             .as_str()
             .ok_or_else(|| format!("工具缺少 {field}"))
     };
+    if call.name == "read_hook_context" {
+        let offset = args["offset"]
+            .as_str()
+            .unwrap_or("0")
+            .parse::<usize>()
+            .map_err(|_| "字符偏移无效")?;
+        return spills.read(required("path")?, offset);
+    }
     let rationale = args["rationale"].as_str().unwrap_or("");
     let result = with_store(&app.state::<AppState>(), |store| {
-        let spaces = scope.allowed(&store.conn.lock().unwrap())?;
+        let mut spaces = scope.allowed(&store.conn.lock().unwrap())?;
+        spaces.retain(|id| original_spaces.contains(id));
         match call.name.as_str() {
-        "read_workspace_file" => {
-            let content =
-                staging::read_workspace_file(policy, &store.root, Path::new(required("path")?))?;
-            Ok(json!({"content":content}))
-        }
-        "propose_file_write" => {
-            if !export_allowed(&store.conn.lock().unwrap(), &spaces)? {
-                return Err("任务读取范围含禁止导出的脑区".into());
+            "read_workspace_file" => {
+                let content = staging::read_workspace_file(
+                    policy,
+                    &store.root,
+                    Path::new(required("path")?),
+                )?;
+                Ok(json!({"content":content}))
             }
-            let id = staging::propose_workspace_file(
-                store,
-                policy,
-                run,
-                Path::new(required("path")?),
-                required("content")?,
-                rationale,
-            )?;
-            Ok(json!({"diffId":id}))
-        }
-        "search_notes" => {
-            let query = required("query")?.trim().to_lowercase();
-            if query.is_empty() || query.len() > 400 {
-                return Err("请输入有效检索词".into());
+            "propose_file_write" => {
+                if !export_allowed(&store.conn.lock().unwrap(), &spaces)? {
+                    return Err("任务读取范围含禁止导出的脑区".into());
+                }
+                let id = staging::propose_workspace_file(
+                    store,
+                    policy,
+                    run,
+                    Path::new(required("path")?),
+                    required("content")?,
+                    rationale,
+                )?;
+                Ok(json!({"diffId":id}))
             }
-            let mut notes = Vec::new();
-            for note in store
-                .list(NoteFilters::default())?
-                .into_iter()
-                .filter(|note| policy.can_read_note(&note.id))
-            {
-                let space = brain_spaces::note_space(&store.conn.lock().unwrap(), &note.id)?;
-                if !spaces.contains(&space) { continue; }
-                let Ok(item) = store.read(&note.id) else {
-                    continue;
-                };
-                if note.title.to_lowercase().contains(&query)
-                    || item.content.to_lowercase().contains(&query)
+            "search_notes" => {
+                let query = required("query")?.trim().to_lowercase();
+                if query.is_empty() || query.len() > 400 {
+                    return Err("请输入有效检索词".into());
+                }
+                let mut notes = Vec::new();
+                for note in store
+                    .list(NoteFilters::default())?
+                    .into_iter()
+                    .filter(|note| policy.can_read_note(&note.id))
                 {
-                    notes.push(json!({"id":note.id,"title":note.title,"excerpt":item.content.chars().take(800).collect::<String>()}));
-                    if notes.len() == 8 {
-                        break;
+                    let space = brain_spaces::note_space(&store.conn.lock().unwrap(), &note.id)?;
+                    if !spaces.contains(&space) {
+                        continue;
+                    }
+                    let Ok(item) = store.read(&note.id) else {
+                        continue;
+                    };
+                    if note.title.to_lowercase().contains(&query)
+                        || item.content.to_lowercase().contains(&query)
+                    {
+                        notes.push(json!({"id":note.id,"title":note.title,"excerpt":item.content.chars().take(800).collect::<String>()}));
+                        if notes.len() == 8 {
+                            break;
+                        }
                     }
                 }
+                Ok(json!({"notes":notes}))
             }
-            Ok(json!({"notes":notes}))
-        }
-        "search_agent_logs" => {
-            let query = required("query")?.trim();
-            if query.is_empty() || query.len() > 400 {
-                return Err("请输入有效检索词".into());
+            "search_agent_logs" => {
+                let query = required("query")?.trim();
+                if query.is_empty() || query.len() > 400 {
+                    return Err("请输入有效检索词".into());
+                }
+                let conn = store.conn.lock().unwrap();
+                Ok(
+                    json!({"sessions":agent_log_harvester::search_authorized(&conn,query,&policy.readable_log_session_ids)?}),
+                )
             }
-            let conn = store.conn.lock().unwrap();
-            Ok(
-                json!({"sessions":agent_log_harvester::search_authorized(&conn,query,&policy.readable_log_session_ids)?}),
-            )
-        }
-        "propose_note_update" => {
-            let id = required("noteId")?;
-            if !policy.allow_brain_note_propose || !policy.can_read_note(id) {
-                return Err("当前任务未获准提出该笔记的变更".into());
+            "propose_note_update" => {
+                let id = required("noteId")?;
+                if !policy.allow_brain_note_propose || !policy.can_read_note(id) {
+                    return Err("当前任务未获准提出该笔记的变更".into());
+                }
+                if brain_spaces::note_space(&store.conn.lock().unwrap(), id)?
+                    != scope.target_space_id
+                {
+                    return Err("跨脑区资料仅供读取".into());
+                }
+                let note = store.read(id)?;
+                let id = staging::propose(
+                    &store.conn.lock().unwrap(),
+                    run,
+                    "brain_note",
+                    id,
+                    Some(&note.content),
+                    required("content")?,
+                    rationale,
+                )?;
+                Ok(json!({"diffId":id}))
             }
-            if brain_spaces::note_space(&store.conn.lock().unwrap(), id)? != scope.target_space_id {
-                return Err("跨脑区资料仅供读取".into());
-            }
-            let note = store.read(id)?;
-            let id = staging::propose(
-                &store.conn.lock().unwrap(),
-                run,
-                "brain_note",
-                id,
-                Some(&note.content),
-                required("content")?,
-                rationale,
-            )?;
-            Ok(json!({"diffId":id}))
-        }
-        _ => Err("任务工具未获授权".into()),
+            _ => Err("任务工具未获授权".into()),
         }
     })?;
     if let Some(id) = result["diffId"].as_str() {
@@ -550,14 +650,88 @@ fn save_usage(app: &AppHandle, id: &str, usage: Usage) -> Result<(), String> {
     })
 }
 
+async fn run_hook(
+    app: &AppHandle,
+    task: &Task,
+    event: hooks::Event,
+    subject: &str,
+    input: Value,
+) -> Result<hooks::HookDecision, String> {
+    let network = task.permissions.allow_network
+        && with_store(&app.state::<AppState>(), |store| {
+            export_allowed(&store.conn.lock().unwrap(), &task.space_ids)
+        })?;
+    hooks::fire(app, &task.id, event, subject, input, network, &task.spills).await
+}
+
+async fn invoke_model_tool(
+    app: &AppHandle,
+    task: &Task,
+    call: &llm::ToolCall,
+) -> Result<Value, String> {
+    let args: Value = serde_json::from_str(&call.args).unwrap_or(Value::Null);
+    let decision = run_hook(app, task, hooks::Event::PreToolUse, &call.name, args).await?;
+    if !decision.allow {
+        return Err(decision
+            .reason
+            .unwrap_or_else(|| "Hook 拒绝本次工具调用".into()));
+    }
+    let mut authorized = call.clone();
+    if let Some(args) = decision.rewritten_input {
+        authorized.args = args.to_string();
+    }
+    let mut value = use_tool(
+        app,
+        &task.id,
+        &task.permissions,
+        &task.scope,
+        &task.space_ids,
+        &task.spills,
+        &authorized,
+    )?;
+    let post = run_hook(
+        app,
+        task,
+        hooks::Event::PostToolUse,
+        &call.name,
+        value.clone(),
+    )
+    .await?;
+    let context = [decision.additional_context, post.additional_context]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if !context.is_empty() {
+        value["hookContext"] = json!(context.join("\n\n"));
+    }
+    Ok(value)
+}
+
+fn stop_feedback(decision: hooks::HookDecision) -> Option<String> {
+    (!decision.allow || decision.should_continue).then(|| {
+        format!(
+            "请根据 Stop Hook 反馈继续修正输出。\n{}\n{}",
+            decision
+                .reason
+                .as_deref()
+                .unwrap_or("请复核当前输出。")
+                .chars()
+                .take(1000)
+                .collect::<String>(),
+            decision.additional_context.unwrap_or_default()
+        )
+    })
+}
+
 async fn api_task(
     app: &AppHandle,
     task: &Task,
     provider: &provider_store::ProviderConfig,
     key: &str,
+    user_prompt: String,
 ) -> Result<(), String> {
     let id = &task.id;
-    let mut history = vec![llm::Turn::User(task.user_prompt.clone())];
+    let mut history = vec![llm::Turn::User(user_prompt)];
     let mut usage = Usage::default();
     let mut actions = 0;
     for step in 0..task.permissions.max_steps {
@@ -587,12 +761,35 @@ async fn api_task(
         usage.token_out = usage.token_out.saturating_add(reply.output);
         usage.cost_usd += cost;
         save_usage(app, id, usage)?;
-        emit(app, HarnessEvent::StepUsage { run_id:id, step:step+1,
-            usage:Usage { token_in:reply.input, token_out:reply.output, cost_usd:cost } })?;
+        emit(
+            app,
+            HarnessEvent::StepUsage {
+                run_id: id,
+                step: step + 1,
+                usage: Usage {
+                    token_in: reply.input,
+                    token_out: reply.output,
+                    cost_usd: cost,
+                },
+            },
+        )?;
         if usage.cost_usd > task.permissions.max_budget_usd {
             return Err("模型返回的计费已达到任务上限".into());
         }
         if reply.calls().next().is_none() {
+            let stop = run_hook(
+                app,
+                task,
+                hooks::Event::Stop,
+                "stop",
+                json!({"output":reply.text}),
+            )
+            .await?;
+            if let Some(feedback) = stop_feedback(stop) {
+                history.push(llm::Turn::Assistant(reply));
+                history.push(llm::Turn::User(feedback));
+                continue;
+            }
             return Ok(());
         }
         if !with_tools {
@@ -604,7 +801,7 @@ async fn api_task(
             if actions > task.permissions.max_steps {
                 return Err("任务已达工具调用上限".into());
             }
-            let result = use_tool(app, id, &task.permissions, &task.scope, call);
+            let result = invoke_model_tool(app, task, call).await;
             let allowed = result.is_ok();
             let (summary, value) = match result {
                 Ok(value) => ("已执行受控工具".to_string(), value),
@@ -633,52 +830,71 @@ async fn api_task(
 #[cfg(windows)]
 async fn local_task(
     app: &AppHandle,
-    id: &str,
-    policy: &PermissionManifest,
-    scope: &SpaceScopePolicy,
-    route: crate::agent_plugins::Route,
+    task: &Task,
+    route: &crate::agent_plugins::Route,
     mut prompt: String,
-    cancel: oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    prompt.push_str("\n\n可选：仅通过回复行 <plate-diffs>[{\"path\":\"绝对路径\",\"content\":\"UTF-8文本\",\"rationale\":\"原因\"}]</plate-diffs> 提议文件修改。真实文件变更由用户审阅处理。");
-    let output = crate::agent_runner::run_harness_cli(
-        route,
-        prompt,
-        policy.allow_network,
-        policy.allow_shell,
-        cancel,
-        |delta| {
-            let _ = emit(app, HarnessEvent::TokenDelta { run_id: id, delta });
-        },
-    )
-    .await?;
-    if let Some((_, tail)) = output.rsplit_once("<plate-diffs>") {
-        let raw = tail
-            .strip_suffix("</plate-diffs>")
-            .or_else(|| tail.trim_end().strip_suffix("</plate-diffs>"))
-            .ok_or("CLI 返回的暂存提议未完整结束")?;
-        let proposals: Vec<Value> =
-            serde_json::from_str(raw).map_err(|_| "CLI 暂存提议不是有效 JSON")?;
-        if proposals.len() > policy.max_steps as usize {
-            return Err("CLI 提议数量超限".into());
+    let id = &task.id;
+    let policy = &task.permissions;
+    prompt.push_str("\n\n可选：仅通过 <plate-diffs>JSON数组</plate-diffs> 提议变更。每项指定 path（授权目录下的绝对路径）或 noteId（写入脑区内的授权笔记），以及 content（完整正文）与 rationale（原因）。变更由用户审阅处理。");
+    let original = prompt.clone();
+    let mut actions = 0;
+    for _ in 0..policy.max_steps {
+        let (_send, cancel) = oneshot::channel();
+        let output = crate::agent_runner::run_harness_cli(
+            route.clone(),
+            prompt,
+            policy.allow_network,
+            policy.allow_shell,
+            cancel,
+            |delta| {
+                let _ = emit(app, HarnessEvent::TokenDelta { run_id: id, delta });
+            },
+        )
+        .await?;
+        if let Some((_, tail)) = output.rsplit_once("<plate-diffs>") {
+            let raw = tail
+                .strip_suffix("</plate-diffs>")
+                .or_else(|| tail.trim_end().strip_suffix("</plate-diffs>"))
+                .ok_or("CLI 返回的暂存提议未完整结束")?;
+            let proposals: Vec<Value> =
+                serde_json::from_str(raw).map_err(|_| "CLI 暂存提议不是有效 JSON")?;
+            actions += proposals.len();
+            if actions > policy.max_steps as usize {
+                return Err("CLI 提议数量超限".into());
+            }
+            for proposal in proposals {
+                let call = llm::ToolCall::proposal(proposal);
+                let result = invoke_model_tool(app, task, &call).await;
+                let allowed = result.is_ok();
+                let status = result.err().unwrap_or_else(|| "已暂存，等待审阅".into());
+                emit(
+                    app,
+                    HarnessEvent::ToolCall {
+                        run_id: id,
+                        tool_name: &call.name,
+                        summary: &status,
+                        allowed,
+                    },
+                )?;
+            }
         }
-        for proposal in proposals {
-            let call = llm::ToolCall::proposal(proposal.to_string());
-            let result = use_tool(app, id, policy, scope, &call);
-            let allowed = result.is_ok();
-            let status = result.err().unwrap_or_else(|| "已暂存，等待审阅".into());
-            emit(
-                app,
-                HarnessEvent::ToolCall {
-                    run_id: id,
-                    tool_name: "propose_file_write",
-                    summary: &status,
-                    allowed,
-                },
-            )?;
+        let stop = run_hook(
+            app,
+            task,
+            hooks::Event::Stop,
+            "stop",
+            json!({"output":output.split("<plate-diffs>").next()}),
+        )
+        .await?;
+        if let Some(feedback) = stop_feedback(stop) {
+            let excerpt: String = output.chars().take(12_000).collect();
+            prompt = format!("{original}\n\n[上次输出]\n{excerpt}\n\n{feedback}");
+        } else {
+            return Ok(());
         }
     }
-    Ok(())
+    Err("任务已达推理步数上限".into())
 }
 
 fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), String> {
@@ -703,9 +919,6 @@ fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), S
             params![id, status, now_ms()],
         )
         .map_err(db_error)?;
-        if status == "completed" {
-            crate::memory_consolidator::harness_recap(&tx, id)?;
-        }
         let usage = tx
             .query_row(
                 "SELECT token_in,token_out,cost_usd FROM harness_runs WHERE id=?1",
@@ -731,10 +944,73 @@ fn finish(app: &AppHandle, id: &str, result: Result<(), String>) -> Result<(), S
             error: result.as_ref().err().map(String::as_str),
         },
     )?;
-    if status == "completed" {
-        let _ = app.emit("brain://changed", ());
-    }
     Ok(())
+}
+
+fn record_session_candidate(app: &AppHandle, id: &str) {
+    let candidate = with_store(&app.state::<AppState>(), |store| {
+        let conn = store.conn.lock().unwrap();
+        if !hooks::memory_enabled(&conn).map_err(db_error)? {
+            return Ok(None);
+        }
+        crate::memory_consolidator::harness_recap(&conn, id).map(Some)
+    });
+    let (status, message) = match candidate {
+        Ok(Some(_)) => ("executed", "候选记忆已写入当前脑区".to_string()),
+        Ok(None) => ("skipped", "自动候选记忆已停用".to_string()),
+        Err(error) => ("error", error),
+    };
+    let _ = emit(
+        app,
+        HarnessEvent::HookStatus {
+            run_id: id,
+            hook_id: hooks::BUILTIN,
+            name: "自动候选记忆",
+            event_name: hooks::Event::SessionEnd,
+            status,
+            message: &message,
+        },
+    );
+    let _ = app.emit("brain://changed", ());
+}
+
+async fn execute_task(app: &AppHandle, task: &Task) -> Result<(), String> {
+    let submit = run_hook(
+        app,
+        task,
+        hooks::Event::UserPromptSubmit,
+        "prompt",
+        json!({"prompt":task.user_prompt}),
+    )
+    .await?;
+    if !submit.allow {
+        return Err(submit.reason.unwrap_or_else(|| "Hook 拒绝提交任务".into()));
+    }
+    let mut prompt = submit
+        .rewritten_input
+        .as_ref()
+        .and_then(|value| value["prompt"].as_str())
+        .filter(|text| !text.trim().is_empty() && text.len() <= 24_000)
+        .unwrap_or(&task.user_prompt)
+        .to_owned();
+    if let Some(context) = submit.additional_context {
+        prompt.push_str(&format!("\n\n[Hook 参考资料]\n{context}"));
+    }
+    match &task.backend {
+        Backend::Api(provider, key) => api_task(app, task, provider, key, prompt).await,
+        #[cfg(windows)]
+        Backend::Local(route) => {
+            local_task(
+                app,
+                task,
+                route,
+                format!("{}\n\n[任务]\n{prompt}", task.system.final_prompt),
+            )
+            .await
+        }
+        #[cfg(not(windows))]
+        Backend::Local(_) => Err("本机 CLI 隔离目前需要 Windows".into()),
+    }
 }
 
 pub fn recover_interrupted(conn: &Connection) -> Result<(), String> {
@@ -755,39 +1031,47 @@ pub fn harness_start_run(app: AppHandle, mut request: RunRequest) -> Result<Stri
         if let Some(wave) = &task.wave {
             let _ = app.emit("brain://activation-wave", wave);
         }
-        let assembled = emit(&app, HarnessEvent::PromptAssembled { run_id:&task.id, prompt:&task.system, space_ids:&task.space_ids });
-        let result = match assembled.and_then(|()| emit(
+        let assembled = emit(
             &app,
-            HarnessEvent::ContextActivated {
+            HarnessEvent::PromptAssembled {
                 run_id: &task.id,
-                wave: task.wave.as_ref(),
-                attached_log_count: task.log_count,
+                prompt: &task.system,
+                space_ids: &task.space_ids,
             },
-        )) {
-            Err(error) => Err(error),
-            Ok(()) => match task.backend {
-                Backend::Api(ref provider, ref key) => tokio::select! {
-                    biased;
-                    _ = &mut cancel => Err(CANCELLED.into()),
-                    result = api_task(&app,&task,provider,key) => result,
+        );
+        let result = match assembled.and_then(|()| {
+            emit(
+                &app,
+                HarnessEvent::ContextActivated {
+                    run_id: &task.id,
+                    wave: task.wave.as_ref(),
+                    attached_log_count: task.log_count,
                 },
-                #[cfg(windows)]
-                Backend::Local(route) => {
-                    local_task(
-                        &app,
-                        &task.id,
-                        &task.permissions,
-                        &task.scope,
-                        route,
-                        format!("{}\n\n[任务]\n{}", task.system.final_prompt, task.user_prompt),
-                        cancel,
-                    )
-                    .await
-                }
-                #[cfg(not(windows))]
-                Backend::Local(_) => Err("本机 CLI 隔离目前需要 Windows".into()),
+            )
+        }) {
+            Err(error) => Err(error),
+            Ok(()) => tokio::select! {
+                biased;
+                _=&mut cancel=>Err(CANCELLED.into()),
+                result=execute_task(&app,&task)=>result,
             },
         };
+        let status = match &result {
+            Ok(()) => "completed",
+            Err(error) if error == CANCELLED => "cancelled",
+            Err(_) => "failed",
+        };
+        let _ = run_hook(
+            &app,
+            &task,
+            hooks::Event::SessionEnd,
+            status,
+            json!({"status":status,"targetSpaceId":task.scope.target_space_id}),
+        )
+        .await;
+        if result.is_ok() {
+            record_session_candidate(&app, &task.id);
+        }
         let _ = finish(&app, &task.id, result);
         app.state::<HarnessState>()
             .0
@@ -888,7 +1172,9 @@ pub fn staging_resolve_diff(
             (
                 diff,
                 status,
-                serde_json::from_str::<PermissionManifest>(&raw).map_err(db_error)?, space, project,
+                serde_json::from_str::<PermissionManifest>(&raw).map_err(db_error)?,
+                space,
+                project,
             )
         };
         if status == "running" || diff.status != "pending" {
@@ -902,10 +1188,13 @@ pub fn staging_resolve_diff(
                     }
                     staging::approve_file(store, &policy, &diff)?;
                 }
-                "brain_note" if diff.base_sha256 == "absent" && policy.allow_brain_note_propose =>
-                    staging::approve_new_note(store, &diff, &project, &space)?,
+                "brain_note" if diff.base_sha256 == "absent" && policy.allow_brain_note_propose => {
+                    staging::approve_new_note(store, &diff, &project, &space)?
+                }
                 "brain_note" => {
-                    if brain_spaces::note_space(&store.conn.lock().unwrap(), &diff.target_ref)? != space {
+                    if brain_spaces::note_space(&store.conn.lock().unwrap(), &diff.target_ref)?
+                        != space
+                    {
                         return Err("暂存笔记已不在任务写入脑区".into());
                     }
                     staging::approve_note(store, &policy, &diff)?;
@@ -928,7 +1217,13 @@ pub fn staging_resolve_diff(
             .map_err(db_error)?;
         let completed = status == "review_ready" && pending == 0;
         if completed {
-            crate::memory_consolidator::harness_recap(&tx, &diff.run_id)?;
+            tx.execute(
+                "UPDATE procedural_skills SET success_count=success_count+1 WHERE id=(
+                SELECT skill_id FROM harness_runs WHERE id=?1
+            ) AND EXISTS(SELECT 1 FROM staged_diffs WHERE run_id=?1 AND status='accepted')",
+                [&diff.run_id],
+            )
+            .map_err(db_error)?;
             tx.execute(
                 "UPDATE harness_runs SET status='completed',updated_at=?2 WHERE id=?1",
                 params![diff.run_id, now_ms()],
@@ -951,36 +1246,60 @@ mod tests {
 
     #[test]
     fn preview_uses_profile_limits_and_only_authorized_rules() -> Result<(), String> {
-        let root = std::env::temp_dir().join(format!("plate-s11-m2-{}",uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plate-s11-m2-{}", uuid::Uuid::new_v4()));
         let result = (|| {
             let workspace = root.join("notes");
             let rules = root.join("authorized");
             std::fs::create_dir_all(&rules).map_err(db_error)?;
-            std::fs::write(rules.join("AGENTS.md"),"AUTHORIZED_WORK_RULE").map_err(db_error)?;
-            std::fs::write(root.join("CLAUDE.md"),"OTHER_PRIVATE_RULE").map_err(db_error)?;
+            std::fs::write(rules.join("AGENTS.md"), "AUTHORIZED_WORK_RULE").map_err(db_error)?;
+            std::fs::write(root.join("CLAUDE.md"), "OTHER_PRIVATE_RULE").map_err(db_error)?;
             let store = NoteStore::new(&workspace)?;
-            let template = PermissionManifest { writable_dirs: vec![rules.canonicalize().map_err(db_error)?],
-                allow_network:true, ..Default::default() };
+            let template = PermissionManifest {
+                writable_dirs: vec![rules.canonicalize().map_err(db_error)?],
+                allow_network: true,
+                ..Default::default()
+            };
             {
                 let conn = store.conn.lock().unwrap();
                 conn.execute("UPDATE brain_settings SET global_system_prompt='GLOBAL_FIXTURE' WHERE singleton=1",[]).map_err(db_error)?;
                 conn.execute("INSERT INTO model_profiles(id,name,backend_kind,backend_id,max_steps,max_budget_usd,default_permissions_json,updated_at)
                     VALUES('p','Fixture','api_key','',3,0.2,?1,1)",[serde_json::to_string(&template).map_err(db_error)?]).map_err(db_error)?;
             }
-            let mut req = RunRequest { title:"test".into(),prompt:"user input".into(), backend_kind:BackendKind::ApiKey,
-                backend_id:String::new(),model_override:None,profile_id:Some("p".into()),seed_note_id:None,skill_id:None,prompt_version_id:None,
-                attached_log_session_ids:vec![],space_scope:SpaceScopePolicy {
-                    target_space_id:"work".into(),readable_space_ids:vec!["personal".into()],
-                }, permissions:PermissionManifest { writable_dirs:vec![rules,root.clone()], ..template } };
-            let preview = load_context(&store,&mut req,"preview")?;
-            assert_eq!(preview.space_ids,["work"]);
-            assert_eq!(req.permissions.max_steps,3);
-            assert_eq!(req.permissions.max_budget_usd,0.2);
-            assert_eq!(req.permissions.writable_dirs.len(),1);
+            let mut req = RunRequest {
+                title: "test".into(),
+                prompt: "user input".into(),
+                backend_kind: BackendKind::ApiKey,
+                backend_id: String::new(),
+                model_override: None,
+                profile_id: Some("p".into()),
+                seed_note_id: None,
+                skill_id: None,
+                prompt_version_id: None,
+                attached_log_session_ids: vec![],
+                space_scope: SpaceScopePolicy {
+                    target_space_id: "work".into(),
+                    readable_space_ids: vec!["personal".into()],
+                },
+                permissions: PermissionManifest {
+                    writable_dirs: vec![rules, root.clone()],
+                    ..template
+                },
+            };
+            let preview = load_context(&store, &mut req, "preview")?;
+            assert_eq!(preview.space_ids, ["work"]);
+            assert_eq!(req.permissions.max_steps, 3);
+            assert_eq!(req.permissions.max_budget_usd, 0.2);
+            assert_eq!(req.permissions.writable_dirs.len(), 1);
             assert!(preview.system.final_prompt.contains("GLOBAL_FIXTURE"));
             assert!(preview.system.final_prompt.contains("AUTHORIZED_WORK_RULE"));
             assert!(!preview.system.final_prompt.contains("OTHER_PRIVATE_RULE"));
-            assert_eq!(serde_json::to_value(&preview.system).map_err(db_error)?["layers"].as_array().unwrap().len(),4);
+            assert_eq!(
+                serde_json::to_value(&preview.system).map_err(db_error)?["layers"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                4
+            );
             Ok(())
         })();
         std::fs::remove_dir_all(root).map_err(db_error)?;

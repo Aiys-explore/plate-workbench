@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Plate Workbench S10 Preview",
-  "version": "0.6.0-s10.1",
+  "version": "0.7.0-s11",
   "identifier": "local.plate.workbench.s10-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "[plate] — S10 预览版",
+        "title": "[plate] — S11 预览版",
         "width": 1280,
         "height": 860,
         "minWidth": 860,

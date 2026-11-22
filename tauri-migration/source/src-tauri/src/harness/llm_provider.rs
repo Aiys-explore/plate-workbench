@@ -53,12 +53,17 @@ fn schema(name: &str, description: &str, fields: &[(&str, &str)]) -> Value {
         .collect::<serde_json::Map<String, Value>>();
     json!({"name":name,"description":description,"parameters":{
         "type":"object","properties":properties,
-        "required":fields.iter().filter(|(field,_)| *field != "rationale").map(|(field,_)| *field).collect::<Vec<_>>(),
+        "required":fields.iter().filter(|(field,_)| !matches!(*field, "rationale" | "offset")).map(|(field,_)| *field).collect::<Vec<_>>(),
     }})
 }
 
 fn tools() -> Vec<Value> {
     vec![
+        schema(
+            "read_hook_context",
+            "Read a spill file referenced by a hook in the current run.",
+            &[("path","Path from the hook preview"),("offset","Character offset, start at 0")],
+        ),
         schema(
             "read_workspace_file",
             "Read a UTF-8 file from the user's approved task directories.",
@@ -552,10 +557,11 @@ mod tests {
 }
 
 impl ToolCall {
-    pub fn proposal(args: String) -> Self {
+    pub fn proposal(args: Value) -> Self {
+        let tool = if args.get("noteId").is_some() { "propose_note_update" } else { "propose_file_write" };
         Self {
-            name: "propose_file_write".into(),
-            args,
+            name: tool.into(),
+            args: args.to_string(),
             ..Self::default()
         }
     }

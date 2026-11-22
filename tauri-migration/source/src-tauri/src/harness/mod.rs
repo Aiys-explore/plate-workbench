@@ -8,3 +8,5 @@ pub mod profiles;
 pub mod prompt_assembler;
 pub mod prompt_versions;
 pub mod evals;
+pub mod hooks;
+mod hook_mcp;

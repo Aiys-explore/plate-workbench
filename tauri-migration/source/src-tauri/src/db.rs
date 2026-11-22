@@ -239,6 +239,15 @@ pub(crate) fn migrate_s10(conn: &Connection) -> rusqlite::Result<()> {
 pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute_batch("
+        CREATE TABLE IF NOT EXISTS harness_hooks (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, event_name TEXT NOT NULL, matcher TEXT NOT NULL DEFAULT '*',
+          handler_kind TEXT NOT NULL, command_or_ref TEXT NOT NULL, script_sha256 TEXT NOT NULL DEFAULT '',
+          trusted_sha256 TEXT NOT NULL DEFAULT '', timeout_sec INTEGER NOT NULL DEFAULT 30,
+          async_run INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS idx_hooks_event ON harness_hooks(event_name,enabled);
+        INSERT OR IGNORE INTO harness_hooks(id,name,event_name,handler_kind,command_or_ref,script_sha256,trusted_sha256,enabled,updated_at)
+            VALUES('builtin-session-memory','任务结束后提取候选记忆','SessionEnd','builtin','session_memory','builtin','builtin',1,0);
         CREATE TABLE IF NOT EXISTS prompt_versions (
           id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES procedural_skills(id) ON DELETE CASCADE,
           version_tag TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('testing','production','retired')),
@@ -264,6 +273,9 @@ pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
           temperature REAL NOT NULL DEFAULT 0.3, max_steps INTEGER NOT NULL DEFAULT 12,
           max_budget_usd REAL NOT NULL DEFAULT 0.5, default_space_id TEXT NOT NULL DEFAULT 'work',
           default_permissions_json TEXT NOT NULL, updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS note_space_assignments (
+          note_id TEXT PRIMARY KEY, space_id TEXT NOT NULL
         ) STRICT;
         CREATE TABLE IF NOT EXISTS brain_spaces (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
@@ -305,6 +317,9 @@ pub(crate) fn migrate_s11(conn: &Connection) -> rusqlite::Result<()> {
         UPDATE procedural_skills SET active_prompt_version_id=(
           SELECT id FROM prompt_versions WHERE skill_id=procedural_skills.id AND status='production'
         ) WHERE active_prompt_version_id IS NULL;
+        INSERT OR IGNORE INTO note_space_assignments(note_id,space_id)
+          SELECT id,space_id FROM note WHERE space_id<>'learning';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_episodic_run_candidate ON episodic_events(source_run_id) WHERE source_run_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_note_space ON note(space_id,updated_at);
         CREATE INDEX IF NOT EXISTS idx_episodic_space ON episodic_events(space_id,archived_at,created_at);
     ")?;

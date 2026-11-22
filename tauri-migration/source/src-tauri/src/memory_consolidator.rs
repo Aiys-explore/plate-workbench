@@ -148,11 +148,15 @@ fn episodic(conn: &Connection, project: Option<&str>, space: &str, dream: bool) 
     let order = if dream { "salience_score DESC,created_at ASC,id" } else { "created_at DESC,id" };
     let mut stmt = conn.prepare(&format!("SELECT id,project_id,raw_text,source_type,salience_score,created_at,space_id,review_status,source_run_id
         FROM episodic_events WHERE archived_at IS NULL AND (?1 IS NULL OR project_id=?1) AND space_id=?2 ORDER BY {order} LIMIT 150"))?;
-    let rows = stmt.query_map(params![project,space], |r| Ok(EpisodicEvent {
-        id: r.get(0)?, project_id: r.get(1)?, raw_text: r.get(2)?, source_type: r.get(3)?,
-        salience_score: r.get(4)?, created_at: r.get(5)?, space_id: r.get(6)?, review_status: r.get(7)?, source_run_id: r.get(8)?,
-    }))?;
+    let rows = stmt.query_map(params![project,space], episode_row)?;
     rows.collect()
+}
+
+fn episode_row(r:&rusqlite::Row<'_>) -> rusqlite::Result<EpisodicEvent> {
+    Ok(EpisodicEvent {
+        id:r.get(0)?, project_id:r.get(1)?, raw_text:r.get(2)?, source_type:r.get(3)?,
+        salience_score:r.get(4)?, created_at:r.get(5)?, space_id:r.get(6)?, review_status:r.get(7)?, source_run_id:r.get(8)?,
+    })
 }
 
 pub(crate) fn capture(conn: &Connection, project: &str, raw: &str, source: &str) -> Result<String, String> {
@@ -208,7 +212,7 @@ pub fn flush_note_writes(store: &NoteStore) -> Result<Vec<Note>, String> {
         let marker = format!("<!-- plate-brain-write:{} -->", write.id);
         let append = format!("\n\n{marker}\n{}\n", write.appendix);
         let note = if let Some(title) = &write.title {
-            store.create_memory_note(&write.note_id, &write.project_id, title, &append, &marker)?
+            store.create_memory_note(&write.note_id, &write.project_id, title, &append, &marker, &write.space)?
         } else {
             let note = store.read(&write.note_id)?;
             if note.summary.project_id != write.project_id { return Err("目标笔记已移动到其他项目".into()); }
@@ -223,9 +227,6 @@ pub fn flush_note_writes(store: &NoteStore) -> Result<Vec<Note>, String> {
         };
         let conn = store.conn.lock().unwrap();
         let tx = conn.unchecked_transaction().map_err(err)?;
-        if write.title.is_some() {
-            tx.execute("UPDATE note SET space_id=?2 WHERE id=?1", params![write.note_id,write.space]).map_err(err)?;
-        }
         let event_ids: Vec<String> = serde_json::from_str(&write.events).map_err(err)?;
         for event in event_ids {
             tx.execute("UPDATE episodic_events SET consolidated_note_id=?2,archived_at=?3,review_status='promoted' WHERE id=?1",
@@ -557,12 +558,14 @@ pub fn trigger_dream_consolidation(app: AppHandle, state: State<'_, AppState>, p
     result
 }
 
-pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<(), String> {
-    let (title, project, skill, wave, space, backend): (String,String,Option<String>,Option<String>,String,String) = conn.query_row(
-        "SELECT title,project_id,skill_id,activation_wave_json,space_id,backend_id FROM harness_runs WHERE id=?1", [run_id],
-        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
+pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<String, String> {
+    let existing = conn.query_row("SELECT id FROM episodic_events WHERE source_run_id=?1",[run_id],|r|r.get(0))
+        .optional().map_err(err)?;
+    if let Some(id)=existing { return Ok(id); }
+    let (title, project, wave, space): (String,String,Option<String>,String) = conn.query_row(
+        "SELECT title,project_id,activation_wave_json,space_id FROM harness_runs WHERE id=?1", [run_id],
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
     ).map_err(err)?;
-    if backend == "做梦整理" { return Ok(()); }
     let mut statement = conn.prepare(
         "SELECT json_extract(payload_json,'$.delta') FROM harness_events WHERE run_id=?1 AND kind='token_delta' ORDER BY seq"
     ).map_err(err)?;
@@ -582,28 +585,32 @@ pub fn harness_recap(conn: &Connection, run_id: &str) -> Result<(), String> {
         }
     }
     let mut statement = conn.prepare(
-        "SELECT target_ref FROM staged_diffs WHERE run_id=?1 AND target_kind='brain_note' AND status='accepted'"
+        "SELECT target_ref FROM staged_diffs WHERE run_id=?1 AND target_kind='brain_note'"
     ).map_err(err)?;
     let reviewed_notes = statement.query_map([run_id], |row| row.get::<_,String>(0)).map_err(err)?
         .collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
     notes.extend(reviewed_notes);
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM staged_diffs WHERE run_id=?1 AND status='accepted'", [run_id], |row| row.get(0)
+        "SELECT COUNT(*) FROM staged_diffs WHERE run_id=?1", [run_id], |row| row.get(0)
     ).map_err(err)?;
     let involved = notes.into_iter().take(20).collect::<Vec<_>>().join("、");
-    let caption = format!("工作台任务 · {title}\n已采纳 {count} 项变更\n{recap}");
+    let caption = format!("工作台任务 · {title}\n提出 {count} 项变更\n{recap}");
     let caption = if involved.is_empty() { caption } else { format!("{caption}\n涉及笔记：{involved}") };
     let project = conn.query_row("SELECT id FROM project WHERE id=?1 AND archived_at IS NULL",
         [&project], |r| r.get::<_,String>(0)).optional().map_err(err)?
         .unwrap_or_else(|| crate::notes::DEFAULT_PROJECT.into());
-    capture_scoped(conn, &project, &caption, "agent_trace", &space, Some(run_id))?;
-    if count > 0 {
-        if let Some(skill) = skill {
-            conn.execute("UPDATE procedural_skills SET success_count=success_count+1 WHERE id=?1", [skill])
-                .map_err(err)?;
-        }
-    }
-    Ok(())
+    capture_scoped(conn, &project, &caption, "agent_trace", &space, Some(run_id))
+}
+
+#[tauri::command]
+pub fn harness_candidates(state: State<'_,AppState>, run_id:String) -> Result<Vec<EpisodicEvent>,String> {
+    with_store(&state,|store| {
+        let conn=store.conn.lock().unwrap();
+        let mut stmt=conn.prepare("SELECT id,project_id,raw_text,source_type,salience_score,created_at,space_id,review_status,source_run_id
+            FROM episodic_events WHERE source_run_id=?1 AND archived_at IS NULL").map_err(err)?;
+        let rows=stmt.query_map([run_id],episode_row).map_err(err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(err)
+    })
 }
 
 #[derive(Serialize)]

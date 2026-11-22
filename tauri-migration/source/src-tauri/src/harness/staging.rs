@@ -245,9 +245,7 @@ pub fn approve_new_note(store: &NoteStore, diff: &StagedDiff, project: &str, spa
     let (title, body) = diff.proposed_content.split_once('\n').ok_or("缺少新笔记标题")?;
     let title = title.strip_prefix("# ").ok_or("缺少新笔记标题")?;
     let marker = format!("<!-- plate-brain-write:{} -->",diff.id);
-    store.create_memory_note(&diff.target_ref,project,title,&format!("{marker}\n{body}"),&marker)?;
-    store.conn.lock().unwrap().execute("UPDATE note SET space_id=?2 WHERE id=?1",
-        params![diff.target_ref,space]).map_err(|e| e.to_string())?;
+    store.create_memory_note(&diff.target_ref,project,title,&format!("{marker}\n{body}"),&marker,space)?;
     Ok(())
 }
 

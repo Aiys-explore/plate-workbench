@@ -312,14 +312,7 @@ fn notes_open_link(app: AppHandle, address: String) -> Result<(), String> {
 fn notes_create(app: AppHandle, state: State<'_, AppState>, title: String, project_id: String,
     template: Option<String>, space_id: Option<String>) -> Result<Note, String> {
     let result = with_store(&state, |store| {
-        let space = space_id.as_deref().unwrap_or("learning");
-        crate::memory_consolidator::require_space(&store.conn.lock().unwrap(), space)?;
-        let note = store.create(&title, &project_id, template.as_deref().unwrap_or("blank"))?;
-        if space != "learning" {
-            store.conn.lock().unwrap().execute("UPDATE note SET space_id=?2 WHERE id=?1",
-                rusqlite::params![note.summary.id,space]).map_err(|e| e.to_string())?;
-        }
-        Ok(note)
+        store.create(&title,&project_id,template.as_deref().unwrap_or("blank"),space_id.as_deref().unwrap_or("learning"))
     })?;
     memory_consolidator::changed(&app);
     Ok(result)
@@ -532,6 +525,8 @@ fn main() {
             harness::prompt_versions::prompt_version_set_status,
             harness::evals::eval_case_list, harness::evals::eval_case_upsert, harness::evals::eval_case_delete,
             harness::evals::eval_run_execute, harness::evals::eval_run_list,
+            harness::hooks::hooks_list, harness::hooks::hooks_upsert, harness::hooks::hooks_trust, harness::hooks::hooks_toggle,
+            memory_consolidator::harness_candidates,
             harness::engine::harness_preview_prompt, harness::engine::harness_start_run, harness::engine::harness_cancel_run,
             harness::engine::harness_list_runs, harness::engine::harness_get_events,
             harness::engine::staging_list_diffs, harness::engine::staging_resolve_diff,
