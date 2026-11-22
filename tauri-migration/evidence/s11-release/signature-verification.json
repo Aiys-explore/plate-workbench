@@ -1,0 +1,10 @@
+{
+  "installer": "Plate-S11-0.7.0-s11-Setup-x64.exe",
+  "version": "0.7.0-s11",
+  "keyId": "FFF4F63CFB3CA75E",
+  "sha256": "E9BBB1FA5F1C9BDBFD1BECF9AEC9CD1D36157B99B00930665D46A022C7993086",
+  "bytes": 7339526,
+  "signatureValid": true,
+  "versionAndNameAttested": true,
+  "tamperRejected": true
+}

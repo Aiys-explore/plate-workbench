@@ -1,0 +1,10 @@
+{
+  "checks": [
+    "M1 legacy import, candidate edit/promotion, work and personal scopes",
+    "M2 four-layer preview, profile limits, anchored menu, note/file/dream shadow approvals",
+    "M3 three samples, concurrency 3, rubric, production comparison, promotion and default use",
+    "M4 hash trust, constrained hook runtime, tool denial feedback, all lifecycle events, MCP handshake and Stop retry, editable scoped memory"
+  ],
+  "maxConcurrentEvals": 3,
+  "rendererErrors": []
+}

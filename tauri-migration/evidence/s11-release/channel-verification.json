@@ -1,0 +1,15 @@
+{
+  "publicDownloadsMatched": true,
+  "channels": [
+    {
+      "version": "0.6.0-s10.1",
+      "manifest": "windows-x64-s10.json",
+      "offeredUpdate": false
+    },
+    {
+      "version": "0.7.0-s11",
+      "manifest": "windows-x64-s11.json",
+      "offeredUpdate": false
+    }
+  ]
+}
