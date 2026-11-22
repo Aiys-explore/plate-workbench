@@ -1,0 +1,24 @@
+{
+  "version": "0.6.0-s10.0",
+  "checks": [
+    {
+      "name": "Published S9.6 created the legacy fixture; SQLite and Markdown copied after exit",
+      "evidence": true
+    },
+    {
+      "name": "NSIS package installed per user, x64 PE and version registered, S9.6 process remained usable",
+      "evidence": true
+    },
+    {
+      "name": "Installed S10 proposes its own folder, opens a fresh synthetic library, renders the workbench, and restores its registration after restart",
+      "evidence": true
+    },
+    {
+      "name": "S10 preserved legacy Markdown hashes, projects, links, graph positions, draft, episodic events and skills; SQLite integrity and foreign keys passed",
+      "evidence": true
+    }
+  ],
+  "rechecked": true,
+  "setupSha256": "BE0E963DDA3B6297997C542CF0A3636EDBFACD6AEDA3C1418A884411C93143E8",
+  "binarySha256": "AEA7D0E1056B530E89FA7A95E139A273BD8CB7A11768F02B6596A1833DEC2163"
+}

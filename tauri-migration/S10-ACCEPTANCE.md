@@ -69,3 +69,5 @@
 - `npm run build` 通过，含 `npm run typecheck`，Vite 保留包体积警告。
 - `checks/s10-m1-windows.mjs` 至 `checks/s10-m4-windows.mjs` 四套 Windows WebView2 Playwright 冒烟通过。渲染器无控制台错误。部分退出有 WebView2 宿主窗口注销诊断。
 - 合成验收截图 [复合输入岛](evidence/s10-m4/composer.png) · [暂存审阅](evidence/s10-m4/workbench-review.png) · [大脑 HUD](evidence/s10-m4/brain-hud.png)。
+
+后续 Windows x64 预览包的安装、签名和旧库兼容结果见 [S10 发布验收](S10-RELEASE-ACCEPTANCE.md)。

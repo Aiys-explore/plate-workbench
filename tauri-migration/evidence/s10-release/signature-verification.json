@@ -1,0 +1,8 @@
+{
+  "sha256": "BE0E963DDA3B6297997C542CF0A3636EDBFACD6AEDA3C1418A884411C93143E8",
+  "version": "0.6.0-s10.0",
+  "installerSignature": true,
+  "trustedCommentSignature": true,
+  "rejectsTampering": true,
+  "authenticode": "NotSigned"
+}
